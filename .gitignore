@@ -1,0 +1,30 @@
+# Environment
+.env
+.env.local
+.env.production
+
+# Uploads
+uploads/
+
+# Build outputs
+frontend/dist/
+
+# IDE
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Node
+node_modules/
