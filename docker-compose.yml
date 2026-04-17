@@ -1,0 +1,81 @@
+version: '3.9'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: niren-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-NirenDrama2024!}
+      MYSQL_DATABASE: niren_drama
+      MYSQL_CHARSET: utf8mb4
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/src/main/resources/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-NirenDrama2024!}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: niren-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: niren-backend
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: niren_drama
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD:-NirenDrama2024!}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-niren-drama-jwt-secret-very-long-secure-key-2024}
+      UPLOAD_PATH: /app/uploads
+      BASE_URL: ${BASE_URL:-http://localhost:8080}
+      AI_TEXT_PROVIDER: ${AI_TEXT_PROVIDER:-openai}
+      AI_TEXT_API_KEY: ${AI_TEXT_API_KEY:-}
+      AI_TEXT_MODEL: ${AI_TEXT_MODEL:-gpt-4o}
+      AI_IMAGE_API_KEY: ${AI_IMAGE_API_KEY:-}
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: niren-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  redis_data:
+  uploads_data:
