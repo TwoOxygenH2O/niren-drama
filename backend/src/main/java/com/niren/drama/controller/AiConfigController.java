@@ -2,9 +2,10 @@ package com.niren.drama.controller;
 
 import com.niren.drama.common.Result;
 import com.niren.drama.entity.AiConfig;
-import com.niren.drama.entity.User;
-import com.niren.drama.mapper.UserMapper;
+
+
 import com.niren.drama.service.AiConfigService;
+import com.niren.drama.common.CurrentUserHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -12,7 +13,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+
 import java.util.List;
 
 @Tag(name = "AI配置管理", description = "管理AI服务商配置（文本/图像/视频/TTS）")
@@ -22,7 +23,7 @@ import java.util.List;
 public class AiConfigController {
 
     private final AiConfigService aiConfigService;
-    private final UserMapper userMapper;
+    private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "获取我的AI配置列表")
     @GetMapping
@@ -58,7 +59,7 @@ public class AiConfigController {
     }
 
     private Long getUserId(UserDetails userDetails) {
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+        return currentUserHelper.getUserId(userDetails);
                 .eq(User::getUsername, userDetails.getUsername()));
         return user.getId();
     }

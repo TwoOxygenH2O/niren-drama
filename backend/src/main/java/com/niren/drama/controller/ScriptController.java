@@ -4,9 +4,10 @@ import com.niren.drama.common.Result;
 import com.niren.drama.dto.script.ScriptGenerateRequest;
 import com.niren.drama.entity.Script;
 import com.niren.drama.entity.TaskRecord;
-import com.niren.drama.entity.User;
-import com.niren.drama.mapper.UserMapper;
+
+
 import com.niren.drama.service.ScriptService;
+import com.niren.drama.common.CurrentUserHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -15,7 +16,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+
 import java.util.List;
 import java.util.Map;
 
@@ -26,7 +27,7 @@ import java.util.Map;
 public class ScriptController {
 
     private final ScriptService scriptService;
-    private final UserMapper userMapper;
+    private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "AI生成剧本（异步）")
     @PostMapping("/generate")
@@ -63,7 +64,7 @@ public class ScriptController {
     }
 
     private Long getUserId(UserDetails userDetails) {
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+        return currentUserHelper.getUserId(userDetails);
                 .eq(User::getUsername, userDetails.getUsername()));
         return user.getId();
     }

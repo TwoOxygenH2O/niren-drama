@@ -5,10 +5,11 @@ import com.niren.drama.ai.VoiceInfo;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.common.Result;
 import com.niren.drama.entity.TaskRecord;
-import com.niren.drama.entity.User;
+
 import com.niren.drama.mapper.TaskRecordMapper;
-import com.niren.drama.mapper.UserMapper;
+
 import com.niren.drama.service.TaskService;
+import com.niren.drama.common.CurrentUserHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +17,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+
 import java.util.List;
 
 @Tag(name = "任务管理", description = "查询异步任务状态与进度")
@@ -27,7 +28,7 @@ public class TaskController {
 
     private final TaskService taskService;
     private final AiProviderFactory aiProviderFactory;
-    private final UserMapper userMapper;
+    private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "查询任务详情（进度轮询）")
     @GetMapping("/{id}")
@@ -57,7 +58,7 @@ public class TaskController {
     }
 
     private Long getUserId(UserDetails userDetails) {
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+        return currentUserHelper.getUserId(userDetails);
                 .eq(User::getUsername, userDetails.getUsername()));
         return user.getId();
     }

@@ -4,9 +4,10 @@ import com.niren.drama.common.PageQuery;
 import com.niren.drama.common.PageResult;
 import com.niren.drama.common.Result;
 import com.niren.drama.entity.Asset;
-import com.niren.drama.entity.User;
-import com.niren.drama.mapper.UserMapper;
+
+
 import com.niren.drama.service.AssetService;
+import com.niren.drama.common.CurrentUserHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -15,7 +16,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+
 import java.io.IOException;
 
 @Tag(name = "素材管理", description = "文件上传、素材库管理")
@@ -25,7 +26,7 @@ import java.io.IOException;
 public class AssetController {
 
     private final AssetService assetService;
-    private final UserMapper userMapper;
+    private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "上传文件")
     @PostMapping("/upload")
@@ -54,7 +55,7 @@ public class AssetController {
     }
 
     private Long getUserId(UserDetails userDetails) {
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+        return currentUserHelper.getUserId(userDetails);
                 .eq(User::getUsername, userDetails.getUsername()));
         return user.getId();
     }

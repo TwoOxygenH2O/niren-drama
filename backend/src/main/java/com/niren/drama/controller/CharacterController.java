@@ -4,9 +4,10 @@ import com.niren.drama.common.Result;
 import com.niren.drama.dto.character.CharacterCreateRequest;
 import com.niren.drama.entity.Character;
 import com.niren.drama.entity.TaskRecord;
-import com.niren.drama.entity.User;
-import com.niren.drama.mapper.UserMapper;
+
+
 import com.niren.drama.service.CharacterService;
+import com.niren.drama.common.CurrentUserHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -15,7 +16,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+
 import java.util.List;
 
 @Tag(name = "角色管理", description = "角色创建、编辑、AI生成角色图像")
@@ -25,7 +26,7 @@ import java.util.List;
 public class CharacterController {
 
     private final CharacterService characterService;
-    private final UserMapper userMapper;
+    private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "创建角色")
     @PostMapping
@@ -68,7 +69,7 @@ public class CharacterController {
     }
 
     private Long getUserId(UserDetails userDetails) {
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+        return currentUserHelper.getUserId(userDetails);
                 .eq(User::getUsername, userDetails.getUsername()));
         return user.getId();
     }

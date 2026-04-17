@@ -4,9 +4,10 @@ import com.niren.drama.common.Result;
 import com.niren.drama.dto.storyboard.StoryboardGenerateRequest;
 import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
-import com.niren.drama.entity.User;
-import com.niren.drama.mapper.UserMapper;
+
+
 import com.niren.drama.service.StoryboardService;
+import com.niren.drama.common.CurrentUserHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -15,7 +16,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+
 import java.util.List;
 
 @Tag(name = "分镜管理", description = "AI分镜生成、分镜编辑")
@@ -25,7 +26,7 @@ import java.util.List;
 public class StoryboardController {
 
     private final StoryboardService storyboardService;
-    private final UserMapper userMapper;
+    private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "AI生成分镜（异步）")
     @PostMapping("/generate")
@@ -61,7 +62,7 @@ public class StoryboardController {
     }
 
     private Long getUserId(UserDetails userDetails) {
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+        return currentUserHelper.getUserId(userDetails);
                 .eq(User::getUsername, userDetails.getUsername()));
         return user.getId();
     }
