@@ -1,0 +1,83 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: niren-drama
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:niren_drama}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:root}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 5000ms
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    serialization:
+      write-dates-as-timestamps: false
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  global-config:
+    db-config:
+      id-type: assign_id
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+
+jwt:
+  secret: ${JWT_SECRET:niren-drama-jwt-secret-key-2024-very-long-and-secure-string}
+  expiration: 86400
+
+niren:
+  upload:
+    path: ${UPLOAD_PATH:./uploads}
+    base-url: ${BASE_URL:http://localhost:8080}/api/files
+  ai:
+    text:
+      provider: ${AI_TEXT_PROVIDER:openai}
+      base-url: ${AI_TEXT_BASE_URL:https://api.openai.com/v1}
+      api-key: ${AI_TEXT_API_KEY:}
+      model: ${AI_TEXT_MODEL:gpt-4o}
+    image:
+      provider: ${AI_IMAGE_PROVIDER:openai}
+      base-url: ${AI_IMAGE_BASE_URL:https://api.openai.com/v1}
+      api-key: ${AI_IMAGE_API_KEY:}
+      model: ${AI_IMAGE_MODEL:dall-e-3}
+    video:
+      provider: ${AI_VIDEO_PROVIDER:kling}
+      base-url: ${AI_VIDEO_BASE_URL:}
+      api-key: ${AI_VIDEO_API_KEY:}
+      model: ${AI_VIDEO_MODEL:}
+    tts:
+      provider: ${AI_TTS_PROVIDER:volcengine}
+      base-url: ${AI_TTS_BASE_URL:}
+      api-key: ${AI_TTS_API_KEY:}
+      voice: ${AI_TTS_VOICE:zh_female_qingxin}
+  ffmpeg:
+    path: ${FFMPEG_PATH:ffmpeg}
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+logging:
+  level:
+    com.niren.drama: debug
+    org.springframework.security: warn

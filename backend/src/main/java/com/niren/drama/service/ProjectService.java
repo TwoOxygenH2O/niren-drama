@@ -1,0 +1,72 @@
+package com.niren.drama.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.niren.drama.common.PageQuery;
+import com.niren.drama.dto.project.ProjectCreateRequest;
+import com.niren.drama.entity.Project;
+import com.niren.drama.exception.BusinessException;
+import com.niren.drama.mapper.ProjectMapper;
+import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.stereotype.Service;
+
+@Service
+@RequiredArgsConstructor
+public class ProjectService {
+
+    private final ProjectMapper projectMapper;
+
+    public Project createProject(Long userId, ProjectCreateRequest request) {
+        Project project = new Project();
+        project.setUserId(userId);
+        project.setName(request.getName());
+        project.setDescription(request.getDescription());
+        project.setGenre(request.getGenre());
+        project.setEpisodes(request.getEpisodes());
+        project.setEpisodeDuration(request.getEpisodeDuration());
+        project.setStatus("draft");
+        projectMapper.insert(project);
+        return project;
+    }
+
+    public Page<Project> listProjects(Long userId, PageQuery query) {
+        Page<Project> page = new Page<>(query.getPage(), query.getSize());
+        LambdaQueryWrapper<Project> wrapper = new LambdaQueryWrapper<Project>()
+                .eq(Project::getUserId, userId)
+                .orderByDesc(Project::getCreateTime);
+        if (StringUtils.isNotBlank(query.getKeyword())) {
+            wrapper.like(Project::getName, query.getKeyword());
+        }
+        return projectMapper.selectPage(page, wrapper);
+    }
+
+    public Project getProject(Long id) {
+        Project project = projectMapper.selectById(id);
+        if (project == null) {
+            throw new BusinessException("项目不存在");
+        }
+        return project;
+    }
+
+    public Project updateProject(Long id, ProjectCreateRequest request) {
+        Project project = getProject(id);
+        project.setName(request.getName());
+        project.setDescription(request.getDescription());
+        project.setGenre(request.getGenre());
+        if (request.getEpisodes() != null) project.setEpisodes(request.getEpisodes());
+        if (request.getEpisodeDuration() != null) project.setEpisodeDuration(request.getEpisodeDuration());
+        projectMapper.updateById(project);
+        return project;
+    }
+
+    public void deleteProject(Long id) {
+        projectMapper.deleteById(id);
+    }
+
+    public void updateStatus(Long id, String status) {
+        Project project = getProject(id);
+        project.setStatus(status);
+        projectMapper.updateById(project);
+    }
+}
