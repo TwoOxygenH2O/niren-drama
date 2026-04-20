@@ -4,6 +4,7 @@ export interface ScriptGenerateParams {
   projectId: number | string
   idea: string
   episodeNo?: number
+  totalEpisodes?: number
   genre?: string
   style?: string
 }

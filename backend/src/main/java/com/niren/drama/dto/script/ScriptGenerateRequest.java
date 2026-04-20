@@ -11,6 +11,8 @@ public class ScriptGenerateRequest {
     @NotBlank(message = "创意描述不能为空")
     private String idea;
     private Integer episodeNo;
+    /** Total number of episodes for the series (used for outline generation) */
+    private Integer totalEpisodes;
     private String genre;
     private String style;
 }

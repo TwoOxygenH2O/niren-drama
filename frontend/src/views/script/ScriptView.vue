@@ -13,17 +13,25 @@
             v-model="genForm.idea"
             type="textarea"
             :rows="4"
-            placeholder="一句话描述你的剧情创意，如：职场女强人遭遇霸总，相爱相杀的都市爱情故事..."
+            placeholder="一句话描述你的剧情创意，越具体越好。例如：离婚当天，我觉醒了读心术，发现前夫一家全在演戏..."
           />
         </el-form-item>
         <el-form-item label="题材风格">
           <el-select v-model="genForm.genre" placeholder="选择题材" style="width: 200px">
-            <el-option label="都市言情" value="romance" />
-            <el-option label="玄幻奇幻" value="fantasy" />
-            <el-option label="悬疑惊悚" value="thriller" />
-            <el-option label="都市职场" value="urban" />
-            <el-option label="古装历史" value="historical" />
+            <el-option label="都市言情" value="都市言情" />
+            <el-option label="玄幻奇幻" value="玄幻奇幻" />
+            <el-option label="悬疑惊悚" value="悬疑惊悚" />
+            <el-option label="都市职场" value="都市职场" />
+            <el-option label="古装历史" value="古装宫廷" />
+            <el-option label="甜宠逆袭" value="甜宠逆袭" />
+            <el-option label="战神归来" value="战神归来" />
+            <el-option label="豪门复仇" value="豪门复仇" />
+            <el-option label="穿越重生" value="穿越重生" />
+            <el-option label="萌宝助攻" value="萌宝助攻" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="总集数">
+          <el-input-number v-model="genForm.totalEpisodes" :min="1" :max="120" />
         </el-form-item>
         <el-form-item label="集数">
           <el-input-number v-model="genForm.episodeNo" :min="1" :max="100" />
@@ -103,7 +111,7 @@ const saving = ref(false)
 const currentTask = ref<any>(null)
 let pollTimer: any = null
 
-const genForm = ref({ idea: '', genre: 'romance', episodeNo: 1 })
+const genForm = ref({ idea: '', genre: '都市言情', episodeNo: 1, totalEpisodes: 30 })
 
 const scriptStatusLabel = (s: string) => ({ draft: '草稿', ai_generated: 'AI生成', reviewed: '已审核' }[s] || s)
 const taskStatus = (s: string) => s === 'SUCCESS' ? 'success' : s === 'FAILED' ? 'exception' : undefined
