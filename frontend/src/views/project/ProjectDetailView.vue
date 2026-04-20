@@ -51,6 +51,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { projectApi } from '@/api/project'
 
 const route = useRoute()
@@ -69,8 +70,12 @@ const statusLabel = (s: string) => ({ draft: '草稿', generating: '生成中', 
 const genreLabel = (g: string) => ({ romance: '都市言情', fantasy: '玄幻奇幻', thriller: '悬疑惊悚', urban: '都市职场', historical: '古装历史', comedy: '喜剧搞笑' }[g] || g || '-')
 
 onMounted(async () => {
-  const res = await projectApi.get(route.params.id as string)
-  project.value = res.data.data
+  try {
+    const res = await projectApi.get(route.params.id as string)
+    project.value = res.data.data
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '项目加载失败')
+  }
 })
 </script>
 

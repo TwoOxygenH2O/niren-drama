@@ -86,4 +86,4 @@ knife4j:
 logging:
   level:
     com.niren.drama: debug
-    org.springframework.security: warn
+    org.springframework.security: debug

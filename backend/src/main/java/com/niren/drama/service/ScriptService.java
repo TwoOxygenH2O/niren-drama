@@ -4,8 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.TextAiProvider;
-import com.niren.drama.common.PageQuery;
 import com.niren.drama.dto.script.ScriptGenerateRequest;
+import com.niren.drama.dto.script.ScriptSaveRequest;
 import com.niren.drama.entity.Script;
 import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.exception.BusinessException;
@@ -17,6 +17,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 @Slf4j
 @Service
@@ -26,8 +27,10 @@ public class ScriptService {
     private final ScriptMapper scriptMapper;
     private final TaskRecordMapper taskRecordMapper;
     private final AiProviderFactory aiProviderFactory;
+    private final ProjectService projectService;
 
     public TaskRecord startGenerateScript(Long userId, ScriptGenerateRequest request) {
+        projectService.getProject(userId, request.getProjectId());
         TaskRecord task = new TaskRecord();
         task.setProjectId(request.getProjectId());
         task.setUserId(userId);
@@ -38,6 +41,14 @@ public class ScriptService {
         taskRecordMapper.insert(task);
         generateScriptAsync(userId, request, task.getId());
         return task;
+    }
+
+    public void streamGenerateScript(Long userId, ScriptGenerateRequest request, Consumer<String> chunkConsumer) {
+        projectService.getProject(userId, request.getProjectId());
+        TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
+        String systemPrompt = buildScriptSystemPrompt(request.getGenre(), request.getStyle());
+        String userPrompt = buildScriptUserPrompt(request);
+        textProvider.streamChat(systemPrompt, userPrompt, chunkConsumer);
     }
 
     @Async("aiTaskExecutor")
@@ -81,6 +92,31 @@ public class ScriptService {
     public Script getScript(Long id) {
         Script script = scriptMapper.selectById(id);
         if (script == null) throw new BusinessException("剧本不存在");
+        return script;
+    }
+
+    public Script saveScript(Long userId, ScriptSaveRequest request) {
+        projectService.getProject(userId, request.getProjectId());
+
+        Script script;
+        if (request.getId() != null) {
+            script = getScript(request.getId());
+        } else {
+            script = new Script();
+            script.setProjectId(request.getProjectId());
+        }
+
+        script.setEpisodeNo(request.getEpisodeNo());
+        script.setTitle(request.getTitle());
+        script.setContent(request.getContent());
+        script.setAiPrompt(request.getAiPrompt());
+        script.setStatus("reviewed");
+
+        if (request.getId() != null) {
+            scriptMapper.updateById(script);
+        } else {
+            scriptMapper.insert(script);
+        }
         return script;
     }
 

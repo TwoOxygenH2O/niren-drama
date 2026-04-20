@@ -30,7 +30,8 @@ request.interceptors.response.use(
     return response
   },
   (error) => {
-    if (error.response?.status === 401) {
+    const requestUrl = error.config?.url || ''
+    if (error.response?.status === 401 && !requestUrl.includes('/auth/login')) {
       const userStore = useUserStore()
       userStore.logout()
       window.location.href = '/login'

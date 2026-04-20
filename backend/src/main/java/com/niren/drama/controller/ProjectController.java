@@ -42,8 +42,10 @@ public class ProjectController {
 
     @Operation(summary = "获取项目详情")
     @GetMapping("/{id}")
-    public Result<Project> get(@PathVariable Long id) {
-        return Result.success(projectService.getProject(id));
+    public Result<Project> get(@PathVariable Long id,
+                               @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        return Result.success(projectService.getProject(userId, id));
     }
 
     @Operation(summary = "更新项目")

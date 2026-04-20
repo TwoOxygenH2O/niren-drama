@@ -30,7 +30,7 @@
         />
       </el-form-item>
 
-      <el-button native-type="submit" type="primary" :loading="loading" class="primary-btn">
+      <el-button native-type="submit" type="primary" :loading="loading" class="primary-btn" @click="handleLogin">
         继续
       </el-button>
     </el-form>
@@ -82,7 +82,7 @@ async function handleLogin() {
     userStore.setToken(token)
     userStore.setUserInfo(userInfo)
     ElMessage.success('登录成功')
-    router.push('/dashboard')
+    await router.replace('/dashboard')
   } finally {
     loading.value = false
   }

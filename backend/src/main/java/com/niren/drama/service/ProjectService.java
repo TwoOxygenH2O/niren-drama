@@ -49,6 +49,17 @@ public class ProjectService {
         return project;
     }
 
+    public Project getProject(Long userId, Long id) {
+        Project project = projectMapper.selectOne(new LambdaQueryWrapper<Project>()
+                .eq(Project::getId, id)
+                .eq(Project::getUserId, userId)
+                .last("limit 1"));
+        if (project == null) {
+            throw new BusinessException("项目不存在");
+        }
+        return project;
+    }
+
     public Project updateProject(Long id, ProjectCreateRequest request) {
         Project project = getProject(id);
         project.setName(request.getName());

@@ -42,15 +42,6 @@
           </el-button>
         </el-form-item>
       </el-form>
-
-      <!-- Progress -->
-      <div v-if="currentTask" class="task-progress">
-        <el-progress
-          :percentage="currentTask.progress"
-          :status="taskStatus(currentTask.status)"
-        />
-        <div class="task-msg">{{ currentTask.message }}</div>
-      </div>
     </el-card>
 
     <!-- Script list -->
@@ -91,15 +82,51 @@
         style="font-family: monospace; font-size: 13px"
       />
     </el-card>
+
+    <el-dialog
+      v-model="previewVisible"
+      title="AI 剧本预览"
+      width="78%"
+      top="4vh"
+      destroy-on-close
+      class="preview-dialog"
+      :close-on-click-modal="false"
+    >
+      <div class="preview-meta">
+        <el-tag type="primary">第 {{ previewForm.episodeNo }} 集</el-tag>
+        <el-tag v-if="previewGenerating" type="warning">AI 生成中</el-tag>
+        <el-tag v-else type="success">可编辑</el-tag>
+      </div>
+      <el-form label-width="80px" class="preview-form">
+        <el-form-item label="标题">
+          <el-input v-model="previewForm.title" placeholder="输入剧本标题" />
+        </el-form-item>
+        <el-form-item label="内容">
+          <el-input
+            v-model="previewForm.content"
+            type="textarea"
+            :rows="24"
+            placeholder="AI 生成内容会在这里实时出现"
+            style="font-family: monospace; font-size: 13px"
+          />
+        </el-form-item>
+      </el-form>
+      <div v-if="previewError" class="preview-error">{{ previewError }}</div>
+      <template #footer>
+        <el-button @click="previewVisible = false">关闭</el-button>
+        <el-button type="primary" :disabled="!previewForm.content || previewGenerating" :loading="previewSaving" @click="savePreviewScript">
+          保存到剧本库
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { scriptApi } from '@/api/script'
-import { taskApi } from '@/api/task'
 
 const route = useRoute()
 const projectId = route.params.id
@@ -108,43 +135,63 @@ const scripts = ref<any[]>([])
 const selectedScript = ref<any>(null)
 const generating = ref(false)
 const saving = ref(false)
-const currentTask = ref<any>(null)
-let pollTimer: any = null
+const previewVisible = ref(false)
+const previewGenerating = ref(false)
+const previewSaving = ref(false)
+const previewError = ref('')
+
+const previewForm = ref({
+  id: '',
+  projectId: projectId as string,
+  episodeNo: 1,
+  title: '',
+  content: '',
+  aiPrompt: '',
+})
 
 const genForm = ref({ idea: '', genre: '都市言情', episodeNo: 1, totalEpisodes: 30 })
 
 const scriptStatusLabel = (s: string) => ({ draft: '草稿', ai_generated: 'AI生成', reviewed: '已审核' }[s] || s)
-const taskStatus = (s: string) => s === 'SUCCESS' ? 'success' : s === 'FAILED' ? 'exception' : undefined
 
 async function handleGenerate() {
   if (!genForm.value.idea) return
   generating.value = true
-  try {
-    const res = await scriptApi.generate({ projectId: projectId as string, ...genForm.value })
-    currentTask.value = res.data.data
-    startPolling(currentTask.value.id)
-  } catch {
-    generating.value = false
+  previewGenerating.value = true
+  previewError.value = ''
+  previewForm.value = {
+    id: '',
+    projectId: projectId as string,
+    episodeNo: genForm.value.episodeNo,
+    title: `第${genForm.value.episodeNo}集`,
+    content: '',
+    aiPrompt: genForm.value.idea,
   }
-}
+  previewVisible.value = true
 
-function startPolling(taskId: number) {
-  pollTimer = setInterval(async () => {
-    try {
-      const res = await taskApi.get(taskId)
-      currentTask.value = res.data.data
-      if (['SUCCESS', 'FAILED'].includes(currentTask.value.status)) {
-        clearInterval(pollTimer)
-        generating.value = false
-        if (currentTask.value.status === 'SUCCESS') {
-          ElMessage.success('剧本生成成功！')
-          loadScripts()
-        } else {
-          ElMessage.error('剧本生成失败')
-        }
-      }
-    } catch {}
-  }, 2000)
+  try {
+    await scriptApi.generatePreviewStream(
+      { projectId: projectId as string, ...genForm.value },
+      {
+        onChunk: (content) => {
+          previewForm.value.content += content
+        },
+        onDone: () => {
+          previewGenerating.value = false
+          ElMessage.success('剧本生成完成，请确认并保存')
+        },
+        onError: (message) => {
+          previewError.value = message
+          previewGenerating.value = false
+        },
+      },
+    )
+  } catch (error: any) {
+    previewError.value = error?.message || '剧本生成失败'
+    previewGenerating.value = false
+    generating.value = false
+    return
+  }
+  generating.value = false
 }
 
 async function loadScripts() {
@@ -170,8 +217,26 @@ async function saveScript() {
   }
 }
 
+async function savePreviewScript() {
+  previewSaving.value = true
+  try {
+    const res = await scriptApi.create({
+      projectId: projectId as string,
+      episodeNo: previewForm.value.episodeNo,
+      title: previewForm.value.title,
+      content: previewForm.value.content,
+      aiPrompt: previewForm.value.aiPrompt,
+    })
+    ElMessage.success('剧本已保存')
+    previewVisible.value = false
+    await loadScripts()
+    selectedScript.value = { ...res.data.data }
+  } finally {
+    previewSaving.value = false
+  }
+}
+
 onMounted(loadScripts)
-onUnmounted(() => clearInterval(pollTimer))
 </script>
 
 <style scoped>
@@ -180,9 +245,6 @@ onUnmounted(() => clearInterval(pollTimer))
 .page-title { font-size: 20px; font-weight: 600; }
 
 .gen-card { margin-bottom: 20px; }
-
-.task-progress { margin-top: 16px; }
-.task-msg { font-size: 13px; color: #718096; margin-top: 8px; }
 
 .script-list { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
 
@@ -203,4 +265,20 @@ onUnmounted(() => clearInterval(pollTimer))
 .script-prompt { font-size: 12px; color: #718096; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .editor-card { margin-bottom: 20px; }
+
+.preview-meta {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.preview-form {
+  margin-top: 8px;
+}
+
+.preview-error {
+  margin-top: 12px;
+  color: #dc2626;
+  font-size: 13px;
+}
 </style>
