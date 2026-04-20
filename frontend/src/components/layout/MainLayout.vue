@@ -9,7 +9,7 @@
             <path d="M15 10l4.553-2.843A1 1 0 0121 8.117v7.766a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </div>
-        <span v-if="!isCollapsed" class="logo-text">泥人短剧</span>
+        <span v-if="!isCollapsed" class="logo-text">泥人剧场</span>
       </div>
 
       <!-- Nav -->

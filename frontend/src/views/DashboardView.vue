@@ -4,7 +4,7 @@
     <div class="hero-banner">
       <div class="hero-text">
         <div class="hero-greeting">你好，{{ userStore.userInfo?.nickname || '创作者' }} 👋</div>
-        <div class="hero-title">泥人短剧 · AI 短剧制作平台</div>
+        <div class="hero-title">泥人剧场 · AI 短剧制作平台</div>
         <div class="hero-sub">一句话创意 → 剧本 → 分镜 → 生图 → 配音 → 成片，全流程自动化</div>
       </div>
       <div class="hero-action">
