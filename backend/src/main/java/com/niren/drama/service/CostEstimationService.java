@@ -150,7 +150,11 @@ public class CostEstimationService {
         if (totalShots <= estimatedUniqueCombinations) {
             return totalShots;
         }
-        // The more episodes, the higher the reuse rate
+        // The more episodes, the higher the reuse rate.
+        // Formula: baseRate(0.3) + episodes * 0.01, capped at 0.8 (80% reuse).
+        // Rationale: a 50-episode series has ~10 recurring scenes × 5 characters × 5 angles ≈ 250 unique combos.
+        // With 4,800 total shots the theoretical reuse is ~95%, but we use a conservative model where
+        // each new episode adds a 1% reuse bonus on top of the 30% baseline, maxing out at 80%.
         double reuseRate = Math.min(0.8, 0.3 + (episodes * 0.01));
         return Math.max(estimatedUniqueCombinations, (int) (totalShots * (1 - reuseRate)));
     }
@@ -194,6 +198,12 @@ public class CostEstimationService {
         };
     }
 
+    // Image resolution constants
+    private static final String RESOLUTION_LOW = "512x512";
+    private static final String RESOLUTION_STANDARD = "1024x1024";
+    private static final String RESOLUTION_HIGH = "1024x1792";
+    private static final String RESOLUTION_WIDE_LOW = "512x912";
+
     /**
      * Get the optimal image size for a given camera angle based on quality tier.
      */
@@ -201,12 +211,12 @@ public class CostEstimationService {
         if (cameraAngle == null) cameraAngle = "medium";
 
         return switch (qualityTier) {
-            case "preview" -> "512x512"; // Low-res for all shots in preview mode
-            case "premium" -> "1024x1792"; // High-res for all shots in premium mode
+            case "preview" -> RESOLUTION_LOW; // Low-res for all shots in preview mode
+            case "premium" -> RESOLUTION_HIGH; // High-res for all shots in premium mode
             default -> switch (cameraAngle.toLowerCase()) {
-                case "close-up", "pov" -> "1024x1792";  // High-res for close-ups
-                case "wide", "overhead" -> "512x912";    // Lower-res for wide shots
-                default -> "1024x1024";                  // Standard for medium shots
+                case "close-up", "pov" -> RESOLUTION_HIGH;     // High-res for close-ups
+                case "wide", "overhead" -> RESOLUTION_WIDE_LOW; // Lower-res for wide shots
+                default -> RESOLUTION_STANDARD;                 // Standard for medium shots
             };
         };
     }

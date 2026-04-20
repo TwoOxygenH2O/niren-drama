@@ -200,6 +200,8 @@ public class StoryboardService {
     /**
      * Build image cache key from shot's scene, character, and camera angle.
      * Same combination can reuse the same image to reduce API costs.
+     * Returns null when neither sceneId nor characterId is set, because without
+     * scene/character context two shots are unlikely to share the same visual.
      */
     private String buildImageCacheKey(Storyboard shot) {
         Long sceneId = shot.getSceneId();
