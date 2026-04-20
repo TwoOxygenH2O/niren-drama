@@ -62,6 +62,7 @@ const workflowSteps = [
   { icon: '👤', label: '角色', routeEnd: '/characters' },
   { icon: '🌄', label: '场景', routeEnd: '/scenes' },
   { icon: '📦', label: '素材库', routeEnd: '/assets' },
+  { icon: '🚀', label: '合成导出', routeEnd: '/synthesis' },
 ]
 
 const statusLabel = (s: string) => ({ draft: '草稿', generating: '生成中', completed: '已完成', failed: '失败' }[s] || s)

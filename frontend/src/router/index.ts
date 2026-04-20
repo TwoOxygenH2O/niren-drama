@@ -74,6 +74,12 @@ const router = createRouter({
           meta: { title: '素材库' },
         },
         {
+          path: 'projects/:id/synthesis',
+          name: 'Synthesis',
+          component: () => import('@/views/synthesis/SynthesisView.vue'),
+          meta: { title: '合成导出' },
+        },
+        {
           path: 'settings',
           name: 'Settings',
           component: () => import('@/views/settings/SettingsView.vue'),
