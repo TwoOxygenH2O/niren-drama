@@ -263,7 +263,7 @@ function startPolling(taskId: string | number) {
     } catch (e: any) {
       console.error('Poll error:', e)
     }
-  }, 3000)
+  }, 5000)
 }
 
 function stopPolling() {

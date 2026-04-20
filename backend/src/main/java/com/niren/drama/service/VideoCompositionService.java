@@ -184,6 +184,7 @@ public class VideoCompositionService {
     /**
      * Compose a single shot video from image + optional audio using FFmpeg.
      * Creates a video with Ken Burns zoom effect.
+     * Output format: 1080x1920 (9:16 vertical), 25fps, H.264+AAC
      */
     private void composeSingleShot(Path imagePath, Path audioPath, Path outputPath, int duration) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
@@ -200,14 +201,15 @@ public class VideoCompositionService {
         }
 
         // Video filter: scale to 1080x1920 (9:16) with slow zoom (Ken Burns effect)
+        String videoFilter = buildVideoFilter(duration);
         cmd.add("-vf");
-        cmd.add("scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,zoompan=z='min(zoom+0.001,1.3)':d=" + (duration * 25) + ":s=1080x1920:fps=25");
+        cmd.add(videoFilter);
 
         // Video codec
         cmd.add("-c:v"); cmd.add("libx264");
         cmd.add("-preset"); cmd.add("fast");
         cmd.add("-pix_fmt"); cmd.add("yuv420p");
-        cmd.add("-r"); cmd.add("25");
+        cmd.add("-r"); cmd.add(String.valueOf(FRAME_RATE));
 
         // Audio codec
         if (audioPath != null && Files.exists(audioPath)) {
@@ -228,15 +230,39 @@ public class VideoCompositionService {
         executeFFmpeg(cmd);
     }
 
+    /** Output video width (vertical 9:16) */
+    private static final int VIDEO_WIDTH = 1080;
+    /** Output video height (vertical 9:16) */
+    private static final int VIDEO_HEIGHT = 1920;
+    /** Output video frame rate */
+    private static final int FRAME_RATE = 25;
+
+    /**
+     * Build FFmpeg video filter for Ken Burns zoom effect on a still image.
+     */
+    private String buildVideoFilter(int durationSeconds) {
+        int totalFrames = durationSeconds * FRAME_RATE;
+        return String.format(
+                "scale=%d:%d:force_original_aspect_ratio=decrease," +
+                "pad=%d:%d:(ow-iw)/2:(oh-ih)/2," +
+                "zoompan=z='min(zoom+0.001,1.3)':d=%d:s=%dx%d:fps=%d",
+                VIDEO_WIDTH, VIDEO_HEIGHT,
+                VIDEO_WIDTH, VIDEO_HEIGHT,
+                totalFrames, VIDEO_WIDTH, VIDEO_HEIGHT, FRAME_RATE
+        );
+    }
+
     /**
      * Concatenate multiple video segments into a final video using FFmpeg concat demuxer.
      */
     private void concatenateVideos(List<Path> videos, Path outputPath, Path workDir) throws IOException, InterruptedException {
-        // Create concat file list
+        // Create concat file list with properly escaped paths
         Path concatFile = workDir.resolve("concat.txt");
         StringBuilder sb = new StringBuilder();
         for (Path video : videos) {
-            sb.append("file '").append(video.toAbsolutePath()).append("'\n");
+            // Escape single quotes in file paths for FFmpeg concat format
+            String escapedPath = video.toAbsolutePath().toString().replace("'", "'\\''");
+            sb.append("file '").append(escapedPath).append("'\n");
         }
         Files.writeString(concatFile, sb.toString());
 
@@ -313,7 +339,7 @@ public class VideoCompositionService {
         try {
             if (Files.exists(dir)) {
                 Files.walk(dir)
-                        .sorted((a, b) -> b.compareTo(a)) // Reverse order: files before dirs
+                        .sorted(java.util.Comparator.reverseOrder())
                         .forEach(path -> {
                             try {
                                 Files.deleteIfExists(path);

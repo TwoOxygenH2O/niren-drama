@@ -40,6 +40,11 @@ public class StoryboardService {
     private final AiProviderFactory aiProviderFactory;
     private final ObjectMapper objectMapper;
 
+    /** Portrait image size for vertical (9:16) storyboard images */
+    private static final String PORTRAIT_IMAGE_SIZE = "1024x1792";
+    /** Image generation style */
+    private static final String PORTRAIT_IMAGE_STYLE = "vivid";
+
     @Value("${niren.upload.path:./uploads}")
     private String uploadPath;
 
@@ -138,7 +143,8 @@ public class StoryboardService {
                         String.format("正在生成第%d/%d个分镜图片...", completed + 1, total));
 
                 try {
-                    String imageUrl = imageProvider.generateImage(prompt, "1024x1792", "vivid");
+                    // Use 1024x1792 for portrait (9:16) storyboard images
+                    String imageUrl = imageProvider.generateImage(prompt, PORTRAIT_IMAGE_SIZE, PORTRAIT_IMAGE_STYLE);
                     shot.setImageUrl(imageUrl);
                     shot.setStatus("image_generated");
                     storyboardMapper.updateById(shot);

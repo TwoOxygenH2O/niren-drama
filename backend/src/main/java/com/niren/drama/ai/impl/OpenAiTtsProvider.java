@@ -77,17 +77,19 @@ public class OpenAiTtsProvider implements TtsProvider {
 
     @Override
     public List<VoiceInfo> listVoices() {
+        // Standard OpenAI voices (available on all OpenAI-compatible APIs)
+        // Chinese-specific voices (zh_*) are available on some providers like Volcengine/MiniMax
         return List.of(
-                new VoiceInfo("alloy", "Alloy", "neutral", "en", "中性平稳的声音"),
-                new VoiceInfo("echo", "Echo", "male", "en", "深沉有力的男声"),
-                new VoiceInfo("fable", "Fable", "neutral", "en", "温暖叙事风格"),
-                new VoiceInfo("onyx", "Onyx", "male", "en", "低沉磁性男声"),
-                new VoiceInfo("nova", "Nova", "female", "en", "活力温暖女声"),
-                new VoiceInfo("shimmer", "Shimmer", "female", "en", "清新柔和女声"),
-                new VoiceInfo("zh_female_qingxin", "清新女声", "female", "zh-CN", "清新自然的女声"),
-                new VoiceInfo("zh_male_chunhou", "醇厚男声", "male", "zh-CN", "醇厚有力的男声"),
-                new VoiceInfo("zh_female_tianmei", "甜美女声", "female", "zh-CN", "甜美可爱的女声"),
-                new VoiceInfo("zh_male_mochen", "磁性男声", "male", "zh-CN", "磁性深沉的男声")
+                new VoiceInfo("alloy", "Alloy", "neutral", "en", "中性平稳的声音（通用）"),
+                new VoiceInfo("echo", "Echo", "male", "en", "深沉有力的男声（通用）"),
+                new VoiceInfo("fable", "Fable", "neutral", "en", "温暖叙事风格（通用）"),
+                new VoiceInfo("onyx", "Onyx", "male", "en", "低沉磁性男声（通用）"),
+                new VoiceInfo("nova", "Nova", "female", "en", "活力温暖女声（通用）"),
+                new VoiceInfo("shimmer", "Shimmer", "female", "en", "清新柔和女声（通用）"),
+                new VoiceInfo("zh_female_qingxin", "清新女声", "female", "zh-CN", "清新自然的女声（火山引擎/MiniMax）"),
+                new VoiceInfo("zh_male_chunhou", "醇厚男声", "male", "zh-CN", "醇厚有力的男声（火山引擎/MiniMax）"),
+                new VoiceInfo("zh_female_tianmei", "甜美女声", "female", "zh-CN", "甜美可爱的女声（火山引擎/MiniMax）"),
+                new VoiceInfo("zh_male_mochen", "磁性男声", "male", "zh-CN", "磁性深沉的男声（火山引擎/MiniMax）")
         );
     }
 }
