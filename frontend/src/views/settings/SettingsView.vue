@@ -280,8 +280,8 @@ function providerLabel(provider: string): string {
   const labels: Record<string, string> = {
     openai: 'OpenAI',
     deepseek: 'DeepSeek',
-    qianwen: '通义千问',
-    dashscope: '阿里云百炼',
+    qianwen: '通义千问 / DashScope',
+    dashscope: '阿里云百炼 (DashScope)',
     doubao: '火山豆包',
     minimax: 'MiniMax',
     moonshot: 'Moonshot',

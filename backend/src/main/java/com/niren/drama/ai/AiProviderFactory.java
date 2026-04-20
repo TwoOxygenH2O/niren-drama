@@ -50,7 +50,8 @@ public class AiProviderFactory {
             model = getDefaultModel(provider, "image");
         }
 
-        // DashScope (Alibaba Cloud Bailian) uses its own async image generation API
+        // DashScope (Alibaba Cloud Bailian) uses its own async image generation API.
+        // Both "dashscope" and "qianwen" refer to Alibaba Cloud's DashScope/Bailian service.
         if ("dashscope".equals(provider) || "qianwen".equals(provider)) {
             return new DashScopeImageProvider(baseUrl, apiKey, model);
         }

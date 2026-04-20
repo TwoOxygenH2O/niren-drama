@@ -22,8 +22,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 @Slf4j
 @Tag(name = "剧本管理", description = "AI生成剧本、剧本编辑")
@@ -36,7 +34,8 @@ public class ScriptController {
     private final CurrentUserHelper currentUserHelper;
     private final ObjectMapper objectMapper;
 
-    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
+    @jakarta.annotation.Resource(name = "aiTaskExecutor")
+    private java.util.concurrent.Executor sseExecutor;
 
     @Operation(summary = "AI生成剧本（异步）")
     @PostMapping("/generate")
