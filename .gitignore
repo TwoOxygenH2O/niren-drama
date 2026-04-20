@@ -8,6 +8,7 @@ uploads/
 
 # Build outputs
 frontend/dist/
+backend/target/
 
 # IDE
 .idea/
