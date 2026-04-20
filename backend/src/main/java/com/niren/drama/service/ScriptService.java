@@ -43,6 +43,70 @@ public class ScriptService {
         return task;
     }
 
+    /**
+     * Batch generate scripts for multiple episodes in one task.
+     */
+    public TaskRecord startBatchGenerateScript(Long userId, ScriptGenerateRequest request) {
+        projectService.getProject(userId, request.getProjectId());
+        int totalEpisodes = request.getTotalEpisodes() != null ? request.getTotalEpisodes() : 1;
+        TaskRecord task = new TaskRecord();
+        task.setProjectId(request.getProjectId());
+        task.setUserId(userId);
+        task.setTaskType("SCRIPT_BATCH_GEN");
+        task.setStatus("PENDING");
+        task.setProgress(0);
+        task.setMessage(String.format("批量生成 %d 集剧本，任务已提交...", totalEpisodes));
+        taskRecordMapper.insert(task);
+        batchGenerateScriptAsync(userId, request, task.getId(), totalEpisodes);
+        return task;
+    }
+
+    @Async("aiTaskExecutor")
+    public void batchGenerateScriptAsync(Long userId, ScriptGenerateRequest request, Long taskId, int totalEpisodes) {
+        TaskRecord task = taskRecordMapper.selectById(taskId);
+        if (task == null) return;
+        try {
+            updateTask(task, "RUNNING", 5, String.format("开始批量生成 %d 集剧本...", totalEpisodes));
+            TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
+            String systemPrompt = buildScriptSystemPrompt(request.getGenre(), request.getStyle());
+
+            for (int ep = 1; ep <= totalEpisodes; ep++) {
+                int progress = 5 + (90 * (ep - 1) / totalEpisodes);
+                updateTask(task, "RUNNING", progress, String.format("正在生成第 %d/%d 集...", ep, totalEpisodes));
+
+                ScriptGenerateRequest epRequest = new ScriptGenerateRequest();
+                epRequest.setProjectId(request.getProjectId());
+                epRequest.setIdea(request.getIdea());
+                epRequest.setEpisodeNo(ep);
+                epRequest.setTotalEpisodes(totalEpisodes);
+                epRequest.setGenre(request.getGenre());
+                epRequest.setStyle(request.getStyle());
+
+                String userPrompt = buildScriptUserPrompt(epRequest);
+                String scriptContent = textProvider.chat(systemPrompt, userPrompt);
+
+                Script script = new Script();
+                script.setProjectId(request.getProjectId());
+                script.setEpisodeNo(ep);
+                script.setContent(scriptContent);
+                script.setAiPrompt(request.getIdea());
+                script.setStatus("ai_generated");
+                script.setTitle("第" + ep + "集");
+                scriptMapper.insert(script);
+            }
+
+            task.setStatus("SUCCESS");
+            task.setProgress(100);
+            task.setMessage(String.format("批量生成完成，共 %d 集", totalEpisodes));
+            taskRecordMapper.updateById(task);
+        } catch (Exception e) {
+            log.error("Batch script generation failed for task {}", taskId, e);
+            task.setStatus("FAILED");
+            task.setMessage("批量生成失败: " + e.getMessage());
+            taskRecordMapper.updateById(task);
+        }
+    }
+
     public void streamGenerateScript(Long userId, ScriptGenerateRequest request, Consumer<String> chunkConsumer) {
         projectService.getProject(userId, request.getProjectId());
         TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);

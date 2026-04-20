@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <span class="page-title">✍️ 剧本生成</span>
+      <span class="page-title">剧本生成</span>
     </div>
 
     <!-- Generate form -->
@@ -38,7 +38,10 @@
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="generating" :disabled="!genForm.idea" @click="handleGenerate">
-            🤖 AI 生成剧本
+            AI 生成单集
+          </el-button>
+          <el-button type="success" :loading="batchGenerating" :disabled="!genForm.idea" @click="handleBatchGenerate">
+            批量生成全部集数
           </el-button>
         </el-form-item>
       </el-form>
@@ -134,6 +137,7 @@ const projectId = route.params.id
 const scripts = ref<any[]>([])
 const selectedScript = ref<any>(null)
 const generating = ref(false)
+const batchGenerating = ref(false)
 const saving = ref(false)
 const previewVisible = ref(false)
 const previewGenerating = ref(false)
@@ -192,6 +196,24 @@ async function handleGenerate() {
     return
   }
   generating.value = false
+}
+
+async function handleBatchGenerate() {
+  if (!genForm.value.idea) return
+  batchGenerating.value = true
+  try {
+    await scriptApi.generateBatch({
+      projectId: projectId as string,
+      idea: genForm.value.idea,
+      totalEpisodes: genForm.value.totalEpisodes,
+      genre: genForm.value.genre,
+    })
+    ElMessage.success(`已提交批量生成 ${genForm.value.totalEpisodes} 集任务，请在任务列表中查看进度`)
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.message || '批量生成提交失败')
+  } finally {
+    batchGenerating.value = false
+  }
 }
 
 async function loadScripts() {

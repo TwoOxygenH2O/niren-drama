@@ -12,4 +12,7 @@ export const aiConfigApi = {
 
   setDefault: (id: number | string) =>
     request.put(`/ai-configs/${id}/default`),
+
+  getProviderDefaults: (provider: string, configType: string) =>
+    request.get('/ai-configs/provider-defaults', { params: { provider, configType } }),
 }
