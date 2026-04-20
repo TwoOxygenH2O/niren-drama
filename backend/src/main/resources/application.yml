@@ -69,6 +69,12 @@ niren:
       base-url: ${AI_TTS_BASE_URL:}
       api-key: ${AI_TTS_API_KEY:}
       voice: ${AI_TTS_VOICE:zh_female_qingxin}
+  cost:
+    image-reuse-enabled: ${COST_IMAGE_REUSE:true}
+    quality-tier: ${COST_QUALITY_TIER:standard}
+    video-ai-enabled: ${COST_VIDEO_AI_ENABLED:false}
+    video-ai-shot-ratio: ${COST_VIDEO_AI_RATIO:0.3}
+    preview-resolution: ${COST_PREVIEW_RESOLUTION:512x512}
   ffmpeg:
     path: ${FFMPEG_PATH:ffmpeg}
 

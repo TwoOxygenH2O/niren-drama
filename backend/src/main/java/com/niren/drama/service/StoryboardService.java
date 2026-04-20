@@ -26,7 +26,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -38,12 +40,17 @@ public class StoryboardService {
     private final ScriptMapper scriptMapper;
     private final TaskRecordMapper taskRecordMapper;
     private final AiProviderFactory aiProviderFactory;
+    private final CostEstimationService costEstimationService;
     private final ObjectMapper objectMapper;
 
     /** Portrait image size for vertical (9:16) storyboard images */
     private static final String PORTRAIT_IMAGE_SIZE = "1024x1792";
     /** Image generation style */
     private static final String PORTRAIT_IMAGE_STYLE = "vivid";
+
+    /** Enable image reuse for same scene+character+angle combinations */
+    @Value("${niren.cost.image-reuse-enabled:true}")
+    private boolean imageReuseEnabled;
 
     @Value("${niren.upload.path:./uploads}")
     private String uploadPath;
@@ -126,6 +133,13 @@ public class StoryboardService {
             ImageAiProvider imageProvider = aiProviderFactory.getImageProvider(userId);
             int total = shots.size();
             int completed = 0;
+            int reused = 0;
+
+            // Build image reuse cache: scene+character+angle → imageUrl
+            Map<String, String> imageCache = new HashMap<>();
+            if (imageReuseEnabled) {
+                buildImageCache(imageCache, shots);
+            }
 
             for (Storyboard shot : shots) {
                 if (shot.getImageUrl() != null && !shot.getImageUrl().isBlank()) {
@@ -143,11 +157,27 @@ public class StoryboardService {
                         String.format("正在生成第%d/%d个分镜图片...", completed + 1, total));
 
                 try {
-                    // Use 1024x1792 for portrait (9:16) storyboard images
-                    String imageUrl = imageProvider.generateImage(prompt, PORTRAIT_IMAGE_SIZE, PORTRAIT_IMAGE_STYLE);
-                    shot.setImageUrl(imageUrl);
-                    shot.setStatus("image_generated");
-                    storyboardMapper.updateById(shot);
+                    // Check image cache for reuse
+                    String cacheKey = buildImageCacheKey(shot);
+                    if (imageReuseEnabled && imageCache.containsKey(cacheKey)) {
+                        shot.setImageUrl(imageCache.get(cacheKey));
+                        shot.setStatus("image_generated");
+                        storyboardMapper.updateById(shot);
+                        reused++;
+                        log.info("Reused cached image for shot {} (cacheKey={})", shot.getShotNo(), cacheKey);
+                    } else {
+                        // Use smart resolution based on camera angle
+                        String imageSize = costEstimationService.getOptimalImageSize(shot.getCameraAngle());
+                        String imageUrl = imageProvider.generateImage(prompt, imageSize, PORTRAIT_IMAGE_STYLE);
+                        shot.setImageUrl(imageUrl);
+                        shot.setStatus("image_generated");
+                        storyboardMapper.updateById(shot);
+
+                        // Cache this image for reuse
+                        if (imageReuseEnabled && cacheKey != null) {
+                            imageCache.put(cacheKey, imageUrl);
+                        }
+                    }
                 } catch (Exception e) {
                     log.warn("Failed to generate image for shot {}: {}", shot.getShotNo(), e.getMessage());
                 }
@@ -156,7 +186,7 @@ public class StoryboardService {
 
             task.setStatus("SUCCESS");
             task.setProgress(100);
-            task.setMessage(String.format("分镜图片生成完成，共处理%d个镜头", total));
+            task.setMessage(String.format("分镜图片生成完成，共处理%d个镜头，复用%d张图片", total, reused));
             taskRecordMapper.updateById(task);
 
         } catch (Exception e) {
@@ -165,6 +195,38 @@ public class StoryboardService {
             task.setMessage("分镜图片生成失败: " + e.getMessage());
             taskRecordMapper.updateById(task);
         }
+    }
+
+    /**
+     * Build image cache key from shot's scene, character, and camera angle.
+     * Same combination can reuse the same image to reduce API costs.
+     */
+    private String buildImageCacheKey(Storyboard shot) {
+        Long sceneId = shot.getSceneId();
+        Long characterId = shot.getCharacterId();
+        String angle = shot.getCameraAngle();
+        if (sceneId == null && characterId == null) {
+            return null; // Cannot cache without scene or character context
+        }
+        return String.format("s%d_c%d_%s",
+                sceneId != null ? sceneId : 0,
+                characterId != null ? characterId : 0,
+                angle != null ? angle : "medium");
+    }
+
+    /**
+     * Pre-populate image cache from existing shots that already have images.
+     */
+    private void buildImageCache(Map<String, String> cache, List<Storyboard> shots) {
+        for (Storyboard shot : shots) {
+            if (shot.getImageUrl() != null && !shot.getImageUrl().isBlank()) {
+                String key = buildImageCacheKey(shot);
+                if (key != null) {
+                    cache.put(key, shot.getImageUrl());
+                }
+            }
+        }
+        log.info("Image cache initialized with {} entries", cache.size());
     }
 
     /**
@@ -305,8 +367,16 @@ public class StoryboardService {
                 - dialogue: 角色台词（如有）
                 - narration: 旁白（如有）
                 - duration: 镜头时长（秒，3-8秒）
-                - characterName: 主要角色名（如有）
-                - sceneName: 场景名称
+                - characterName: 主要角色名（如有，用于图片复用优化）
+                - sceneName: 场景名称（用于图片复用优化）
+                - isDynamic: 是否为动态镜头（true=需要AI视频生成，false=静态图片即可）
+                
+                分镜优化要求：
+                1. 每集应包含80-100个镜头，总时长约8分钟（480秒）
+                2. 尽量复用场景：同一场景中的连续对话镜头使用相同sceneName
+                3. 标记动态镜头：只有需要明显运动的镜头（如追逐、打斗、转场）标记isDynamic为true
+                4. 静态对话镜头占比应≥60%，以控制AI视频生成成本
+                5. 对话场景优先使用close-up和medium镜头
                 
                 返回格式：{"shots": [...]}
                 """;
