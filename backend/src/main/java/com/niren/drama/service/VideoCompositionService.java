@@ -5,6 +5,7 @@ import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.exception.BusinessException;
 import com.niren.drama.mapper.ProjectMapper;
+import com.niren.drama.mapper.StoryboardMapper;
 import com.niren.drama.mapper.TaskRecordMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,7 @@ import java.util.UUID;
 public class VideoCompositionService {
 
     private final StoryboardService storyboardService;
+    private final StoryboardMapper storyboardMapper;
     private final ProjectMapper projectMapper;
     private final TaskRecordMapper taskRecordMapper;
 
@@ -46,6 +48,8 @@ public class VideoCompositionService {
 
     @Value("${niren.ffmpeg.path:ffmpeg}")
     private String ffmpegPath;
+
+    private static final String SHOT_VIDEO_DIR = "shot-videos";
 
     /**
      * Start the video composition process for a project.
@@ -75,6 +79,33 @@ public class VideoCompositionService {
         return task;
     }
 
+    public TaskRecord startGenerateDynamicVideos(Long userId, Long projectId) {
+        List<Storyboard> selectedShots = storyboardService.listByProject(projectId).stream()
+                .filter(this::shouldUseDynamicVideo)
+                .toList();
+
+        if (selectedShots.isEmpty()) {
+            throw new BusinessException("当前项目没有选中的动态镜头");
+        }
+
+        boolean allReadyForDynamic = selectedShots.stream().allMatch(s -> hasText(s.getImageUrl()));
+        if (!allReadyForDynamic) {
+            throw new BusinessException("仍有已选动态镜头缺少关键帧图片，请先完成分镜图片生成");
+        }
+
+        TaskRecord task = new TaskRecord();
+        task.setProjectId(projectId);
+        task.setUserId(userId);
+        task.setTaskType("DYNAMIC_VIDEO_GEN");
+        task.setStatus("PENDING");
+        task.setProgress(0);
+        task.setMessage("动态镜头生成任务已提交...");
+        taskRecordMapper.insert(task);
+
+        generateDynamicVideosAsync(projectId, selectedShots, task.getId());
+        return task;
+    }
+
     @Async("aiTaskExecutor")
     public void composeAsync(Long userId, Long projectId, List<Storyboard> shots, Long taskId) {
         TaskRecord task = taskRecordMapper.selectById(taskId);
@@ -98,7 +129,7 @@ public class VideoCompositionService {
 
             for (Storyboard shot : shots) {
                 index++;
-                if (shot.getImageUrl() == null || shot.getImageUrl().isBlank()) {
+                if (!hasText(shot.getImageUrl()) && !hasText(shot.getVideoUrl())) {
                     log.warn("Shot {} has no image, skipping", shot.getShotNo());
                     continue;
                 }
@@ -107,21 +138,25 @@ public class VideoCompositionService {
                         5 + (70 * index / total),
                         String.format("正在合成第%d/%d个镜头...", index, total));
 
-                // Download image
-                Path imagePath = workDir.resolve("shot_" + shot.getShotNo() + ".jpg");
-                downloadFile(shot.getImageUrl(), imagePath);
-
                 // Download audio if available
                 Path audioPath = null;
-                if (shot.getAudioUrl() != null && !shot.getAudioUrl().isBlank()) {
+                if (hasText(shot.getAudioUrl())) {
                     audioPath = workDir.resolve("shot_" + shot.getShotNo() + ".mp3");
                     downloadFile(shot.getAudioUrl(), audioPath);
                 }
 
-                // Compose single shot video
                 int duration = shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 5;
                 Path shotVideo = workDir.resolve("shot_" + shot.getShotNo() + ".mp4");
-                composeSingleShot(imagePath, audioPath, shotVideo, duration);
+
+                if (shouldUseDynamicVideo(shot) && hasText(shot.getVideoUrl())) {
+                    Path sourceVideo = workDir.resolve("source_shot_" + shot.getShotNo() + ".mp4");
+                    downloadFile(shot.getVideoUrl(), sourceVideo);
+                    composeDynamicShot(sourceVideo, audioPath, shotVideo, duration);
+                } else {
+                    Path imagePath = workDir.resolve("shot_" + shot.getShotNo() + ".jpg");
+                    downloadFile(shot.getImageUrl(), imagePath);
+                    composeSingleShot(imagePath, audioPath, shotVideo, duration);
+                }
 
                 if (Files.exists(shotVideo) && Files.size(shotVideo) > 0) {
                     shotVideos.add(shotVideo);
@@ -181,6 +216,72 @@ public class VideoCompositionService {
         }
     }
 
+    @Async("aiTaskExecutor")
+    public void generateDynamicVideosAsync(Long projectId, List<Storyboard> shots, Long taskId) {
+        TaskRecord task = taskRecordMapper.selectById(taskId);
+        if (task == null) return;
+
+        Path workDir = null;
+        try {
+            workDir = Paths.get(uploadPath, "dynamic", projectId.toString(), String.valueOf(taskId));
+            Files.createDirectories(workDir);
+
+            Path outputDir = Paths.get(uploadPath, SHOT_VIDEO_DIR);
+            Files.createDirectories(outputDir);
+
+            int total = shots.size();
+            int completed = 0;
+            int generated = 0;
+
+            for (Storyboard shot : shots) {
+                completed++;
+                if (!hasText(shot.getImageUrl())) {
+                    log.warn("Dynamic shot {} has no keyframe image, skipped", shot.getShotNo());
+                    continue;
+                }
+
+                updateTask(task, "RUNNING",
+                        10 + (80 * completed / total),
+                        String.format("正在生成第%d/%d个动态镜头...", completed, total));
+
+                Path imagePath = workDir.resolve("dynamic_" + shot.getShotNo() + ".jpg");
+                downloadFile(shot.getImageUrl(), imagePath);
+
+                String fileName = "shot_" + projectId + "_" + shot.getShotNo() + "_"
+                        + UUID.randomUUID().toString().replace("-", "") + ".mp4";
+                Path outputPath = outputDir.resolve(fileName);
+
+                renderDynamicShotVideo(imagePath, outputPath,
+                        shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 5,
+                        shot.getMotionLevel());
+
+                if (Files.exists(outputPath) && Files.size(outputPath) > 0) {
+                    shot.setVideoUrl(baseUrl + "/" + SHOT_VIDEO_DIR + "/" + fileName);
+                    shot.setRenderMode("video");
+                    shot.setStatus("video_generated");
+                    storyboardMapper.updateById(shot);
+                    generated++;
+                }
+            }
+
+            if (generated == 0) {
+                throw new BusinessException("没有成功生成任何动态镜头片段");
+            }
+
+            task.setStatus("SUCCESS");
+            task.setProgress(100);
+            task.setMessage(String.format("动态镜头生成完成，共生成%d个片段", generated));
+            taskRecordMapper.updateById(task);
+
+            cleanupDirectory(workDir);
+        } catch (Exception e) {
+            log.error("Dynamic video generation failed for task {}", taskId, e);
+            task.setStatus("FAILED");
+            task.setMessage("动态镜头生成失败: " + e.getMessage());
+            taskRecordMapper.updateById(task);
+        }
+    }
+
     /**
      * Compose a single shot video from image + optional audio using FFmpeg.
      * Creates a video with Ken Burns zoom effect.
@@ -230,6 +331,58 @@ public class VideoCompositionService {
         executeFFmpeg(cmd);
     }
 
+    private void composeDynamicShot(Path videoPath, Path audioPath, Path outputPath, int duration) throws IOException, InterruptedException {
+        List<String> cmd = new ArrayList<>();
+        cmd.add(ffmpegPath);
+        cmd.add("-y");
+
+        cmd.add("-i");
+        cmd.add(videoPath.toAbsolutePath().toString());
+
+        if (audioPath != null && Files.exists(audioPath)) {
+            cmd.add("-i");
+            cmd.add(audioPath.toAbsolutePath().toString());
+        } else {
+            cmd.add("-f");
+            cmd.add("lavfi");
+            cmd.add("-i");
+            cmd.add("anullsrc=r=44100:cl=stereo");
+        }
+
+        cmd.add("-vf");
+        cmd.add(String.format("scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2",
+                VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_WIDTH, VIDEO_HEIGHT));
+
+        cmd.add("-c:v"); cmd.add("libx264");
+        cmd.add("-preset"); cmd.add("fast");
+        cmd.add("-pix_fmt"); cmd.add("yuv420p");
+        cmd.add("-r"); cmd.add(String.valueOf(FRAME_RATE));
+        cmd.add("-c:a"); cmd.add("aac");
+        cmd.add("-b:a"); cmd.add("128k");
+        cmd.add("-shortest");
+        cmd.add("-t"); cmd.add(String.valueOf(duration));
+        cmd.add(outputPath.toAbsolutePath().toString());
+
+        executeFFmpeg(cmd);
+    }
+
+    private void renderDynamicShotVideo(Path imagePath, Path outputPath, int duration, String motionLevel) throws IOException, InterruptedException {
+        List<String> cmd = new ArrayList<>();
+        cmd.add(ffmpegPath);
+        cmd.add("-y");
+        cmd.add("-loop"); cmd.add("1");
+        cmd.add("-i"); cmd.add(imagePath.toAbsolutePath().toString());
+        cmd.add("-vf"); cmd.add(buildDynamicVideoFilter(duration, motionLevel));
+        cmd.add("-c:v"); cmd.add("libx264");
+        cmd.add("-preset"); cmd.add("fast");
+        cmd.add("-pix_fmt"); cmd.add("yuv420p");
+        cmd.add("-r"); cmd.add(String.valueOf(FRAME_RATE));
+        cmd.add("-t"); cmd.add(String.valueOf(duration));
+        cmd.add("-an");
+        cmd.add(outputPath.toAbsolutePath().toString());
+        executeFFmpeg(cmd);
+    }
+
     /** Output video width (vertical 9:16) */
     private static final int VIDEO_WIDTH = 1080;
     /** Output video height (vertical 9:16) */
@@ -248,6 +401,37 @@ public class VideoCompositionService {
                 "zoompan=z='min(zoom+0.001,1.3)':d=%d:s=%dx%d:fps=%d",
                 VIDEO_WIDTH, VIDEO_HEIGHT,
                 VIDEO_WIDTH, VIDEO_HEIGHT,
+                totalFrames, VIDEO_WIDTH, VIDEO_HEIGHT, FRAME_RATE
+        );
+    }
+
+    private String buildDynamicVideoFilter(int durationSeconds, String motionLevel) {
+        int totalFrames = durationSeconds * FRAME_RATE;
+        double zoomStep;
+        double zoomMax;
+
+        switch (motionLevel == null ? "low" : motionLevel.toLowerCase()) {
+            case "high" -> {
+                zoomStep = 0.0018;
+                zoomMax = 1.34;
+            }
+            case "medium" -> {
+                zoomStep = 0.0012;
+                zoomMax = 1.24;
+            }
+            default -> {
+                zoomStep = 0.0008;
+                zoomMax = 1.16;
+            }
+        }
+
+        return String.format(
+                "scale=%d:%d:force_original_aspect_ratio=decrease," +
+                "pad=%d:%d:(ow-iw)/2:(oh-ih)/2," +
+                "zoompan=z='min(zoom+%.4f,%.2f)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=%d",
+                VIDEO_WIDTH, VIDEO_HEIGHT,
+                VIDEO_WIDTH, VIDEO_HEIGHT,
+                zoomStep, zoomMax,
                 totalFrames, VIDEO_WIDTH, VIDEO_HEIGHT, FRAME_RATE
         );
     }
@@ -335,6 +519,14 @@ public class VideoCompositionService {
         }
     }
 
+    private boolean shouldUseDynamicVideo(Storyboard shot) {
+        return Boolean.TRUE.equals(shot.getDynamicSelected()) || "video".equalsIgnoreCase(shot.getRenderMode());
+    }
+
+    private boolean hasText(String text) {
+        return text != null && !text.isBlank();
+    }
+
     private void cleanupDirectory(Path dir) {
         try {
             if (Files.exists(dir)) {
@@ -363,11 +555,20 @@ public class VideoCompositionService {
     /**
      * Get the latest successful video compose task result for a project.
      */
-    public TaskRecord getLatestVideoTask(Long projectId) {
+        public TaskRecord getLatestVideoTask(Long projectId) {
         return taskRecordMapper.selectOne(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<TaskRecord>()
                         .eq(TaskRecord::getProjectId, projectId)
-                        .eq(TaskRecord::getTaskType, "VIDEO_COMPOSE")
+                .eq(TaskRecord::getTaskType, "VIDEO_COMPOSE")
+                .orderByDesc(TaskRecord::getCreateTime)
+                .last("LIMIT 1"));
+        }
+
+        public TaskRecord getLatestPipelineTask(Long projectId) {
+        return taskRecordMapper.selectOne(
+            new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<TaskRecord>()
+                .eq(TaskRecord::getProjectId, projectId)
+                .in(TaskRecord::getTaskType, "IMAGE_GEN", "DYNAMIC_VIDEO_GEN", "AUDIO_GEN", "VIDEO_COMPOSE")
                         .orderByDesc(TaskRecord::getCreateTime)
                         .last("LIMIT 1"));
     }

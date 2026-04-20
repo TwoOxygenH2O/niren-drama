@@ -27,8 +27,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.UUID;
 
 @Slf4j
@@ -348,6 +350,13 @@ public class StoryboardService {
         if (update.getCameraAngle() != null) storyboard.setCameraAngle(update.getCameraAngle());
         if (update.getDuration() != null) storyboard.setDuration(update.getDuration());
         if (update.getImagePrompt() != null) storyboard.setImagePrompt(update.getImagePrompt());
+        if (update.getVideoPrompt() != null) storyboard.setVideoPrompt(update.getVideoPrompt());
+        if (update.getMotionLevel() != null) storyboard.setMotionLevel(normalizeMotionLevel(update.getMotionLevel()));
+        if (update.getDynamicSelected() != null) {
+            storyboard.setDynamicSelected(update.getDynamicSelected());
+            storyboard.setRenderMode(Boolean.TRUE.equals(update.getDynamicSelected()) ? "video" : "image");
+        }
+        if (update.getRenderMode() != null) storyboard.setRenderMode(update.getRenderMode());
         storyboardMapper.updateById(storyboard);
         return storyboard;
     }
@@ -372,6 +381,10 @@ public class StoryboardService {
                 - characterName: 主要角色名（如有，用于图片复用优化）
                 - sceneName: 场景名称（用于图片复用优化）
                 - isDynamic: 是否为动态镜头（true=需要AI视频生成，false=静态图片即可）
+                - dynamicReason: 推荐该镜头做动态的原因
+                - imagePrompt: 关键帧生图提示词
+                - videoPrompt: 基于关键帧生成动态镜头时的动作提示词
+                - motionLevel: 动态强度（low/medium/high）
                 
                 分镜优化要求：
                 1. 每集应包含80-100个镜头，总时长约8分钟（480秒）
@@ -379,6 +392,8 @@ public class StoryboardService {
                 3. 标记动态镜头：只有需要明显运动的镜头（如追逐、打斗、转场）标记isDynamic为true
                 4. 静态对话镜头占比应≥60%，以控制AI视频生成成本
                 5. 对话场景优先使用close-up和medium镜头
+                6. imagePrompt 负责描述关键帧画面，videoPrompt 只描述动作、镜头运动和情绪变化
+                7. 如果镜头更适合保留静态图，isDynamic 应明确返回 false，dynamicReason 说明不建议动态化的原因
                 
                 返回格式：{"shots": [...]}
                 """;
@@ -419,8 +434,12 @@ public class StoryboardService {
                 shot.setNarration(shotNode.path("narration").asText(null));
                 shot.setDuration(shotNode.path("duration").asInt(5));
                 shot.setStatus("draft");
-                // Build image prompt from description
-                shot.setImagePrompt(buildImagePrompt(shot));
+                shot.setImagePrompt(textOrNull(shotNode, "imagePrompt"));
+                if (!hasText(shot.getImagePrompt())) {
+                    shot.setImagePrompt(buildImagePrompt(shot));
+                }
+                shot.setVideoPrompt(textOrNull(shotNode, "videoPrompt"));
+                applyDynamicRecommendation(shot, shotNode);
                 shots.add(shot);
             }
         } catch (Exception e) {
@@ -433,6 +452,14 @@ public class StoryboardService {
             placeholder.setShotNo(1);
             placeholder.setDescription("AI生成的分镜脚本（解析失败，请手动编辑）");
             placeholder.setDuration(5);
+            placeholder.setImagePrompt(buildImagePrompt(placeholder));
+            placeholder.setVideoPrompt(buildVideoPrompt(placeholder, "low"));
+            placeholder.setMotionLevel("low");
+            placeholder.setDynamicRecommended(false);
+            placeholder.setDynamicSelected(false);
+            placeholder.setDynamicScore(0);
+            placeholder.setDynamicReason("当前镜头更适合保留为静态图片");
+            placeholder.setRenderMode("image");
             placeholder.setStatus("draft");
             shots.add(placeholder);
         }
@@ -445,4 +472,157 @@ public class StoryboardService {
                 shot.getCameraAngle() != null ? shot.getCameraAngle() : "medium shot",
                 "现代都市");
     }
+
+    private void applyDynamicRecommendation(Storyboard shot, JsonNode shotNode) {
+        boolean aiDynamic = shotNode.path("isDynamic").asBoolean(false);
+        String aiReason = textOrNull(shotNode, "dynamicReason");
+        String motionLevel = normalizeMotionLevel(textOrNull(shotNode, "motionLevel"));
+        int score = 0;
+        LinkedHashSet<String> reasons = new LinkedHashSet<>();
+
+        String description = lower(shot.getDescription());
+        String dialogue = lower(shot.getDialogue());
+        String narration = lower(shot.getNarration());
+        String cameraAngle = lower(shot.getCameraAngle());
+
+        if (aiDynamic) {
+            score += 34;
+            reasons.add(hasText(aiReason) ? aiReason : "AI判断该镜头存在明显动作或镜头运动");
+        }
+
+        if (containsKeyword(description, ACTION_KEYWORDS)
+                || containsKeyword(dialogue, ACTION_KEYWORDS)
+                || containsKeyword(narration, ACTION_KEYWORDS)) {
+            score += 26;
+            reasons.add("画面存在动作变化，适合加入动态表现");
+        }
+
+        if (containsKeyword(description, TRANSITION_KEYWORDS)
+                || containsKeyword(narration, TRANSITION_KEYWORDS)) {
+            score += 16;
+            reasons.add("该镜头承担转场或氛围推进作用");
+        }
+
+        if ("wide".equals(cameraAngle) || "overhead".equals(cameraAngle) || "pov".equals(cameraAngle)) {
+            score += 10;
+            reasons.add("镜头语言更适合做运动或推进");
+        }
+
+        if (shot.getDuration() != null && shot.getDuration() >= 6) {
+            score += 8;
+        }
+
+        if (hasText(dialogue) && !containsKeyword(description, ACTION_KEYWORDS) && !containsKeyword(narration, ACTION_KEYWORDS)) {
+            score -= 14;
+            reasons.add("该镜头更偏静态对白，保留图片即可");
+        }
+
+        if (!hasText(dialogue) && !hasText(narration)) {
+            score += 6;
+            reasons.add("纯画面镜头更适合通过动态强化氛围");
+        }
+
+        if (shot.getShotNo() != null && (shot.getShotNo() == 1 || shot.getShotNo() % 10 == 0)) {
+            score += 6;
+            reasons.add("关键节点镜头值得提高动态优先级");
+        }
+
+        score = Math.max(0, Math.min(score, 100));
+        boolean recommended = score >= 55;
+
+        if (!hasText(shot.getVideoPrompt())) {
+            shot.setVideoPrompt(buildVideoPrompt(shot, motionLevel));
+        }
+
+        shot.setMotionLevel(resolveMotionLevel(motionLevel, score));
+        shot.setDynamicRecommended(recommended);
+        shot.setDynamicSelected(false);
+        shot.setDynamicScore(score);
+        shot.setDynamicReason(buildDynamicReason(reasons, recommended));
+        shot.setRenderMode("image");
+    }
+
+    private String resolveMotionLevel(String aiMotionLevel, int score) {
+        if (hasText(aiMotionLevel)) {
+            return normalizeMotionLevel(aiMotionLevel);
+        }
+        if (score >= 78) {
+            return "high";
+        }
+        if (score >= 58) {
+            return "medium";
+        }
+        return "low";
+    }
+
+    private String buildDynamicReason(LinkedHashSet<String> reasons, boolean recommended) {
+        if (reasons.isEmpty()) {
+            return recommended ? "建议做轻动态处理以增强镜头表现" : "当前镜头更适合保留为静态图片";
+        }
+
+        List<String> topReasons = new ArrayList<>(reasons).subList(0, Math.min(2, reasons.size()));
+        return String.join("；", topReasons);
+    }
+
+    private String buildVideoPrompt(Storyboard shot, String motionLevel) {
+        String motionInstruction = switch (normalizeMotionLevel(motionLevel)) {
+            case "high" -> "镜头推进明显，人物动作幅度更大，情绪变化清晰";
+            case "medium" -> "镜头缓慢推进或轻微平移，突出人物动作与气氛变化";
+            default -> "保持关键帧主体不变，仅做轻微镜头推进和自然动作";
+        };
+
+        return String.format("基于该关键帧生成%ss的竖屏动态镜头，%s。画面主体保持一致，避免角色和场景漂移。%s",
+                shot.getDuration() != null ? shot.getDuration() : 5,
+                motionInstruction,
+                hasText(shot.getDescription()) ? shot.getDescription() : "保持剧情镜头连续性");
+    }
+
+    private String normalizeMotionLevel(String motionLevel) {
+        if (!hasText(motionLevel)) {
+            return "low";
+        }
+        String normalized = motionLevel.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "high", "medium", "low" -> normalized;
+            default -> "low";
+        };
+    }
+
+    private String textOrNull(JsonNode node, String fieldName) {
+        JsonNode value = node.path(fieldName);
+        if (value.isMissingNode() || value.isNull()) {
+            return null;
+        }
+        String text = value.asText();
+        return hasText(text) ? text.trim() : null;
+    }
+
+    private boolean hasText(String text) {
+        return text != null && !text.isBlank();
+    }
+
+    private String lower(String text) {
+        return text == null ? "" : text.toLowerCase(Locale.ROOT);
+    }
+
+    private boolean containsKeyword(String text, String[] keywords) {
+        if (!hasText(text)) {
+            return false;
+        }
+        for (String keyword : keywords) {
+            if (text.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static final String[] ACTION_KEYWORDS = {
+            "跑", "冲", "追", "打", "拥抱", "转身", "回头", "推门", "拉开", "坠", "摔", "扑", "走向",
+            "奔", "跳", "挥手", "起身", "镜头推进", "镜头拉远", "移动", "摇镜", "风吹", "雨", "火", "爆炸"
+    };
+
+    private static final String[] TRANSITION_KEYWORDS = {
+            "转场", "切换", "空镜", "远景", "夜景", "天台", "街道", "车流", "门外", "入场", "登场", "离开"
+    };
 }

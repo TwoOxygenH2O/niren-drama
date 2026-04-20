@@ -30,6 +30,20 @@ public class Storyboard extends BaseEntity {
     private String audioUrl;
     /** Image generation prompt */
     private String imagePrompt;
+    /** Video generation prompt */
+    private String videoPrompt;
+    /** low | medium | high */
+    private String motionLevel;
+    /** System recommendation for dynamic shot */
+    private Boolean dynamicRecommended;
+    /** Final user-selected dynamic shot */
+    private Boolean dynamicSelected;
+    /** Recommendation score 0-100 */
+    private Integer dynamicScore;
+    /** Recommendation reason for UI display */
+    private String dynamicReason;
+    /** image | video */
+    private String renderMode;
     /** draft | image_generated | video_generated | audio_generated | completed */
     private String status;
 }

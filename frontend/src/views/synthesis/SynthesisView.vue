@@ -18,6 +18,20 @@
         </div>
       </div>
       <div class="ov-card">
+        <div class="ov-icon" style="background:rgba(129,140,248,0.12)">✨</div>
+        <div class="ov-body">
+          <div class="ov-value">{{ overview.dynamicRecommended }}</div>
+          <div class="ov-label">推荐动态镜头</div>
+        </div>
+      </div>
+      <div class="ov-card">
+        <div class="ov-icon" style="background:rgba(59,130,246,0.12)">🎞️</div>
+        <div class="ov-body">
+          <div class="ov-value">{{ overview.dynamicReady }} / {{ overview.dynamicSelected }}</div>
+          <div class="ov-label">已选动态镜头</div>
+        </div>
+      </div>
+      <div class="ov-card">
         <div class="ov-icon" style="background:rgba(16,185,129,0.1)">🖼️</div>
         <div class="ov-body">
           <div class="ov-value">{{ overview.imagesReady }} / {{ overview.totalShots }}</div>
@@ -50,7 +64,8 @@
           <div class="step-num">1</div>
           <div class="step-info">
             <div class="step-name">生成分镜图片</div>
-            <div class="step-desc">AI 为每个分镜生成画面</div>
+            <div class="step-desc">AI 为每个分镜生成关键帧画面</div>
+            <div class="step-tip">{{ overview.imagesReady }} / {{ overview.totalShots }} 已就绪</div>
           </div>
           <el-button type="primary" :loading="imageLoading" @click="handleGenerateImages"
                      :disabled="overview.totalShots === 0">
@@ -58,13 +73,25 @@
           </el-button>
         </div>
 
-        <div class="step-arrow">→</div>
-
         <div class="action-step">
           <div class="step-num">2</div>
           <div class="step-info">
+            <div class="step-name">生成动态镜头</div>
+            <div class="step-desc">只为你勾选的镜头生成动态片段</div>
+            <div class="step-tip">{{ overview.dynamicReady }} / {{ overview.dynamicSelected }} 已生成</div>
+          </div>
+          <el-button type="primary" :loading="dynamicLoading" @click="handleGenerateDynamic"
+                     :disabled="overview.dynamicSelected === 0 || overview.imagesReady === 0">
+            {{ overview.dynamicReady === overview.dynamicSelected && overview.dynamicSelected > 0 ? '重新生成' : '开始生成' }}
+          </el-button>
+        </div>
+
+        <div class="action-step">
+          <div class="step-num">3</div>
+          <div class="step-info">
             <div class="step-name">生成配音</div>
             <div class="step-desc">TTS 为台词和旁白配音</div>
+            <div class="step-tip">{{ overview.audioReady }} / {{ overview.totalShots }} 已就绪</div>
           </div>
           <el-button type="primary" :loading="audioLoading" @click="handleGenerateAudio"
                      :disabled="overview.totalShots === 0">
@@ -72,13 +99,12 @@
           </el-button>
         </div>
 
-        <div class="step-arrow">→</div>
-
         <div class="action-step">
-          <div class="step-num">3</div>
+          <div class="step-num">4</div>
           <div class="step-info">
             <div class="step-name">合成视频</div>
-            <div class="step-desc">FFmpeg 合成竖屏成片</div>
+            <div class="step-desc">优先使用动态片段，没有则回退到静态图片</div>
+            <div class="step-tip">支持动态与静态镜头混合输出</div>
           </div>
           <el-button type="success" :loading="composeLoading" @click="handleCompose"
                      :disabled="overview.imagesReady === 0">
@@ -108,12 +134,7 @@
     <div v-if="overview.videoUrl" class="video-section">
       <div class="section-title">🎥 成片预览</div>
       <div class="video-wrapper">
-        <video
-          ref="videoPlayer"
-          :src="overview.videoUrl"
-          controls
-          class="video-player"
-        >
+        <video :src="overview.videoUrl" controls class="video-player">
           您的浏览器不支持视频播放
         </video>
       </div>
@@ -144,6 +165,9 @@
             <div class="shot-desc" :title="shot.description">{{ truncate(shot.description, 60) }}</div>
             <div class="shot-meta">
               <span v-if="shot.duration">⏱️ {{ shot.duration }}s</span>
+              <span v-if="shot.dynamicSelected" class="dynamic-selected">
+                {{ shot.videoUrl ? '🎞️ 动态已就绪' : '🎞️ 已选动态' }}
+              </span>
               <span v-if="shot.audioUrl" class="audio-ready">🔊 有配音</span>
               <span v-else class="audio-pending">🔇 无配音</span>
             </div>
@@ -167,6 +191,9 @@ const projectId = route.params.id as string
 
 const overview = ref<any>({
   totalShots: 0,
+  dynamicRecommended: 0,
+  dynamicSelected: 0,
+  dynamicReady: 0,
   imagesReady: 0,
   audioReady: 0,
   videoUrl: '',
@@ -174,9 +201,9 @@ const overview = ref<any>({
 const shots = ref<any[]>([])
 const currentTask = ref<any>(null)
 const imageLoading = ref(false)
+const dynamicLoading = ref(false)
 const audioLoading = ref(false)
 const composeLoading = ref(false)
-const videoPlayer = ref<HTMLVideoElement | null>(null)
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
@@ -226,9 +253,26 @@ async function handleGenerateAudio() {
   }
 }
 
+async function handleGenerateDynamic() {
+  dynamicLoading.value = true
+  try {
+    const res = await videoApi.generateDynamic(projectId)
+    currentTask.value = res.data.data
+    ElMessage.success('动态镜头生成任务已提交')
+    startPolling(currentTask.value.id)
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.message || '提交失败')
+  } finally {
+    dynamicLoading.value = false
+  }
+}
+
 async function handleCompose() {
   composeLoading.value = true
   try {
+    if (overview.value.dynamicSelected > overview.value.dynamicReady) {
+      ElMessage.warning('部分已选动态镜头尚未生成片段，未生成部分将回退为静态图片')
+    }
     const res = await videoApi.compose(projectId)
     currentTask.value = res.data.data
     ElMessage.success('视频合成任务已提交')
@@ -275,6 +319,7 @@ function stopPolling() {
 
 const taskTypeLabel = (t: string) => ({
   IMAGE_GEN: '🖼️ 分镜图片生成',
+  DYNAMIC_VIDEO_GEN: '🎞️ 动态镜头生成',
   AUDIO_GEN: '🎙️ 配音生成',
   VIDEO_COMPOSE: '🎬 视频合成',
 }[t] || t)
@@ -282,6 +327,7 @@ const taskTypeLabel = (t: string) => ({
 const shotStatusLabel = (s: string) => ({
   draft: '待处理',
   image_generated: '图片就绪',
+  video_generated: '动态片段就绪',
   audio_generated: '配音就绪',
   completed: '已完成',
 }[s] || s)
@@ -329,7 +375,7 @@ onUnmounted(() => {
 /* Overview cards */
 .overview-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -380,12 +426,11 @@ onUnmounted(() => {
   margin-bottom: 20px;
 }
 .action-steps {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
 }
 .action-step {
-  flex: 1;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -417,10 +462,10 @@ onUnmounted(() => {
   color: var(--text-muted);
   margin-top: 2px;
 }
-.step-arrow {
-  font-size: 24px;
-  color: var(--text-muted);
-  flex-shrink: 0;
+.step-tip {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 
 /* Task progress */
@@ -541,6 +586,7 @@ onUnmounted(() => {
 }
 .shot-status.status-draft { background: #f3f4f6; color: #6b7280; }
 .shot-status.status-image_generated { background: #dbeafe; color: #1e40af; }
+.shot-status.status-video_generated { background: #ede9fe; color: #6d28d9; }
 .shot-status.status-audio_generated { background: #fef3c7; color: #92400e; }
 .shot-status.status-completed { background: #d1fae5; color: #065f46; }
 
@@ -571,11 +617,13 @@ onUnmounted(() => {
   margin-bottom: 6px;
 }
 .shot-meta {
+  flex-wrap: wrap;
   display: flex;
   gap: 8px;
   font-size: 11px;
   color: var(--text-muted);
 }
+.dynamic-selected { color: #7c3aed; }
 .audio-ready { color: var(--color-success); }
 .audio-pending { color: var(--text-muted); }
 

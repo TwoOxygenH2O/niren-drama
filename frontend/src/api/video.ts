@@ -5,6 +5,10 @@ export const videoApi = {
   generateImages: (projectId: number | string) =>
     request.post(`/videos/generate-images/${projectId}`),
 
+  /** Generate dynamic clips for selected storyboard shots */
+  generateDynamic: (projectId: number | string) =>
+    request.post(`/videos/generate-dynamic/${projectId}`),
+
   /** Generate TTS audio for all storyboard shots */
   generateAudio: (projectId: number | string) =>
     request.post(`/videos/generate-audio/${projectId}`),

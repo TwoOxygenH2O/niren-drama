@@ -49,6 +49,14 @@ public class VideoController {
         return Result.success(storyboardService.startGenerateStoryboardAudio(userId, projectId));
     }
 
+    @Operation(summary = "生成动态镜头片段（异步）")
+    @PostMapping("/generate-dynamic/{projectId}")
+    public Result<TaskRecord> generateDynamic(@PathVariable Long projectId,
+                                              @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = currentUserHelper.getUserId(userDetails);
+        return Result.success(videoCompositionService.startGenerateDynamicVideos(userId, projectId));
+    }
+
     @Operation(summary = "合成视频（异步）")
     @PostMapping("/compose/{projectId}")
     public Result<TaskRecord> compose(@PathVariable Long projectId,
@@ -60,7 +68,7 @@ public class VideoController {
     @Operation(summary = "获取项目视频合成状态")
     @GetMapping("/status/{projectId}")
     public Result<TaskRecord> getStatus(@PathVariable Long projectId) {
-        TaskRecord task = videoCompositionService.getLatestVideoTask(projectId);
+        TaskRecord task = videoCompositionService.getLatestPipelineTask(projectId);
         return Result.success(task);
     }
 
@@ -100,12 +108,21 @@ public class VideoController {
         int totalShots = shots.size();
         long imagesReady = shots.stream().filter(s -> s.getImageUrl() != null && !s.getImageUrl().isBlank()).count();
         long audioReady = shots.stream().filter(s -> s.getAudioUrl() != null && !s.getAudioUrl().isBlank()).count();
+        long dynamicRecommended = shots.stream().filter(s -> Boolean.TRUE.equals(s.getDynamicRecommended())).count();
+        long dynamicSelected = shots.stream().filter(s -> Boolean.TRUE.equals(s.getDynamicSelected())).count();
+        long dynamicReady = shots.stream()
+            .filter(s -> Boolean.TRUE.equals(s.getDynamicSelected()))
+            .filter(s -> s.getVideoUrl() != null && !s.getVideoUrl().isBlank())
+            .count();
         String videoUrl = latestTask != null && "SUCCESS".equals(latestTask.getStatus()) ? latestTask.getResult() : null;
 
         Map<String, Object> overview = Map.of(
                 "totalShots", totalShots,
                 "imagesReady", imagesReady,
                 "audioReady", audioReady,
+                "dynamicRecommended", dynamicRecommended,
+                "dynamicSelected", dynamicSelected,
+                "dynamicReady", dynamicReady,
                 "videoUrl", videoUrl != null ? videoUrl : "",
                 "latestTask", latestTask != null ? latestTask : Map.of()
         );

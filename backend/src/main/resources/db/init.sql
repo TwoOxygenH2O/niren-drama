@@ -145,6 +145,13 @@ CREATE TABLE IF NOT EXISTS drama_storyboard (
     video_url    VARCHAR(500) COMMENT '分镜视频URL',
     audio_url    VARCHAR(500) COMMENT '配音音频URL',
     image_prompt TEXT         COMMENT 'AI生图提示词',
+    video_prompt TEXT         COMMENT '动态镜头视频提示词',
+    motion_level VARCHAR(20)  NOT NULL DEFAULT 'low' COMMENT '动态等级：low/medium/high',
+    dynamic_recommended TINYINT NOT NULL DEFAULT 0 COMMENT '是否推荐为动态镜头',
+    dynamic_selected TINYINT  NOT NULL DEFAULT 0 COMMENT '是否最终选择为动态镜头',
+    dynamic_score INT         NOT NULL DEFAULT 0 COMMENT '动态推荐分数 0-100',
+    dynamic_reason VARCHAR(500) COMMENT '动态推荐原因',
+    render_mode  VARCHAR(20)  NOT NULL DEFAULT 'image' COMMENT '最终渲染模式：image/video',
     status       VARCHAR(30)  NOT NULL DEFAULT 'draft' COMMENT '分镜状态',
     create_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -153,6 +160,15 @@ CREATE TABLE IF NOT EXISTS drama_storyboard (
     KEY idx_project_id (project_id),
     KEY idx_script_id (script_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='分镜脚本表';
+
+ALTER TABLE drama_storyboard
+    ADD COLUMN IF NOT EXISTS video_prompt TEXT COMMENT '动态镜头视频提示词' AFTER image_prompt,
+    ADD COLUMN IF NOT EXISTS motion_level VARCHAR(20) NOT NULL DEFAULT 'low' COMMENT '动态等级：low/medium/high' AFTER video_prompt,
+    ADD COLUMN IF NOT EXISTS dynamic_recommended TINYINT NOT NULL DEFAULT 0 COMMENT '是否推荐为动态镜头' AFTER motion_level,
+    ADD COLUMN IF NOT EXISTS dynamic_selected TINYINT NOT NULL DEFAULT 0 COMMENT '是否最终选择为动态镜头' AFTER dynamic_recommended,
+    ADD COLUMN IF NOT EXISTS dynamic_score INT NOT NULL DEFAULT 0 COMMENT '动态推荐分数 0-100' AFTER dynamic_selected,
+    ADD COLUMN IF NOT EXISTS dynamic_reason VARCHAR(500) COMMENT '动态推荐原因' AFTER dynamic_score,
+    ADD COLUMN IF NOT EXISTS render_mode VARCHAR(20) NOT NULL DEFAULT 'image' COMMENT '最终渲染模式：image/video' AFTER dynamic_reason;
 
 -- ===========================
 -- 素材资产表
