@@ -6,6 +6,7 @@ RUN apk add --no-cache maven && mvn clean package -DskipTests -q
 
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
+RUN apk add --no-cache ffmpeg
 RUN addgroup -S niren && adduser -S niren -G niren
 COPY --from=builder /app/target/*.jar app.jar
 RUN mkdir -p /app/uploads && chown -R niren:niren /app

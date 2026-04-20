@@ -2,7 +2,9 @@ package com.niren.drama.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.niren.drama.ai.AiProviderFactory;
+import com.niren.drama.ai.ImageAiProvider;
 import com.niren.drama.ai.TextAiProvider;
+import com.niren.drama.ai.TtsProvider;
 import com.niren.drama.dto.storyboard.StoryboardGenerateRequest;
 import com.niren.drama.entity.Script;
 import com.niren.drama.entity.Storyboard;
@@ -15,11 +17,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -31,6 +39,12 @@ public class StoryboardService {
     private final TaskRecordMapper taskRecordMapper;
     private final AiProviderFactory aiProviderFactory;
     private final ObjectMapper objectMapper;
+
+    @Value("${niren.upload.path:./uploads}")
+    private String uploadPath;
+
+    @Value("${niren.upload.base-url:http://localhost:8080/api/files}")
+    private String baseUrl;
 
     public TaskRecord startGenerateStoryboard(Long userId, StoryboardGenerateRequest request) {
         TaskRecord task = new TaskRecord();
@@ -78,6 +92,163 @@ public class StoryboardService {
             task.setMessage("分镜生成失败: " + e.getMessage());
             taskRecordMapper.updateById(task);
         }
+    }
+
+    /**
+     * Start generating images for all storyboard shots of a project.
+     */
+    public TaskRecord startGenerateStoryboardImages(Long userId, Long projectId) {
+        List<Storyboard> shots = listByProject(projectId);
+        if (shots.isEmpty()) throw new BusinessException("项目下没有分镜数据，请先生成分镜");
+
+        TaskRecord task = new TaskRecord();
+        task.setProjectId(projectId);
+        task.setUserId(userId);
+        task.setTaskType("IMAGE_GEN");
+        task.setStatus("PENDING");
+        task.setProgress(0);
+        task.setMessage("任务已提交，等待为分镜生成图片...");
+        taskRecordMapper.insert(task);
+        generateStoryboardImagesAsync(userId, projectId, shots, task.getId());
+        return task;
+    }
+
+    @Async("aiTaskExecutor")
+    public void generateStoryboardImagesAsync(Long userId, Long projectId, List<Storyboard> shots, Long taskId) {
+        TaskRecord task = taskRecordMapper.selectById(taskId);
+        if (task == null) return;
+        try {
+            ImageAiProvider imageProvider = aiProviderFactory.getImageProvider(userId);
+            int total = shots.size();
+            int completed = 0;
+
+            for (Storyboard shot : shots) {
+                if (shot.getImageUrl() != null && !shot.getImageUrl().isBlank()) {
+                    completed++;
+                    continue;
+                }
+
+                String prompt = shot.getImagePrompt();
+                if (prompt == null || prompt.isBlank()) {
+                    prompt = buildImagePrompt(shot);
+                }
+
+                updateTask(task, "RUNNING",
+                        10 + (80 * completed / total),
+                        String.format("正在生成第%d/%d个分镜图片...", completed + 1, total));
+
+                try {
+                    String imageUrl = imageProvider.generateImage(prompt, "1024x1792", "vivid");
+                    shot.setImageUrl(imageUrl);
+                    shot.setStatus("image_generated");
+                    storyboardMapper.updateById(shot);
+                } catch (Exception e) {
+                    log.warn("Failed to generate image for shot {}: {}", shot.getShotNo(), e.getMessage());
+                }
+                completed++;
+            }
+
+            task.setStatus("SUCCESS");
+            task.setProgress(100);
+            task.setMessage(String.format("分镜图片生成完成，共处理%d个镜头", total));
+            taskRecordMapper.updateById(task);
+
+        } catch (Exception e) {
+            log.error("Storyboard image generation failed for task {}", taskId, e);
+            task.setStatus("FAILED");
+            task.setMessage("分镜图片生成失败: " + e.getMessage());
+            taskRecordMapper.updateById(task);
+        }
+    }
+
+    /**
+     * Start generating TTS audio for all storyboard shots of a project.
+     */
+    public TaskRecord startGenerateStoryboardAudio(Long userId, Long projectId) {
+        List<Storyboard> shots = listByProject(projectId);
+        if (shots.isEmpty()) throw new BusinessException("项目下没有分镜数据，请先生成分镜");
+
+        TaskRecord task = new TaskRecord();
+        task.setProjectId(projectId);
+        task.setUserId(userId);
+        task.setTaskType("AUDIO_GEN");
+        task.setStatus("PENDING");
+        task.setProgress(0);
+        task.setMessage("任务已提交，等待为分镜生成配音...");
+        taskRecordMapper.insert(task);
+        generateStoryboardAudioAsync(userId, projectId, shots, task.getId());
+        return task;
+    }
+
+    @Async("aiTaskExecutor")
+    public void generateStoryboardAudioAsync(Long userId, Long projectId, List<Storyboard> shots, Long taskId) {
+        TaskRecord task = taskRecordMapper.selectById(taskId);
+        if (task == null) return;
+        try {
+            TtsProvider ttsProvider = aiProviderFactory.getTtsProvider(userId);
+            int total = shots.size();
+            int completed = 0;
+
+            Path audioDir = Paths.get(uploadPath, "audios");
+            Files.createDirectories(audioDir);
+
+            for (Storyboard shot : shots) {
+                // Build text to synthesize: combine dialogue and narration
+                String text = buildTtsText(shot);
+                if (text.isBlank()) {
+                    completed++;
+                    continue;
+                }
+
+                if (shot.getAudioUrl() != null && !shot.getAudioUrl().isBlank()) {
+                    completed++;
+                    continue;
+                }
+
+                updateTask(task, "RUNNING",
+                        10 + (80 * completed / total),
+                        String.format("正在生成第%d/%d个分镜配音...", completed + 1, total));
+
+                try {
+                    byte[] audioData = ttsProvider.synthesize(text, "alloy", 1.0f, 1.0f);
+                    if (audioData != null && audioData.length > 100) {
+                        String filename = UUID.randomUUID().toString().replace("-", "") + ".mp3";
+                        Path audioFile = audioDir.resolve(filename);
+                        Files.write(audioFile, audioData);
+
+                        shot.setAudioUrl(baseUrl + "/audios/" + filename);
+                        shot.setStatus("audio_generated");
+                        storyboardMapper.updateById(shot);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to generate audio for shot {}: {}", shot.getShotNo(), e.getMessage());
+                }
+                completed++;
+            }
+
+            task.setStatus("SUCCESS");
+            task.setProgress(100);
+            task.setMessage(String.format("分镜配音生成完成，共处理%d个镜头", total));
+            taskRecordMapper.updateById(task);
+
+        } catch (Exception e) {
+            log.error("Storyboard audio generation failed for task {}", taskId, e);
+            task.setStatus("FAILED");
+            task.setMessage("分镜配音生成失败: " + e.getMessage());
+            taskRecordMapper.updateById(task);
+        }
+    }
+
+    private String buildTtsText(Storyboard shot) {
+        StringBuilder sb = new StringBuilder();
+        if (shot.getNarration() != null && !shot.getNarration().isBlank()) {
+            sb.append(shot.getNarration());
+        }
+        if (shot.getDialogue() != null && !shot.getDialogue().isBlank()) {
+            if (!sb.isEmpty()) sb.append("。");
+            sb.append(shot.getDialogue());
+        }
+        return sb.toString().trim();
     }
 
     public List<Storyboard> listByProject(Long projectId) {

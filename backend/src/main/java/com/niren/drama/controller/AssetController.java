@@ -56,7 +56,5 @@ public class AssetController {
 
     private Long getUserId(UserDetails userDetails) {
         return currentUserHelper.getUserId(userDetails);
-                .eq(User::getUsername, userDetails.getUsername()));
-        return user.getId();
     }
 }

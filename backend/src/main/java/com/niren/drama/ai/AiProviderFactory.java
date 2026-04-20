@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.niren.drama.ai.impl.MockTtsProvider;
 import com.niren.drama.ai.impl.OpenAiImageProvider;
 import com.niren.drama.ai.impl.OpenAiTextProvider;
+import com.niren.drama.ai.impl.OpenAiTtsProvider;
 import com.niren.drama.entity.AiConfig;
 import com.niren.drama.mapper.AiConfigMapper;
 import lombok.RequiredArgsConstructor;
@@ -32,7 +33,15 @@ public class AiProviderFactory {
     }
 
     public TtsProvider getTtsProvider(Long userId) {
-        // TODO: implement real TTS provider based on config
+        AiConfig config = getDefaultConfig(userId, "tts");
+        if (config != null && config.getApiKey() != null && !config.getApiKey().isBlank()) {
+            String baseUrl = config.getBaseUrl() != null && !config.getBaseUrl().isBlank()
+                    ? config.getBaseUrl() : "https://api.openai.com/v1";
+            String model = config.getModel() != null && !config.getModel().isBlank()
+                    ? config.getModel() : "tts-1";
+            return new OpenAiTtsProvider(baseUrl, config.getApiKey(), model);
+        }
+        // Fallback to mock when no TTS config is available
         return new MockTtsProvider();
     }
 
