@@ -118,14 +118,19 @@ public class CharacterService {
     }
 
     private String buildCharacterImagePrompt(Character character) {
+        String gender = character.getGender() != null
+                ? (character.getGender().equals("female") ? "女性" : "男性")
+                : "";
+        String age = character.getAge() != null ? character.getAge() : "25";
+        String appearance = character.getAppearance() != null ? character.getAppearance() : "五官精致，气质出众";
+        String personality = character.getPersonality() != null ? character.getPersonality() : "自信从容";
         return String.format(
-                "角色肖像，%s，%s，%s岁，外貌特征：%s，性格：%s，" +
-                "专业摄影，高清，白色背景，正面照，竖版构图",
-                character.getName(),
-                character.getGender() != null ? character.getGender().equals("female") ? "女性" : "男性" : "",
-                character.getAge() != null ? character.getAge() : "25",
-                character.getAppearance() != null ? character.getAppearance() : "普通",
-                character.getPersonality() != null ? character.getPersonality() : "温和"
-        );
+                "竖版9:16构图，短剧角色肖像定妆照，%s，%s，%s岁，"
+                + "外貌特征：%s，气质：%s，"
+                + "半身正面照，眼神有戏，电影级质感，高清4K，"
+                + "柔和的伦勃朗光影，浅灰色干净背景，"
+                + "专业摄影，浅景深虚化，适合作为短剧角色定妆照",
+                character.getName(), gender, age,
+                appearance, personality);
     }
 }

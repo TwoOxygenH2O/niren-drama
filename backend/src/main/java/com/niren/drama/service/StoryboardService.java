@@ -370,30 +370,41 @@ public class StoryboardService {
 
     private String buildStoryboardSystemPrompt() {
         return """
-                你是一位专业的分镜导演，擅长将剧本拆解为精确的分镜脚本。
+                # 角色定位
+                你是一位顶级短剧分镜导演，专精竖屏短剧（9:16）分镜脚本制作。
+                你的分镜脚本对标红果短剧、抖音短剧保底S+评级标准，需要做到：节奏精准、视觉冲击力强、爽点镜头密集。
+                
+                # 分镜拆解规范
                 请将剧本拆解为JSON格式的分镜列表，每个镜头包含以下字段：
                 - shotNo: 镜头序号（从1开始）
-                - description: 画面描述（用于AI生图的详细描述）
-                - cameraAngle: 镜头语言（close-up/medium/wide/overhead/pov）
-                - dialogue: 角色台词（如有）
+                - description: 画面描述（详细到人物表情、肢体动作、环境光影、景深效果，用于AI精准生图）
+                - cameraAngle: 镜头语言（close-up/medium/wide/overhead/pov/low-angle/high-angle/tracking）
+                - dialogue: 角色台词（如有，标注说话角色名）
                 - narration: 旁白（如有）
-                - duration: 镜头时长（秒，3-8秒）
-                - characterName: 主要角色名（如有，用于图片复用优化）
-                - sceneName: 场景名称（用于图片复用优化）
-                - isDynamic: 是否为动态镜头（true=需要AI视频生成，false=静态图片即可）
-                - dynamicReason: 推荐该镜头做动态的原因
-                - imagePrompt: 关键帧生图提示词
-                - videoPrompt: 基于关键帧生成动态镜头时的动作提示词
+                - duration: 镜头时长（秒，2-8秒，爽点镜头≤3秒加速节奏）
+                - characterName: 主要角色名（如有，用于角色一致性和图片复用）
+                - sceneName: 场景名称（用于场景复用优化）
+                - isDynamic: 是否为动态镜头（true=需要AI视频，false=静态图片即可）
+                - dynamicReason: 推荐/不推荐动态的具体原因
+                - imagePrompt: AI生图提示词（中文，需包含：主体描述+表情动作+环境光影+构图+风格关键词，竖版9:16）
+                - videoPrompt: 动态镜头视频提示词（基于关键帧的动作+镜头运动描述）
                 - motionLevel: 动态强度（low/medium/high）
                 
-                分镜优化要求：
-                1. 每集应包含80-100个镜头，总时长约8分钟（480秒）
-                2. 尽量复用场景：同一场景中的连续对话镜头使用相同sceneName
-                3. 标记动态镜头：只有需要明显运动的镜头（如追逐、打斗、转场）标记isDynamic为true
-                4. 静态对话镜头占比应≥60%，以控制AI视频生成成本
-                5. 对话场景优先使用close-up和medium镜头
-                6. imagePrompt 负责描述关键帧画面，videoPrompt 只描述动作、镜头运动和情绪变化
-                7. 如果镜头更适合保留静态图，isDynamic 应明确返回 false，dynamicReason 说明不建议动态化的原因
+                # 分镜优化要求（S+评级标准）
+                1. 每集 80-100 个镜头，总时长 360-480 秒（6-8分钟）
+                2. 开场黄金3秒：第1个镜头必须是视觉冲击或悬念特写
+                3. 爽点镜头节奏：每12-15个镜头（约2分钟）插入一个爽点高潮镜头组（3-5个快切镜头）
+                4. 场景复用率≥60%%：同一场景的连续对话镜头使用相同 sceneName
+                5. 对话场景优先 close-up 和 medium，占比≥60%%
+                6. 动态镜头控制：仅追逐/打斗/拥抱/转场等明显运动镜头标记 isDynamic=true，占比≤30%%
+                7. imagePrompt 必须足够详细：包含人物外貌、服装、表情、动作、场景环境、光影氛围、画面风格
+                8. videoPrompt 只描述基于静态关键帧的动作变化和镜头运动，不重复画面描述
+                9. 集末最后3-5个镜头：必须是悬念/反转/情绪高潮的快切组合
+                10. 如果镜头更适合静态图，isDynamic 必须为 false，dynamicReason 说明原因
+                
+                # imagePrompt 模板
+                每个 imagePrompt 应包含以下要素：
+                "竖版9:16构图，[镜头类型]，[人物主体描述含外貌服装表情动作]，[场景环境描述]，[光影氛围]，电影级质感，高清4K，[风格关键词如：戏剧性光影/高饱和度/冷色调/暖色调]"
                 
                 返回格式：{"shots": [...]}
                 """;
@@ -401,11 +412,20 @@ public class StoryboardService {
 
     private String buildStoryboardUserPrompt(String scriptContent) {
         return String.format("""
-                请将以下剧本拆解为详细分镜脚本，以JSON格式返回：
+                请将以下短剧剧本精准拆解为分镜脚本，以JSON格式返回。
                 
+                ## 拆解要求
+                1. 严格按剧本场景顺序拆解，不遗漏任何场景和对白
+                2. 每个场景拆为3-8个镜头（根据场景重要性调整）
+                3. 爽点场景加密镜头（快切+特写），平叙场景精简镜头
+                4. imagePrompt 需详细到可以直接用于AI生图，包含人物外貌、表情、场景、光影
+                5. 保持角色外貌描述一致性：同一角色在不同镜头的外貌描述必须统一
+                6. 这是保底级付费短剧分镜,红果短剧、抖音短剧标准，爽点密集，适合平台保底S+评级
+                
+                ## 剧本内容
                 %s
                 
-                注意：画面描述需要足够详细，便于AI生成图片。
+                注意：画面描述需要足够详细，便于AI高质量生图。每个imagePrompt至少50字。
                 """, scriptContent);
     }
 
@@ -467,10 +487,11 @@ public class StoryboardService {
     }
 
     private String buildImagePrompt(Storyboard shot) {
-        return String.format("垂直构图9:16，%s，镜头：%s，%s风格，电影质感，高清4K",
-                shot.getDescription(),
-                shot.getCameraAngle() != null ? shot.getCameraAngle() : "medium shot",
-                "现代都市");
+        String cameraAngle = shot.getCameraAngle() != null ? shot.getCameraAngle() : "medium shot";
+        String description = shot.getDescription() != null ? shot.getDescription() : "短剧场景画面";
+        return String.format(
+                "竖版9:16构图，%s镜头，%s，电影级质感，高清4K，戏剧性光影，高饱和度色彩，短剧封面级画质，景深效果，专业摄影",
+                cameraAngle, description);
     }
 
     private void applyDynamicRecommendation(Storyboard shot, JsonNode shotNode) {
@@ -566,15 +587,17 @@ public class StoryboardService {
 
     private String buildVideoPrompt(Storyboard shot, String motionLevel) {
         String motionInstruction = switch (normalizeMotionLevel(motionLevel)) {
-            case "high" -> "镜头推进明显，人物动作幅度更大，情绪变化清晰";
-            case "medium" -> "镜头缓慢推进或轻微平移，突出人物动作与气氛变化";
-            default -> "保持关键帧主体不变，仅做轻微镜头推进和自然动作";
+            case "high" -> "镜头快速推进，人物动作幅度大且连贯，情绪变化强烈，画面张力十足";
+            case "medium" -> "镜头缓慢推进或平滑横移，人物有自然的肢体动作和表情变化，氛围渐进式增强";
+            default -> "保持关键帧主体不变，仅做极轻微的镜头缓推和自然微动（呼吸感/发丝飘动/光影变化）";
         };
 
-        return String.format("基于该关键帧生成%ss的竖屏动态镜头，%s。画面主体保持一致，避免角色和场景漂移。%s",
+        String sceneContext = hasText(shot.getDescription()) ? shot.getDescription() : "保持剧情镜头连续性";
+        return String.format(
+                "基于该关键帧生成%ds竖屏9:16动态镜头。%s。画面主体保持一致，避免角色面部和场景漂移变形。场景：%s。确保动态自然流畅，符合短剧叙事节奏。",
                 shot.getDuration() != null ? shot.getDuration() : 5,
                 motionInstruction,
-                hasText(shot.getDescription()) ? shot.getDescription() : "保持剧情镜头连续性");
+                sceneContext);
     }
 
     private String normalizeMotionLevel(String motionLevel) {

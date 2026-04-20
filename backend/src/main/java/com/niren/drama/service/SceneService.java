@@ -110,12 +110,21 @@ public class SceneService {
     }
 
     private String buildSceneImagePrompt(Scene scene) {
+        String timeOfDay = scene.getTimeOfDay() != null ? scene.getTimeOfDay() : "day";
+        String location = scene.getLocation() != null ? scene.getLocation() : "outdoor";
+        String timeLight = switch (timeOfDay) {
+            case "night" -> "夜晚氛围，城市灯光/月光照射，冷色调蓝紫光影";
+            case "sunset", "dusk" -> "黄昏金色光线，暖色调，天空渐变色";
+            case "morning", "dawn" -> "清晨柔和光线，薄雾氛围，暖白色调";
+            default -> "日间自然光，明亮通透，光影层次分明";
+        };
         return String.format(
-                "场景背景图，%s，%s，%s，%s，竖版构图9:16，电影级画质，无人物，高清4K",
+                "竖版9:16构图，短剧场景背景图，%s，%s，%s，%s，"
+                + "无人物，电影级质感，高清4K，景深效果，丰富的环境细节，"
+                + "戏剧性光影，适合作为短剧分镜背景使用",
                 scene.getName(),
                 scene.getDescription() != null ? scene.getDescription() : "",
-                scene.getTimeOfDay() != null ? scene.getTimeOfDay() : "day",
-                scene.getLocation() != null ? scene.getLocation() : "outdoor"
-        );
+                location.equals("indoor") ? "室内场景" : "室外场景",
+                timeLight);
     }
 }
