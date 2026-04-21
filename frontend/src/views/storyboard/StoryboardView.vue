@@ -4,30 +4,26 @@
       <span class="page-title">分镜制作</span>
     </div>
 
-    <!-- Generate -->
     <el-card class="gen-card">
       <template #header><b>AI 生成分镜</b></template>
       <el-form :model="genForm" inline>
         <el-form-item label="选择剧本">
-          <el-select v-model="genForm.scriptId" placeholder="请选择剧本" style="width: 240px">
+          <el-select v-model="genForm.scriptId" placeholder="请选择剧本" style="width: 260px">
             <el-option
-              v-for="s in scripts"
-              :key="s.id"
-              :label="s.title || `第${s.episodeNo}集`"
-              :value="s.id"
+              v-for="script in scripts"
+              :key="script.id"
+              :label="script.title || `第${script.episodeNo}集`"
+              :value="script.id"
             />
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="generating" :disabled="!genForm.scriptId" @click="handleGenerate">
-            🤖 AI 拆解分镜
+          <el-button type="primary" :loading="previewDialog.generating" :disabled="!genForm.scriptId || previewDialog.saving" @click="handleGenerate">
+            AI 拆解分镜
           </el-button>
         </el-form-item>
       </el-form>
-      <div v-if="currentTask" class="task-progress">
-        <el-progress :percentage="currentTask.progress" :status="taskStatus(currentTask.status)" />
-        <div class="task-msg">{{ currentTask.message }}</div>
-      </div>
+      <div class="form-tip">分镜 JSON 会先进入预览弹窗，你可以手工调整后再确认入库。</div>
     </el-card>
 
     <el-card v-if="storyboards.length" class="recommend-card">
@@ -52,7 +48,6 @@
       </div>
     </el-card>
 
-    <!-- Storyboard grid -->
     <div class="storyboard-grid" v-if="storyboards.length">
       <div
         v-for="shot in storyboards"
@@ -112,70 +107,134 @@
       </div>
     </div>
 
-    <el-empty v-else-if="!generating" description="暂无分镜，请先生成剧本再拆解分镜" />
+    <el-empty v-else description="暂无分镜，请先生成剧本再拆解分镜" />
+
+    <AiPreviewDialog
+      v-model="previewDialog.visible"
+      title="分镜预览工作台"
+      subtitle="实时接收 AI 拆解的分镜 JSON，允许在确认前手工修正结构与字段。"
+      description="保存时会替换当前剧本已有分镜。建议保留 shots 数组和每个镜头的核心字段，确保 JSON 可解析。"
+      :phase-text="previewDialog.generating ? '流式生成中' : '待确认保存'"
+      :loading="previewDialog.generating"
+      :confirm-loading="previewDialog.saving"
+      :confirm-disabled="previewDialog.generating || !previewDialog.content.trim()"
+      confirm-text="确认保存分镜"
+      :error-message="previewDialog.error"
+      @confirm="savePreview"
+      @cancel="resetPreviewDialog"
+    >
+      <template #meta>
+        <span class="preview-chip">{{ selectedScriptLabel }}</span>
+        <span class="preview-chip">JSON 结构</span>
+      </template>
+      <div class="preview-toolbar">
+        <span>建议保留 {"shots": [...]} 的整体结构；保存时会严格校验 JSON，再替换当前剧本分镜。</span>
+      </div>
+      <el-input
+        v-model="previewDialog.content"
+        type="textarea"
+        :rows="30"
+        class="preview-editor"
+        placeholder="AI 生成的分镜 JSON 会实时出现在这里，可直接修改。"
+      />
+    </AiPreviewDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import AiPreviewDialog from '@/components/AiPreviewDialog.vue'
 import { scriptApi } from '@/api/script'
 import { storyboardApi } from '@/api/storyboard'
-import { taskApi } from '@/api/task'
 
 const route = useRoute()
 const projectId = route.params.id
 
 const scripts = ref<any[]>([])
 const storyboards = ref<any[]>([])
-const generating = ref(false)
-const currentTask = ref<any>(null)
 const selectionLoading = ref(false)
 const updatingIds = ref(new Set<number>())
-let pollTimer: any = null
-
 const genForm = ref({ scriptId: '' })
 
-const recommendedCount = computed(() => storyboards.value.filter(shot => !!shot.dynamicRecommended).length)
-const selectedCount = computed(() => storyboards.value.filter(shot => !!shot.dynamicSelected).length)
+const previewDialog = ref({
+  visible: false,
+  generating: false,
+  saving: false,
+  error: '',
+  content: '',
+})
 
-const shotStatusLabel = (s: string) => ({
-  draft: '草稿', image_generated: '图片已生成',
-  video_generated: '视频已生成', audio_generated: '音频已生成', completed: '已完成'
-}[s] || s)
-const taskStatus = (s: string) => s === 'SUCCESS' ? 'success' : s === 'FAILED' ? 'exception' : undefined
+const recommendedCount = computed(() => storyboards.value.filter((shot) => !!shot.dynamicRecommended).length)
+const selectedCount = computed(() => storyboards.value.filter((shot) => !!shot.dynamicSelected).length)
+const selectedScript = computed(() => scripts.value.find((script) => String(script.id) === String(genForm.value.scriptId)))
+const selectedScriptLabel = computed(() => selectedScript.value?.title || (selectedScript.value ? `第${selectedScript.value.episodeNo}集` : '未选择剧本'))
+
+const shotStatusLabel = (status: string) => ({
+  draft: '草稿',
+  image_generated: '图片已生成',
+  video_generated: '视频已生成',
+  audio_generated: '音频已生成',
+  completed: '已完成',
+}[status] || status)
+
 const motionLevelLabel = (level: string) => ({ low: '轻动态', medium: '中动态', high: '强动态' }[level] || '轻动态')
 
+function resetPreviewDialog() {
+  previewDialog.value.visible = false
+  previewDialog.value.generating = false
+  previewDialog.value.saving = false
+  previewDialog.value.error = ''
+}
+
 async function handleGenerate() {
-  if (!genForm.value.scriptId) return
-  generating.value = true
+  if (!genForm.value.scriptId) {
+    return
+  }
+
+  previewDialog.value.visible = true
+  previewDialog.value.generating = true
+  previewDialog.value.error = ''
+  previewDialog.value.content = ''
+
   try {
-    const res = await storyboardApi.generate({ scriptId: genForm.value.scriptId, projectId: projectId as string })
-    currentTask.value = res.data.data
-    startPolling(currentTask.value.id)
-  } catch {
-    generating.value = false
+    await storyboardApi.generatePreviewStream(
+      { scriptId: genForm.value.scriptId, projectId: projectId as string },
+      {
+        onChunk: (content) => {
+          previewDialog.value.content += content
+        },
+        onDone: () => {
+          previewDialog.value.generating = false
+          ElMessage.success('分镜预览生成完成，请确认后保存')
+        },
+        onError: (message) => {
+          previewDialog.value.error = message
+          previewDialog.value.generating = false
+        },
+      },
+    )
+  } catch (error: any) {
+    previewDialog.value.error = error?.message || '分镜预览生成失败'
+    previewDialog.value.generating = false
   }
 }
 
-function startPolling(taskId: number) {
-  pollTimer = setInterval(async () => {
-    try {
-      const res = await taskApi.get(taskId)
-      currentTask.value = res.data.data
-      if (['SUCCESS', 'FAILED'].includes(currentTask.value.status)) {
-        clearInterval(pollTimer)
-        generating.value = false
-        if (currentTask.value.status === 'SUCCESS') {
-          ElMessage.success('分镜生成成功！')
-          loadStoryboards()
-        } else {
-          ElMessage.error('分镜生成失败: ' + currentTask.value.message)
-        }
-      }
-    } catch {}
-  }, 2000)
+async function savePreview() {
+  previewDialog.value.saving = true
+  try {
+    await storyboardApi.savePreview({
+      scriptId: genForm.value.scriptId,
+      projectId: projectId as string,
+      content: previewDialog.value.content,
+    })
+    ElMessage.success('分镜已保存')
+    resetPreviewDialog()
+    await loadStoryboards()
+  } finally {
+    previewDialog.value.saving = false
+  }
 }
 
 async function loadStoryboards() {
@@ -209,14 +268,14 @@ async function handleDynamicToggle(shot: any, dynamicSelected: boolean | string 
 }
 
 async function applyRecommendations() {
-  const targets = storyboards.value.filter(shot => !!shot.dynamicRecommended && !shot.dynamicSelected)
+  const targets = storyboards.value.filter((shot) => !!shot.dynamicRecommended && !shot.dynamicSelected)
   if (!targets.length) {
     return
   }
 
   selectionLoading.value = true
   try {
-    await Promise.all(targets.map(shot =>
+    await Promise.all(targets.map((shot) =>
       storyboardApi.update(shot.id, { dynamicSelected: true, renderMode: 'video' }),
     ))
     await loadStoryboards()
@@ -230,14 +289,14 @@ async function applyRecommendations() {
 }
 
 async function clearDynamicSelection() {
-  const targets = storyboards.value.filter(shot => !!shot.dynamicSelected)
+  const targets = storyboards.value.filter((shot) => !!shot.dynamicSelected)
   if (!targets.length) {
     return
   }
 
   selectionLoading.value = true
   try {
-    await Promise.all(targets.map(shot =>
+    await Promise.all(targets.map((shot) =>
       storyboardApi.update(shot.id, { dynamicSelected: false, renderMode: 'image' }),
     ))
     await loadStoryboards()
@@ -255,7 +314,6 @@ onMounted(async () => {
   scripts.value = res.data.data || []
   await loadStoryboards()
 })
-onUnmounted(() => clearInterval(pollTimer))
 </script>
 
 <style scoped>
@@ -263,8 +321,41 @@ onUnmounted(() => clearInterval(pollTimer))
 .page-header { margin-bottom: 20px; }
 .page-title { font-size: 20px; font-weight: 600; }
 .gen-card { margin-bottom: 20px; }
-.task-progress { margin-top: 16px; }
-.task-msg { font-size: 13px; color: #718096; margin-top: 8px; }
+.form-tip { color: #64748b; font-size: 12px; }
+
+.preview-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.preview-toolbar {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f8faff;
+  border: 1px solid #e7ecff;
+  color: #475569;
+  font-size: 12px;
+}
+
+.preview-editor :deep(.el-textarea__inner) {
+  min-height: 360px;
+  border-radius: 16px;
+  border: 1px solid #dbe2f0;
+  background: linear-gradient(180deg, #fbfdff 0%, #f7f9fc 100%);
+  color: #0f172a;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.04);
+}
 
 .recommend-card {
   margin-bottom: 20px;
@@ -273,96 +364,134 @@ onUnmounted(() => clearInterval(pollTimer))
 .recommend-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
   gap: 16px;
+  align-items: flex-start;
 }
 
 .recommend-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: #1f2937;
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f172a;
 }
 
 .recommend-sub {
   margin-top: 6px;
-  font-size: 13px;
   color: #64748b;
+  font-size: 13px;
 }
 
 .recommend-stats {
   display: flex;
-  gap: 12px;
-  font-size: 13px;
+  gap: 10px;
+  font-size: 12px;
   color: #475569;
-  white-space: nowrap;
 }
 
 .recommend-actions {
+  margin-top: 14px;
   display: flex;
   gap: 10px;
-  margin-top: 16px;
 }
 
 .storyboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
 }
 
 .shot-card {
   background: #fff;
-  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
   overflow: hidden;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  box-shadow: var(--shadow-sm);
 }
 
 .shot-card.recommended {
-  border-color: #c7d2fe;
+  border-color: rgba(59, 130, 246, 0.28);
 }
 
 .shot-card.selected {
-  border-color: #60a5fa;
-  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.18);
+  border-color: rgba(99, 102, 241, 0.32);
+  box-shadow: 0 10px 24px rgba(99, 102, 241, 0.14);
 }
 
 .shot-image {
-  height: 160px;
-  background: #f7f8fa;
-  overflow: hidden;
-  position: relative;
+  height: 240px;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.shot-image img { width: 100%; height: 100%; object-fit: cover; }
-.shot-placeholder {
+
+.shot-image img {
+  width: 100%;
   height: 100%;
+  object-fit: cover;
+}
+
+.shot-placeholder {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  gap: 10px;
+}
+
+.shot-no {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.shot-info {
+  padding: 16px;
+}
+
+.shot-header {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  margin-bottom: 10px;
 }
 
-.shot-info { padding: 12px; }
-.shot-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.shot-no-badge {
-  background: #6366f1;
-  color: #fff;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 700;
+.shot-no-badge,
+.shot-camera,
+.shot-duration {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
 }
-.shot-camera { font-size: 11px; color: #718096; background: #f0f0f0; padding: 2px 6px; border-radius: 4px; }
-.shot-duration { font-size: 11px; color: #718096; margin-left: auto; }
 
-.shot-desc { font-size: 13px; color: #4a5568; margin-bottom: 6px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.shot-dialogue, .shot-narration { font-size: 12px; color: #718096; margin-bottom: 4px; display: flex; align-items: flex-start; gap: 4px; }
-.shot-status { margin-top: 8px; }
+.shot-no-badge { background: #eef2ff; color: #4f46e5; }
+.shot-camera { background: #f1f5f9; color: #475569; }
+.shot-duration { background: #ecfeff; color: #0f766e; }
+
+.shot-desc,
+.shot-dialogue,
+.shot-narration {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #334155;
+}
+
+.shot-dialogue,
+.shot-narration {
+  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.shot-status {
+  margin-top: 12px;
+}
 
 .dynamic-card {
-  margin-top: 12px;
+  margin-top: 14px;
   padding: 12px;
-  border-radius: 10px;
+  border-radius: 14px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
 }
@@ -370,14 +499,14 @@ onUnmounted(() => clearInterval(pollTimer))
 .dynamic-top {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
   align-items: center;
+  gap: 12px;
 }
 
 .dynamic-labels {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .dynamic-badge,
@@ -385,31 +514,16 @@ onUnmounted(() => clearInterval(pollTimer))
 .dynamic-motion {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  padding: 4px 10px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
 }
 
-.dynamic-badge.recommended {
-  background: #eef2ff;
-  color: #4338ca;
-}
-
-.dynamic-badge.selected {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.dynamic-score {
-  background: #f1f5f9;
-  color: #334155;
-}
-
-.dynamic-motion {
-  background: #ecfeff;
-  color: #0f766e;
-}
+.dynamic-badge.recommended { background: #dbeafe; color: #2563eb; }
+.dynamic-badge.selected { background: #ede9fe; color: #7c3aed; }
+.dynamic-score { background: #ecfccb; color: #4d7c0f; }
+.dynamic-motion { background: #f1f5f9; color: #475569; }
 
 .dynamic-reason {
   margin-top: 10px;
@@ -429,24 +543,12 @@ onUnmounted(() => clearInterval(pollTimer))
 .dynamic-toggle-title {
   font-size: 13px;
   font-weight: 600;
-  color: #1f2937;
+  color: #0f172a;
 }
 
 .dynamic-toggle-sub {
   margin-top: 4px;
   font-size: 12px;
   color: #64748b;
-}
-
-@media (max-width: 768px) {
-  .recommend-header,
-  .dynamic-toggle-row {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .recommend-actions {
-    flex-wrap: wrap;
-  }
 }
 </style>

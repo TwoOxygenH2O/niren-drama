@@ -2,23 +2,30 @@ package com.niren.drama.controller;
 
 import com.niren.drama.common.Result;
 import com.niren.drama.dto.storyboard.StoryboardGenerateRequest;
+import com.niren.drama.dto.storyboard.StoryboardPreviewSaveRequest;
 import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
 
 
 import com.niren.drama.service.StoryboardService;
 import com.niren.drama.common.CurrentUserHelper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 
 import java.util.List;
+import java.util.Map;
 
+@Slf4j
 @Tag(name = "分镜管理", description = "AI分镜生成、分镜编辑")
 @RestController
 @RequestMapping("/storyboards")
@@ -27,6 +34,10 @@ public class StoryboardController {
 
     private final StoryboardService storyboardService;
     private final CurrentUserHelper currentUserHelper;
+    private final ObjectMapper objectMapper;
+
+    @jakarta.annotation.Resource(name = "aiTaskExecutor")
+    private java.util.concurrent.Executor sseExecutor;
 
     @Operation(summary = "AI生成分镜（异步）")
     @PostMapping("/generate")
@@ -34,6 +45,36 @@ public class StoryboardController {
                                        @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = getUserId(userDetails);
         return Result.success(storyboardService.startGenerateStoryboard(userId, request));
+    }
+
+    @Operation(summary = "流式生成分镜预览")
+    @PostMapping(value = "/generate/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter generateStream(@RequestBody @Valid StoryboardGenerateRequest request,
+                                     @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        SseEmitter emitter = new SseEmitter(600_000L);
+
+        sseExecutor.execute(() -> {
+            try {
+                storyboardService.streamGenerateStoryboard(userId, request, chunk -> sendChunk(emitter, chunk));
+                sendDone(emitter, "分镜预览生成完成");
+                emitter.complete();
+            } catch (Exception e) {
+                sendError(emitter, e);
+            }
+        });
+
+        emitter.onTimeout(emitter::complete);
+        emitter.onError(e -> log.warn("SSE emitter error: {}", e.getMessage()));
+        return emitter;
+    }
+
+    @Operation(summary = "保存分镜预览")
+    @PostMapping("/preview/save")
+    public Result<List<Storyboard>> savePreview(@RequestBody @Valid StoryboardPreviewSaveRequest request,
+                                                @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        return Result.success(storyboardService.saveStoryboardPreview(userId, request));
     }
 
     @Operation(summary = "获取项目下所有分镜")
@@ -63,5 +104,36 @@ public class StoryboardController {
 
     private Long getUserId(UserDetails userDetails) {
         return currentUserHelper.getUserId(userDetails);
+    }
+
+    private void sendChunk(SseEmitter emitter, String chunk) {
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("chunk")
+                    .data(objectMapper.writeValueAsString(Map.of("content", chunk)), MediaType.APPLICATION_JSON));
+        } catch (Exception e) {
+            log.warn("SSE send chunk failed: {}", e.getMessage());
+        }
+    }
+
+    private void sendDone(SseEmitter emitter, String message) {
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("done")
+                    .data(objectMapper.writeValueAsString(Map.of("message", message)), MediaType.APPLICATION_JSON));
+        } catch (Exception e) {
+            log.warn("SSE send done failed: {}", e.getMessage());
+        }
+    }
+
+    private void sendError(SseEmitter emitter, Exception e) {
+        log.error("Storyboard stream generation failed", e);
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("error")
+                    .data(objectMapper.writeValueAsString(Map.of("message", e.getMessage())), MediaType.APPLICATION_JSON));
+        } catch (Exception ignored) {
+        }
+        emitter.completeWithError(e);
     }
 }

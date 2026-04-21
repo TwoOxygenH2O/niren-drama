@@ -11,6 +11,7 @@ import com.niren.drama.mapper.SceneMapper;
 import com.niren.drama.mapper.TaskRecordMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +25,7 @@ public class SceneService {
     private final SceneMapper sceneMapper;
     private final TaskRecordMapper taskRecordMapper;
     private final AiProviderFactory aiProviderFactory;
+    private final ObjectProvider<SceneService> selfProvider;
 
     public Scene createScene(SceneCreateRequest request) {
         Scene scene = new Scene();
@@ -74,7 +76,7 @@ public class SceneService {
         task.setMessage("任务已提交，等待生成场景图片...");
         task.setRefId(sceneId);
         taskRecordMapper.insert(task);
-        generateSceneImageAsync(userId, scene, task.getId());
+        selfProvider.getObject().generateSceneImageAsync(userId, scene, task.getId());
         return task;
     }
 

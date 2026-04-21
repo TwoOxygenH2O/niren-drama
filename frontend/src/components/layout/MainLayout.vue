@@ -67,7 +67,7 @@
         <div class="topbar-right">
           <div class="topbar-badge">
             <span class="badge-dot"></span>
-            AI 就绪
+            AI 配置
           </div>
         </div>
       </header>
@@ -304,9 +304,9 @@ function handleLogout() {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--color-success);
-  background: rgba(16,185,129,0.08);
-  border: 1px solid rgba(16,185,129,0.2);
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
   padding: 4px 10px;
   border-radius: 20px;
   font-weight: 500;
@@ -315,13 +315,7 @@ function handleLogout() {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--color-success);
-  box-shadow: 0 0 6px rgba(16,185,129,0.6);
-  animation: pulse 2s infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  background: var(--text-muted);
 }
 
 /* Page content */

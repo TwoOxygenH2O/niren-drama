@@ -6,6 +6,7 @@ import com.niren.drama.ai.ImageAiProvider;
 import com.niren.drama.ai.TextAiProvider;
 import com.niren.drama.ai.TtsProvider;
 import com.niren.drama.dto.storyboard.StoryboardGenerateRequest;
+import com.niren.drama.dto.storyboard.StoryboardPreviewSaveRequest;
 import com.niren.drama.entity.Script;
 import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
@@ -17,6 +18,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -42,8 +44,10 @@ public class StoryboardService {
     private final ScriptMapper scriptMapper;
     private final TaskRecordMapper taskRecordMapper;
     private final AiProviderFactory aiProviderFactory;
+    private final ProjectService projectService;
     private final CostEstimationService costEstimationService;
     private final ObjectMapper objectMapper;
+    private final ObjectProvider<StoryboardService> selfProvider;
 
     /** Portrait image size for vertical (9:16) storyboard images */
     private static final String PORTRAIT_IMAGE_SIZE = "1024x1792";
@@ -70,8 +74,38 @@ public class StoryboardService {
         task.setMessage("任务已提交，等待执行...");
         task.setRefId(request.getScriptId());
         taskRecordMapper.insert(task);
-        generateStoryboardAsync(userId, request, task.getId());
+        selfProvider.getObject().generateStoryboardAsync(userId, request, task.getId());
         return task;
+    }
+
+    public void streamGenerateStoryboard(Long userId, StoryboardGenerateRequest request, java.util.function.Consumer<String> chunkConsumer) {
+        projectService.getProject(userId, request.getProjectId());
+        Script script = requireScript(request.getScriptId(), request.getProjectId());
+        TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
+        String systemPrompt = buildStoryboardSystemPrompt();
+        String userPrompt = buildStoryboardUserPrompt(script.getContent());
+        textProvider.streamChat(systemPrompt, userPrompt, chunkConsumer);
+    }
+
+    public List<Storyboard> saveStoryboardPreview(Long userId, StoryboardPreviewSaveRequest request) {
+        projectService.getProject(userId, request.getProjectId());
+        Script script = requireScript(request.getScriptId(), request.getProjectId());
+
+        StoryboardGenerateRequest generateRequest = new StoryboardGenerateRequest();
+        generateRequest.setProjectId(request.getProjectId());
+        generateRequest.setScriptId(request.getScriptId());
+
+        List<Storyboard> shots = parseStoryboardJson(request.getContent(), generateRequest, true);
+        storyboardMapper.delete(new LambdaQueryWrapper<Storyboard>()
+                .eq(Storyboard::getProjectId, request.getProjectId())
+                .eq(Storyboard::getScriptId, request.getScriptId()));
+
+        int episodeNo = script.getEpisodeNo() != null ? script.getEpisodeNo() : 1;
+        for (Storyboard shot : shots) {
+            shot.setEpisodeNo(episodeNo);
+            storyboardMapper.insert(shot);
+        }
+        return shots;
     }
 
     @Async("aiTaskExecutor")
@@ -80,8 +114,7 @@ public class StoryboardService {
         if (task == null) return;
         try {
             updateTask(task, "RUNNING", 10, "读取剧本内容...");
-            Script script = scriptMapper.selectById(request.getScriptId());
-            if (script == null) throw new BusinessException("剧本不存在");
+            Script script = requireScript(request.getScriptId(), request.getProjectId());
 
             updateTask(task, "RUNNING", 30, "AI正在拆解分镜脚本...");
             TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
@@ -90,8 +123,9 @@ public class StoryboardService {
             String storyboardJson = textProvider.chat(systemPrompt, userPrompt);
 
             updateTask(task, "RUNNING", 70, "保存分镜数据...");
-            List<Storyboard> shots = parseStoryboardJson(storyboardJson, request);
+            List<Storyboard> shots = parseStoryboardJson(storyboardJson, request, false);
             for (Storyboard shot : shots) {
+                shot.setEpisodeNo(script.getEpisodeNo() != null ? script.getEpisodeNo() : 1);
                 storyboardMapper.insert(shot);
             }
 
@@ -123,7 +157,7 @@ public class StoryboardService {
         task.setProgress(0);
         task.setMessage("任务已提交，等待为分镜生成图片...");
         taskRecordMapper.insert(task);
-        generateStoryboardImagesAsync(userId, projectId, shots, task.getId());
+        selfProvider.getObject().generateStoryboardImagesAsync(userId, projectId, shots, task.getId());
         return task;
     }
 
@@ -248,7 +282,7 @@ public class StoryboardService {
         task.setProgress(0);
         task.setMessage("任务已提交，等待为分镜生成配音...");
         taskRecordMapper.insert(task);
-        generateStoryboardAudioAsync(userId, projectId, shots, task.getId());
+        selfProvider.getObject().generateStoryboardAudioAsync(userId, projectId, shots, task.getId());
         return task;
     }
 
@@ -390,17 +424,17 @@ public class StoryboardService {
                 - videoPrompt: 动态镜头视频提示词（基于关键帧的动作+镜头运动描述）
                 - motionLevel: 动态强度（low/medium/high）
                 
-                # 分镜优化要求（S+评级标准）
-                1. 每集 80-100 个镜头，总时长 360-480 秒（6-8分钟）
-                2. 开场黄金3秒：第1个镜头必须是视觉冲击或悬念特写
-                3. 爽点镜头节奏：每12-15个镜头（约2分钟）插入一个爽点高潮镜头组（3-5个快切镜头）
-                4. 场景复用率≥60%%：同一场景的连续对话镜头使用相同 sceneName
-                5. 对话场景优先 close-up 和 medium，占比≥60%%
-                6. 动态镜头控制：仅追逐/打斗/拥抱/转场等明显运动镜头标记 isDynamic=true，占比≤30%%
+                # 分镜优化要求（稳定拆镜）
+                1. 按场景和对白稳定拆镜，不追求镜头数量堆叠，不得无意义乱切
+                2. 同一场景优先连续镜头表达：通常每个场景拆 2-5 个镜头
+                3. 全集建议 20-45 个镜头（可根据台词和动作适度增减）
+                4. 开场第1-3个镜头要建立人物关系与核心冲突
+                5. 对话场景优先 close-up 和 medium，动作场景再使用 wide/tracking
+                6. 动态镜头仅用于明显运动或情绪爆发段落，不超过镜头总数 30%%
                 7. imagePrompt 必须足够详细：包含人物外貌、服装、表情、动作、场景环境、光影氛围、画面风格
-                8. videoPrompt 只描述基于静态关键帧的动作变化和镜头运动，不重复画面描述
-                9. 集末最后3-5个镜头：必须是悬念/反转/情绪高潮的快切组合
-                10. 如果镜头更适合静态图，isDynamic 必须为 false，dynamicReason 说明原因
+                8. videoPrompt 只描述基于关键帧的动作和镜头运动，不重复画面基础描述
+                9. 如果镜头更适合静态图，isDynamic 必须为 false，并给出 dynamicReason
+                10. 集末镜头组要形成明确悬念或情绪收束，服务下一集衔接
                 
                 # imagePrompt 模板
                 每个 imagePrompt 应包含以下要素：
@@ -429,7 +463,7 @@ public class StoryboardService {
                 """, scriptContent);
     }
 
-    private List<Storyboard> parseStoryboardJson(String json, StoryboardGenerateRequest request) {
+    private List<Storyboard> parseStoryboardJson(String json, StoryboardGenerateRequest request, boolean strict) {
         List<Storyboard> shots = new ArrayList<>();
         try {
             // Extract JSON block from response
@@ -463,6 +497,9 @@ public class StoryboardService {
                 shots.add(shot);
             }
         } catch (Exception e) {
+            if (strict) {
+                throw new BusinessException("分镜预览解析失败，请检查 JSON 结构和字段名称");
+            }
             log.warn("Failed to parse storyboard JSON, creating placeholder shots. Error: {}", e.getMessage());
             // Create a placeholder shot if parsing fails
             Storyboard placeholder = new Storyboard();
@@ -484,6 +521,17 @@ public class StoryboardService {
             shots.add(placeholder);
         }
         return shots;
+    }
+
+    private Script requireScript(Long scriptId, Long projectId) {
+        Script script = scriptMapper.selectById(scriptId);
+        if (script == null) {
+            throw new BusinessException("剧本不存在");
+        }
+        if (projectId != null && !projectId.equals(script.getProjectId())) {
+            throw new BusinessException("剧本与项目不匹配");
+        }
+        return script;
     }
 
     private String buildImagePrompt(Storyboard shot) {

@@ -11,6 +11,7 @@ import com.niren.drama.mapper.CharacterMapper;
 import com.niren.drama.mapper.TaskRecordMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +25,7 @@ public class CharacterService {
     private final CharacterMapper characterMapper;
     private final TaskRecordMapper taskRecordMapper;
     private final AiProviderFactory aiProviderFactory;
+    private final ObjectProvider<CharacterService> selfProvider;
 
     public Character createCharacter(CharacterCreateRequest request) {
         Character character = new Character();
@@ -82,7 +84,7 @@ public class CharacterService {
         task.setMessage("任务已提交，等待生成角色图片...");
         task.setRefId(characterId);
         taskRecordMapper.insert(task);
-        generateCharacterImageAsync(userId, character, task.getId());
+        selfProvider.getObject().generateCharacterImageAsync(userId, character, task.getId());
         return task;
     }
 

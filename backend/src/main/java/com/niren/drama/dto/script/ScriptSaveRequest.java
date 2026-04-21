@@ -20,5 +20,7 @@ public class ScriptSaveRequest {
     @NotBlank(message = "剧本内容不能为空")
     private String content;
 
+    private String summary;
+
     private String aiPrompt;
 }

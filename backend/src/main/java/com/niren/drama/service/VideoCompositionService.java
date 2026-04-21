@@ -9,6 +9,7 @@ import com.niren.drama.mapper.StoryboardMapper;
 import com.niren.drama.mapper.TaskRecordMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ public class VideoCompositionService {
     private final StoryboardMapper storyboardMapper;
     private final ProjectMapper projectMapper;
     private final TaskRecordMapper taskRecordMapper;
+    private final ObjectProvider<VideoCompositionService> selfProvider;
 
     @Value("${niren.upload.path:./uploads}")
     private String uploadPath;
@@ -75,7 +77,7 @@ public class VideoCompositionService {
         task.setMessage("视频合成任务已提交...");
         taskRecordMapper.insert(task);
 
-        composeAsync(userId, projectId, shots, task.getId());
+        selfProvider.getObject().composeAsync(userId, projectId, shots, task.getId());
         return task;
     }
 
@@ -102,7 +104,7 @@ public class VideoCompositionService {
         task.setMessage("动态镜头生成任务已提交...");
         taskRecordMapper.insert(task);
 
-        generateDynamicVideosAsync(projectId, selectedShots, task.getId());
+        selfProvider.getObject().generateDynamicVideosAsync(projectId, selectedShots, task.getId());
         return task;
     }
 

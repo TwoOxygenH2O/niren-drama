@@ -11,6 +11,8 @@ public class Project extends BaseEntity {
     private Long userId;
     private String name;
     private String description;
+    /** Shared series bible used by script/storyboard generation */
+    private String commonInfo;
     /** romance, fantasy, thriller, urban, historical, etc. */
     private String genre;
     private Integer episodes;

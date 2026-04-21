@@ -143,7 +143,6 @@ public class OpenAiTextProvider implements TextAiProvider {
             m.put("content", msg.getContent());
         }
         body.put("temperature", 0.7);
-        body.put("max_tokens", 4096);
         if (stream) {
             body.put("stream", true);
         }

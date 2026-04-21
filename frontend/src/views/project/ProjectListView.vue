@@ -7,7 +7,9 @@
 
     <el-table :data="projects" v-loading="loading" stripe style="width: 100%">
       <el-table-column prop="name" label="项目名称" min-width="160" />
-      <el-table-column prop="genre" label="题材" width="100" />
+      <el-table-column prop="genre" label="题材" width="100">
+        <template #default="{ row }">{{ genreLabel(row.genre) }}</template>
+      </el-table-column>
       <el-table-column prop="episodes" label="集数" width="80" align="center" />
       <el-table-column prop="episodeDuration" label="单集时长" width="100" align="center">
         <template #default="{ row }">{{ row.episodeDuration }}s</template>
@@ -50,12 +52,12 @@
         </el-form-item>
         <el-form-item label="题材风格" prop="genre">
           <el-select v-model="form.genre" placeholder="选择题材" style="width: 100%">
-            <el-option label="都市言情" value="romance" />
-            <el-option label="玄幻奇幻" value="fantasy" />
-            <el-option label="悬疑惊悚" value="thriller" />
-            <el-option label="都市职场" value="urban" />
-            <el-option label="古装历史" value="historical" />
-            <el-option label="喜剧搞笑" value="comedy" />
+            <el-option label="都市言情" value="都市言情" />
+            <el-option label="玄幻奇幻" value="玄幻奇幻" />
+            <el-option label="悬疑惊悚" value="悬疑惊悚" />
+            <el-option label="都市职场" value="都市职场" />
+            <el-option label="古装历史" value="古装历史" />
+            <el-option label="喜剧搞笑" value="喜剧搞笑" />
           </el-select>
         </el-form-item>
         <el-form-item label="剧集数量" prop="episodes">
@@ -99,6 +101,7 @@ const rules = {
 }
 
 const statusLabel = (s: string) => ({ draft: '草稿', generating: '生成中', completed: '已完成', failed: '失败' }[s] || s)
+const genreLabel = (g: string) => ({ romance: '都市言情', fantasy: '玄幻奇幻', thriller: '悬疑惊悚', urban: '都市职场', historical: '古装历史', comedy: '喜剧搞笑' }[g] || g || '-')
 
 async function load() {
   loading.value = true

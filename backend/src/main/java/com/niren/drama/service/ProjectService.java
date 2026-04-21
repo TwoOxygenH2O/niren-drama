@@ -80,4 +80,10 @@ public class ProjectService {
         project.setStatus(status);
         projectMapper.updateById(project);
     }
+
+    public void updateCommonInfo(Long userId, Long id, String commonInfo) {
+        Project project = getProject(userId, id);
+        project.setCommonInfo(commonInfo);
+        projectMapper.updateById(project);
+    }
 }

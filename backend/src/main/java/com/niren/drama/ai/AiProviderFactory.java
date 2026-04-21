@@ -9,6 +9,7 @@ import com.niren.drama.ai.impl.OpenAiTtsProvider;
 import com.niren.drama.entity.AiConfig;
 import com.niren.drama.mapper.AiConfigMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -17,18 +18,54 @@ public class AiProviderFactory {
 
     private final AiConfigMapper aiConfigMapper;
 
+    @Value("${niren.ai.text.provider:openai}")
+    private String defaultTextProvider;
+
+    @Value("${niren.ai.text.base-url:https://api.openai.com/v1}")
+    private String defaultTextBaseUrl;
+
+    @Value("${niren.ai.text.api-key:}")
+    private String defaultTextApiKey;
+
+    @Value("${niren.ai.text.model:gpt-4o}")
+    private String defaultTextModel;
+
+    @Value("${niren.ai.image.provider:openai}")
+    private String defaultImageProvider;
+
+    @Value("${niren.ai.image.base-url:https://api.openai.com/v1}")
+    private String defaultImageBaseUrl;
+
+    @Value("${niren.ai.image.api-key:}")
+    private String defaultImageApiKey;
+
+    @Value("${niren.ai.image.model:dall-e-3}")
+    private String defaultImageModel;
+
+    @Value("${niren.ai.tts.provider:volcengine}")
+    private String defaultTtsProvider;
+
+    @Value("${niren.ai.tts.base-url:}")
+    private String defaultTtsBaseUrl;
+
+    @Value("${niren.ai.tts.api-key:}")
+    private String defaultTtsApiKey;
+
+    @Value("${niren.ai.tts.model:}")
+    private String defaultTtsModel;
+
     public TextAiProvider getTextProvider(Long userId) {
         AiConfig config = getDefaultConfig(userId, "text");
-        String provider = config != null ? config.getProvider() : "openai";
-        String baseUrl = config != null ? config.getBaseUrl() : "https://api.openai.com/v1";
-        String apiKey  = config != null ? config.getApiKey()  : "";
-        String model   = config != null ? config.getModel()   : "gpt-4o";
+        String provider = hasText(config != null ? config.getProvider() : null) ? config.getProvider() : defaultTextProvider;
+        String baseUrl = hasText(config != null ? config.getBaseUrl() : null) ? config.getBaseUrl() : defaultTextBaseUrl;
+        String apiKey = hasText(config != null ? config.getApiKey() : null) ? config.getApiKey() : defaultTextApiKey;
+        String model = hasText(config != null ? config.getModel() : null) ? config.getModel() : defaultTextModel;
 
         // Auto-fill base URL if missing based on provider
-        if (baseUrl == null || baseUrl.isBlank()) {
+        if (!hasText(baseUrl)) {
             baseUrl = getDefaultBaseUrl(provider, "text");
         }
-        if (model == null || model.isBlank()) {
+        if (!hasText(model)) {
             model = getDefaultModel(provider, "text");
         }
 
@@ -38,15 +75,15 @@ public class AiProviderFactory {
 
     public ImageAiProvider getImageProvider(Long userId) {
         AiConfig config = getDefaultConfig(userId, "image");
-        String provider = config != null ? config.getProvider() : "openai";
-        String baseUrl = config != null ? config.getBaseUrl() : "https://api.openai.com/v1";
-        String apiKey  = config != null ? config.getApiKey()  : "";
-        String model   = config != null ? config.getModel()   : "dall-e-3";
+        String provider = hasText(config != null ? config.getProvider() : null) ? config.getProvider() : defaultImageProvider;
+        String baseUrl = hasText(config != null ? config.getBaseUrl() : null) ? config.getBaseUrl() : defaultImageBaseUrl;
+        String apiKey = hasText(config != null ? config.getApiKey() : null) ? config.getApiKey() : defaultImageApiKey;
+        String model = hasText(config != null ? config.getModel() : null) ? config.getModel() : defaultImageModel;
 
-        if (baseUrl == null || baseUrl.isBlank()) {
+        if (!hasText(baseUrl)) {
             baseUrl = getDefaultBaseUrl(provider, "image");
         }
-        if (model == null || model.isBlank()) {
+        if (!hasText(model)) {
             model = getDefaultModel(provider, "image");
         }
 
@@ -61,16 +98,26 @@ public class AiProviderFactory {
 
     public TtsProvider getTtsProvider(Long userId) {
         AiConfig config = getDefaultConfig(userId, "tts");
-        if (config != null && config.getApiKey() != null && !config.getApiKey().isBlank()) {
-            String provider = config.getProvider() != null ? config.getProvider().toLowerCase() : "openai";
-            String baseUrl = config.getBaseUrl() != null && !config.getBaseUrl().isBlank()
-                    ? config.getBaseUrl() : getDefaultBaseUrl(provider, "tts");
-            String model = config.getModel() != null && !config.getModel().isBlank()
-                    ? config.getModel() : getDefaultModel(provider, "tts");
-            return new OpenAiTtsProvider(baseUrl, config.getApiKey(), model);
+        String provider = hasText(config != null ? config.getProvider() : null) ? config.getProvider() : defaultTtsProvider;
+        String baseUrl = hasText(config != null ? config.getBaseUrl() : null) ? config.getBaseUrl() : defaultTtsBaseUrl;
+        String apiKey = hasText(config != null ? config.getApiKey() : null) ? config.getApiKey() : defaultTtsApiKey;
+        String model = hasText(config != null ? config.getModel() : null) ? config.getModel() : defaultTtsModel;
+
+        if (!hasText(baseUrl)) {
+            baseUrl = getDefaultBaseUrl(provider, "tts");
+        }
+        if (!hasText(model)) {
+            model = getDefaultModel(provider, "tts");
+        }
+        if (hasText(apiKey)) {
+            return new OpenAiTtsProvider(baseUrl, apiKey, model);
         }
         // Fallback to mock when no TTS config is available
         return new MockTtsProvider();
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private AiConfig getDefaultConfig(Long userId, String type) {

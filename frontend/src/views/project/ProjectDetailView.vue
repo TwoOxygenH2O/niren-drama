@@ -45,6 +45,11 @@
     <div v-if="project?.description" class="project-desc">
       <strong>项目描述：</strong>{{ project.description }}
     </div>
+
+    <div v-if="project?.commonInfo" class="project-desc project-common-info">
+      <strong>项目通用信息：</strong>
+      <pre>{{ project.commonInfo }}</pre>
+    </div>
   </div>
 </template>
 
@@ -141,5 +146,12 @@ onMounted(async () => {
   color: #4a5568;
   font-size: 14px;
   line-height: 1.6;
+}
+
+.project-common-info pre {
+  margin: 12px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
 }
 </style>

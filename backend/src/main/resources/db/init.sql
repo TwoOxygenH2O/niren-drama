@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS drama_project (
     user_id          BIGINT       NOT NULL COMMENT '创建用户ID',
     name             VARCHAR(200) NOT NULL COMMENT '项目名称',
     description      TEXT         COMMENT '项目描述',
+    common_info      LONGTEXT     COMMENT '项目通用信息（人物小传/世界观/长期设定）',
     genre            VARCHAR(50)  COMMENT '题材风格',
     episodes         INT          NOT NULL DEFAULT 1 COMMENT '剧集数量',
     episode_duration INT          NOT NULL DEFAULT 180 COMMENT '单集时长（秒）',

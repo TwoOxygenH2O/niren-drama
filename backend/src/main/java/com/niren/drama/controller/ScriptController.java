@@ -1,6 +1,8 @@
 package com.niren.drama.controller;
 
 import com.niren.drama.common.Result;
+import com.niren.drama.dto.script.BatchScriptPreviewSaveRequest;
+import com.niren.drama.dto.script.OutlinePreviewSaveRequest;
 import com.niren.drama.dto.script.ScriptGenerateRequest;
 import com.niren.drama.dto.script.ScriptSaveRequest;
 import com.niren.drama.entity.Script;
@@ -45,6 +47,36 @@ public class ScriptController {
         return Result.success(scriptService.startGenerateScript(userId, request));
     }
 
+    @Operation(summary = "生成全剧分集大纲与项目通用信息（异步）")
+    @PostMapping("/generate/outline")
+    public Result<TaskRecord> generateOutline(@RequestBody @Valid ScriptGenerateRequest request,
+                                              @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        return Result.success(scriptService.startGenerateOutline(userId, request));
+    }
+
+    @Operation(summary = "流式生成分集大纲预览")
+    @PostMapping(value = "/generate/outline/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter generateOutlineStream(@RequestBody @Valid ScriptGenerateRequest request,
+                                            @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        SseEmitter emitter = new SseEmitter(600_000L);
+
+        sseExecutor.execute(() -> {
+            try {
+                scriptService.streamGenerateOutline(userId, request, chunk -> sendChunk(emitter, chunk));
+                sendDone(emitter, "大纲预览生成完成");
+                emitter.complete();
+            } catch (Exception e) {
+                sendError(emitter, e);
+            }
+        });
+
+        emitter.onTimeout(emitter::complete);
+        emitter.onError(e -> log.warn("SSE emitter error: {}", e.getMessage()));
+        return emitter;
+    }
+
     @Operation(summary = "批量生成多集剧本（异步）")
     @PostMapping("/generate/batch")
     public Result<TaskRecord> generateBatch(@RequestBody @Valid ScriptGenerateRequest request,
@@ -53,41 +85,20 @@ public class ScriptController {
         return Result.success(scriptService.startBatchGenerateScript(userId, request));
     }
 
-    @Operation(summary = "流式生成剧本预览")
+    @Operation(summary = "流式生成剧本预览（单集/区间）")
     @PostMapping(value = "/generate/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter generateStream(@RequestBody @Valid ScriptGenerateRequest request,
                                      @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = getUserId(userDetails);
-        // 10 minutes timeout for long script generation
         SseEmitter emitter = new SseEmitter(600_000L);
 
         sseExecutor.execute(() -> {
             try {
-                scriptService.streamGenerateScript(userId, request, chunk -> {
-                    try {
-                        emitter.send(SseEmitter.event()
-                                .name("chunk")
-                                .data(objectMapper.writeValueAsString(Map.of("content", chunk)),
-                                        MediaType.APPLICATION_JSON));
-                    } catch (Exception e) {
-                        log.warn("SSE send chunk failed: {}", e.getMessage());
-                    }
-                });
-                emitter.send(SseEmitter.event()
-                        .name("done")
-                        .data(objectMapper.writeValueAsString(Map.of("message", "剧本生成完成")),
-                                MediaType.APPLICATION_JSON));
+                scriptService.streamGenerateScriptPreview(userId, request, chunk -> sendChunk(emitter, chunk));
+                sendDone(emitter, "剧本预览生成完成");
                 emitter.complete();
             } catch (Exception e) {
-                log.error("Script stream generation failed", e);
-                try {
-                    emitter.send(SseEmitter.event()
-                            .name("error")
-                            .data(objectMapper.writeValueAsString(Map.of("message", e.getMessage())),
-                                    MediaType.APPLICATION_JSON));
-                } catch (Exception ignored) {
-                }
-                emitter.completeWithError(e);
+                sendError(emitter, e);
             }
         });
 
@@ -95,6 +106,24 @@ public class ScriptController {
         emitter.onError(e -> log.warn("SSE emitter error: {}", e.getMessage()));
 
         return emitter;
+    }
+
+    @Operation(summary = "保存大纲预览")
+    @PostMapping("/preview/outline/save")
+    public Result<Void> saveOutlinePreview(@RequestBody @Valid OutlinePreviewSaveRequest request,
+                                           @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        scriptService.saveOutlinePreview(userId, request);
+        return Result.success();
+    }
+
+    @Operation(summary = "保存批量剧本预览")
+    @PostMapping("/preview/batch/save")
+    public Result<Void> saveBatchPreview(@RequestBody @Valid BatchScriptPreviewSaveRequest request,
+                                         @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        scriptService.saveBatchScriptPreview(userId, request);
+        return Result.success();
     }
 
     @Operation(summary = "保存剧本")
@@ -121,7 +150,7 @@ public class ScriptController {
     @PutMapping("/{id}")
     public Result<Script> update(@PathVariable Long id,
                                  @RequestBody Map<String, String> body) {
-        return Result.success(scriptService.updateScript(id, body.get("content"), body.get("title")));
+        return Result.success(scriptService.updateScript(id, body.get("content"), body.get("title"), body.get("summary")));
     }
 
     @Operation(summary = "删除剧本")
@@ -133,5 +162,36 @@ public class ScriptController {
 
     private Long getUserId(UserDetails userDetails) {
         return currentUserHelper.getUserId(userDetails);
+    }
+
+    private void sendChunk(SseEmitter emitter, String chunk) {
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("chunk")
+                    .data(objectMapper.writeValueAsString(Map.of("content", chunk)), MediaType.APPLICATION_JSON));
+        } catch (Exception e) {
+            log.warn("SSE send chunk failed: {}", e.getMessage());
+        }
+    }
+
+    private void sendDone(SseEmitter emitter, String message) {
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("done")
+                    .data(objectMapper.writeValueAsString(Map.of("message", message)), MediaType.APPLICATION_JSON));
+        } catch (Exception e) {
+            log.warn("SSE send done failed: {}", e.getMessage());
+        }
+    }
+
+    private void sendError(SseEmitter emitter, Exception e) {
+        log.error("Script stream generation failed", e);
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("error")
+                    .data(objectMapper.writeValueAsString(Map.of("message", e.getMessage())), MediaType.APPLICATION_JSON));
+        } catch (Exception ignored) {
+        }
+        emitter.completeWithError(e);
     }
 }
