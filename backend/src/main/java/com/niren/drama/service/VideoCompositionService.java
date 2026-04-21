@@ -586,11 +586,15 @@ public class VideoCompositionService {
     /**
      * Delete the video file and clear the task result URL after it has been exported.
      * Called after the video has been fully streamed to the client.
+     * Returns true if the file was successfully deleted.
      */
-    public void deleteVideoAndClearResult(Long taskId, Path videoPath) {
+    public boolean deleteVideoAndClearResult(Long taskId, Path videoPath) {
+        boolean deleted = false;
         try {
-            Files.deleteIfExists(videoPath);
-            log.info("Deleted exported video file: {}", videoPath);
+            deleted = Files.deleteIfExists(videoPath);
+            if (deleted) {
+                log.info("Deleted exported video file: {}", videoPath);
+            }
         } catch (IOException e) {
             log.warn("Failed to delete video file after export: {}", videoPath, e);
         }
@@ -598,11 +602,14 @@ public class VideoCompositionService {
             TaskRecord task = taskRecordMapper.selectById(taskId);
             if (task != null) {
                 task.setResult(null);
-                task.setMessage("成片已导出并已自动清理（节约存储空间）");
+                task.setMessage(deleted
+                        ? "成片已导出并已自动清理（节约存储空间）"
+                        : "成片已导出（文件清理失败，请手动清理）");
                 taskRecordMapper.updateById(task);
             }
         } catch (Exception e) {
             log.warn("Failed to clear task result after export for task {}", taskId, e);
         }
+        return deleted;
     }
 }

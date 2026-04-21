@@ -299,13 +299,31 @@ function handleDownload() {
   a.click()
   document.body.removeChild(a)
 
-  // The server deletes the file after streaming completes.
-  // Reload overview after a delay to reflect the cleared state.
   ElMessage.success('下载已开始，成片导出完成后将自动从服务器删除')
-  setTimeout(async () => {
-    await loadOverview()
-    downloadLoading.value = false
-  }, 8000)
+
+  // Poll task status to detect when the server has cleared the result (file deleted)
+  let pollCount = 0
+  const maxPolls = 60 // up to 5 minutes (60 × 5s)
+  const pollId = setInterval(async () => {
+    try {
+      pollCount++
+      const res = await videoApi.getStatus(projectId)
+      const task = res.data.data
+      // Server clears task.result after deletion
+      if (!task || task.result === null || task.result === '' || task.result === undefined) {
+        clearInterval(pollId)
+        downloadLoading.value = false
+        await loadOverview()
+      } else if (pollCount >= maxPolls) {
+        clearInterval(pollId)
+        downloadLoading.value = false
+        await loadOverview()
+      }
+    } catch {
+      clearInterval(pollId)
+      downloadLoading.value = false
+    }
+  }, 5000)
 }
 
 function startPolling(taskId: string | number) {
