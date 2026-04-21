@@ -9,15 +9,15 @@ import com.niren.drama.service.VideoCompositionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -78,9 +78,9 @@ public class VideoController {
         return Result.success(storyboardService.listByProject(projectId));
     }
 
-    @Operation(summary = "下载成片视频")
+    @Operation(summary = "下载成片视频（下载后自动删除文件）")
     @GetMapping("/download/{projectId}")
-    public ResponseEntity<Resource> download(@PathVariable Long projectId) {
+    public ResponseEntity<StreamingResponseBody> download(@PathVariable Long projectId) throws Exception {
         TaskRecord task = videoCompositionService.getLatestVideoTask(projectId);
         if (task == null || !"SUCCESS".equals(task.getStatus()) || task.getResult() == null) {
             return ResponseEntity.notFound().build();
@@ -91,12 +91,29 @@ public class VideoController {
             return ResponseEntity.notFound().build();
         }
 
-        Resource resource = new FileSystemResource(videoPath);
+        long fileSize = Files.size(videoPath);
+        Long taskId = task.getId();
+
+        StreamingResponseBody body = outputStream -> {
+            try (InputStream in = Files.newInputStream(videoPath)) {
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = in.read(buf)) != -1) {
+                    outputStream.write(buf, 0, n);
+                }
+                outputStream.flush();
+            } finally {
+                // Delete file and clear task result after streaming to save space
+                videoCompositionService.deleteVideoAndClearResult(taskId, videoPath);
+            }
+        };
+
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("video/mp4"))
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"niren_drama_" + projectId + ".mp4\"")
-                .body(resource);
+                .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(fileSize))
+                .body(body);
     }
 
     @Operation(summary = "获取项目合成总览")

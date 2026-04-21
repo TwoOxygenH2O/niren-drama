@@ -130,3 +130,50 @@ body {
 :deep(.el-select .el-input__wrapper) {
   border-radius: 8px;
 }
+
+/* ——— 统一弹窗样式（大厂风格）——— */
+.el-dialog {
+  border-radius: 16px !important;
+  box-shadow: 0 20px 60px rgba(17, 24, 39, 0.14), 0 4px 20px rgba(17, 24, 39, 0.08) !important;
+  overflow: hidden;
+}
+.el-dialog__header {
+  padding: 22px 28px 16px !important;
+  border-bottom: 1px solid var(--border) !important;
+  margin-right: 0 !important;
+}
+.el-dialog__title {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: var(--text-primary) !important;
+  letter-spacing: -0.2px;
+}
+.el-dialog__headerbtn {
+  top: 18px !important;
+  right: 22px !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 8px !important;
+  transition: background 0.15s !important;
+}
+.el-dialog__headerbtn:hover {
+  background: var(--bg-muted) !important;
+}
+.el-dialog__body {
+  padding: 24px 28px !important;
+}
+.el-dialog__footer {
+  padding: 16px 28px 22px !important;
+  border-top: 1px solid var(--border) !important;
+}
+.el-form-item {
+  margin-bottom: 20px !important;
+}
+.el-form-item__label {
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: var(--text-secondary) !important;
+}
+.el-popconfirm__main {
+  font-size: 14px !important;
+}
