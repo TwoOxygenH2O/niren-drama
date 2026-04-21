@@ -139,9 +139,12 @@
         </video>
       </div>
       <div class="video-actions">
-        <el-button type="primary" size="large" @click="handleDownload">
+        <el-button type="primary" size="large" @click="handleDownload" :loading="downloadLoading">
           <el-icon><Download /></el-icon> 下载成片
         </el-button>
+        <div class="download-hint">
+          <el-icon><InfoFilled /></el-icon> 下载完成后成片将自动从服务器删除以节约存储空间
+        </div>
       </div>
     </div>
 
@@ -182,7 +185,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Download } from '@element-plus/icons-vue'
+import { ArrowLeft, Download, InfoFilled } from '@element-plus/icons-vue'
 import { videoApi } from '@/api/video'
 import { taskApi } from '@/api/task'
 
@@ -204,6 +207,7 @@ const imageLoading = ref(false)
 const dynamicLoading = ref(false)
 const audioLoading = ref(false)
 const composeLoading = ref(false)
+const downloadLoading = ref(false)
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
@@ -285,8 +289,23 @@ async function handleCompose() {
 }
 
 function handleDownload() {
+  downloadLoading.value = true
   const url = videoApi.getDownloadUrl(projectId)
-  window.open(url, '_blank')
+  // Create a hidden anchor element to trigger the download
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `niren_drama_${projectId}.mp4`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+
+  // The server deletes the file after streaming completes.
+  // Reload overview after a delay to reflect the cleared state.
+  ElMessage.success('下载已开始，成片导出完成后将自动从服务器删除')
+  setTimeout(async () => {
+    await loadOverview()
+    downloadLoading.value = false
+  }, 8000)
 }
 
 function startPolling(taskId: string | number) {
@@ -534,7 +553,16 @@ onUnmounted(() => {
 }
 .video-actions {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.download-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 /* Shots section */

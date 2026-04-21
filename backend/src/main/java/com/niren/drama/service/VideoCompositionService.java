@@ -582,4 +582,27 @@ public class VideoCompositionService {
         if (relativePath.startsWith("/")) relativePath = relativePath.substring(1);
         return Paths.get(uploadPath, relativePath);
     }
+
+    /**
+     * Delete the video file and clear the task result URL after it has been exported.
+     * Called after the video has been fully streamed to the client.
+     */
+    public void deleteVideoAndClearResult(Long taskId, Path videoPath) {
+        try {
+            Files.deleteIfExists(videoPath);
+            log.info("Deleted exported video file: {}", videoPath);
+        } catch (IOException e) {
+            log.warn("Failed to delete video file after export: {}", videoPath, e);
+        }
+        try {
+            TaskRecord task = taskRecordMapper.selectById(taskId);
+            if (task != null) {
+                task.setResult(null);
+                task.setMessage("成片已导出并已自动清理（节约存储空间）");
+                taskRecordMapper.updateById(task);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to clear task result after export for task {}", taskId, e);
+        }
+    }
 }
