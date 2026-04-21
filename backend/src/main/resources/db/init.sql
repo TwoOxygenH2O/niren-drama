@@ -161,15 +161,6 @@ CREATE TABLE IF NOT EXISTS drama_storyboard (
     KEY idx_script_id (script_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='分镜脚本表';
 
-ALTER TABLE drama_storyboard
-    ADD COLUMN IF NOT EXISTS video_prompt TEXT COMMENT '动态镜头视频提示词' AFTER image_prompt,
-    ADD COLUMN IF NOT EXISTS motion_level VARCHAR(20) NOT NULL DEFAULT 'low' COMMENT '动态等级：low/medium/high' AFTER video_prompt,
-    ADD COLUMN IF NOT EXISTS dynamic_recommended TINYINT NOT NULL DEFAULT 0 COMMENT '是否推荐为动态镜头' AFTER motion_level,
-    ADD COLUMN IF NOT EXISTS dynamic_selected TINYINT NOT NULL DEFAULT 0 COMMENT '是否最终选择为动态镜头' AFTER dynamic_recommended,
-    ADD COLUMN IF NOT EXISTS dynamic_score INT NOT NULL DEFAULT 0 COMMENT '动态推荐分数 0-100' AFTER dynamic_selected,
-    ADD COLUMN IF NOT EXISTS dynamic_reason VARCHAR(500) COMMENT '动态推荐原因' AFTER dynamic_score,
-    ADD COLUMN IF NOT EXISTS render_mode VARCHAR(20) NOT NULL DEFAULT 'image' COMMENT '最终渲染模式：image/video' AFTER dynamic_reason;
-
 -- ===========================
 -- 素材资产表
 -- ===========================
@@ -220,5 +211,5 @@ CREATE TABLE IF NOT EXISTS drama_task_record (
 -- ===========================
 INSERT IGNORE INTO sys_user (id, username, password, nickname, roles, status, deleted)
 VALUES (1000000000000000001, 'admin',
-        '$2a$10$7JEoNP8gqGBvN8EeJ5b6gO7ZGxMmCKLNVIPz3fvKFjMMfE6LV9bHO',
+        '$2a$10$cldageypgJqvDgfZDgezQ.PpJ2mCqa.K7MK09cNdcEssXzspqnGsK',
         '系统管理员', 'ADMIN,USER', 1, 0);
