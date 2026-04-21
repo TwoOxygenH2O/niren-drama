@@ -230,13 +230,13 @@ const allProviders = [
 
 // Provider hints (shown in dialog when selected)
 const providerHints: Record<string, string> = {
-  wanx: '通义万相 Wanx 2.1 — 阿里云百炼，适合短剧封面/分镜批量生成，性价比极高（0.14元/张起）',
+  wanx: '通义万相 Wanx 2.1 — 阿里云百炼，适合短剧封面/分镜批量生成，性价比极高，需开通阿里云百炼服务',
   seedream: '火山引擎 Seedream 3.0 — 人像质感优秀，适合连续剧集封面，需在火山引擎方舟平台开通',
-  seedance: '火山引擎 Seedance 2.0 — 角色一致性强，支持 1080P/60fps，适合短剧片段生成',
-  cosyvoice: '阿里云 CosyVoice V3 — 情感表现力强，适配短剧台词，使用阿里云百炼 API Key',
-  xunfei: '科大讯飞星火 TTS — 中文发音自然，支持方言，请在讯飞开放平台申请 API Key',
+  seedance: '火山引擎 Seedance 2.0 — 角色一致性强，支持 1080P/60fps，适合短剧片段生成，需在火山引擎方舟平台开通',
+  cosyvoice: '阿里云 CosyVoice V3 — 情感表现力强，适配短剧台词，使用阿里云百炼 API Key（与 Wanx 同一账号）',
+  xunfei: '科大讯飞星火 TTS — 中文发音自然，支持方言，请在讯飞开放平台（xf-yun.com）申请 API Key',
   dashscope: '阿里云百炼（DashScope）— 通义万相文生图/视频统一入口，支持异步批量任务',
-  kling: '可灵 AI — 视频生成效果佳，按时长计费（标准版 ¥0.6/秒）',
+  kling: '可灵 AI — 视频生成效果佳，按时长计费，请在可灵 AI 官网开通服务',
 }
 
 // Build filtered provider groups based on selected configType
@@ -328,31 +328,7 @@ function getModelPlaceholder(): string {
 
 function providerLabel(provider: string): string {
   const p = allProviders.find(p => p.value === provider)
-  if (p) return p.label
-  const labels: Record<string, string> = {
-    openai: 'OpenAI',
-    deepseek: 'DeepSeek',
-    qianwen: '通义千问',
-    dashscope: '阿里云百炼',
-    wanx: '通义万相 Wanx 2.1',
-    cosyvoice: 'CosyVoice V3',
-    xunfei: '讯飞星火 TTS',
-    seedream: 'Seedream 3.0',
-    seedance: 'Seedance 2.0',
-    doubao: '火山豆包',
-    minimax: 'MiniMax',
-    moonshot: 'Moonshot',
-    zhipu: '智谱GLM',
-    baichuan: '百川智能',
-    wenxin: '文心一言',
-    kling: '可灵AI',
-    jimeng: '即梦AI',
-    runway: 'Runway',
-    volcengine: '火山语音',
-    sd: 'Stable Diffusion',
-    custom: '自定义',
-  }
-  return labels[provider] || provider
+  return p ? p.label : provider
 }
 
 function maskKey(key: string): string {
