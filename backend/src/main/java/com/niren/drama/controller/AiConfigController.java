@@ -1,8 +1,8 @@
 package com.niren.drama.controller;
 
+import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.common.Result;
 import com.niren.drama.entity.AiConfig;
-
 
 import com.niren.drama.service.AiConfigService;
 import com.niren.drama.common.CurrentUserHelper;
@@ -13,8 +13,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
-
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "AI配置管理", description = "管理AI服务商配置（文本/图像/视频/TTS）")
 @RestController
@@ -56,6 +56,15 @@ public class AiConfigController {
         Long userId = getUserId(userDetails);
         aiConfigService.setDefault(userId, id);
         return Result.success();
+    }
+
+    @Operation(summary = "获取服务商默认配置")
+    @GetMapping("/provider-defaults")
+    public Result<Map<String, Object>> getProviderDefaults(@RequestParam String provider,
+                                                            @RequestParam(defaultValue = "text") String configType) {
+        String baseUrl = AiProviderFactory.getDefaultBaseUrl(provider, configType);
+        String model = AiProviderFactory.getDefaultModel(provider, configType);
+        return Result.success(Map.of("baseUrl", baseUrl, "model", model));
     }
 
     private Long getUserId(UserDetails userDetails) {

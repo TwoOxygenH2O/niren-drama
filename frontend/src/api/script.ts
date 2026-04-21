@@ -13,6 +13,9 @@ export const scriptApi = {
   generate: (data: ScriptGenerateParams) =>
     request.post('/scripts/generate', data),
 
+  generateBatch: (data: ScriptGenerateParams) =>
+    request.post('/scripts/generate/batch', data),
+
   generatePreviewStream: async (
     data: ScriptGenerateParams,
     handlers: {

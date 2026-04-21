@@ -51,7 +51,7 @@ public class OpenAiTextProvider implements TextAiProvider {
 
             String requestBody = objectMapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/chat/completions"))
+                    .uri(URI.create(buildChatCompletionsUrl()))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
@@ -59,6 +59,10 @@ public class OpenAiTextProvider implements TextAiProvider {
                     .build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() >= 400) {
+                log.error("AI text API error: {} - {}", response.statusCode(), response.body());
+                throw new RuntimeException("AI text service error: HTTP " + response.statusCode());
+            }
             JsonNode responseJson = objectMapper.readTree(response.body());
             return responseJson.path("choices").get(0).path("message").path("content").asText();
         } catch (Exception e) {
@@ -73,7 +77,7 @@ public class OpenAiTextProvider implements TextAiProvider {
             ObjectNode body = buildRequestBody(systemPrompt, List.of(new ChatMessage("user", userMessage)), true);
             String requestBody = objectMapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/chat/completions"))
+                    .uri(URI.create(buildChatCompletionsUrl()))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
@@ -83,7 +87,7 @@ public class OpenAiTextProvider implements TextAiProvider {
             HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() >= 400) {
                 String errorBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
-                throw new RuntimeException("AI text service unavailable: " + errorBody);
+                throw new RuntimeException("AI text service error: HTTP " + response.statusCode() + " - " + errorBody);
             }
 
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
@@ -107,6 +111,21 @@ public class OpenAiTextProvider implements TextAiProvider {
             log.error("OpenAI text streaming API call failed", e);
             throw new RuntimeException("AI text service unavailable: " + e.getMessage());
         }
+    }
+
+    /**
+     * Build the chat completions URL, handling different provider URL formats.
+     * DeepSeek: https://api.deepseek.com/chat/completions (no /v1 prefix)
+     * OpenAI: https://api.openai.com/v1/chat/completions
+     * DashScope: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+     */
+    private String buildChatCompletionsUrl() {
+        String normalizedUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        // If the base URL already ends with a path segment that suggests it's the completions endpoint
+        if (normalizedUrl.endsWith("/chat/completions")) {
+            return normalizedUrl;
+        }
+        return normalizedUrl + "/chat/completions";
     }
 
     private ObjectNode buildRequestBody(String systemPrompt, List<ChatMessage> messages, boolean stream) {

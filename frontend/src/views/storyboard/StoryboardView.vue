@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <span class="page-title">🎬 分镜制作</span>
+      <span class="page-title">分镜制作</span>
     </div>
 
     <!-- Generate -->
