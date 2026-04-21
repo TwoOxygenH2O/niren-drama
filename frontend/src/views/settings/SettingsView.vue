@@ -80,8 +80,14 @@
     </div>
 
     <!-- Add/Edit Dialog -->
-    <el-dialog v-model="showDialog" :title="editing ? '编辑配置' : '添加 AI 配置'" width="600px" :close-on-click-modal="false">
-      <el-form :model="form" label-width="100px" class="config-form">
+    <el-dialog
+      v-model="showDialog"
+      :title="editing ? '编辑 AI 配置' : '添加 AI 配置'"
+      width="620px"
+      :close-on-click-modal="false"
+      class="ai-config-dialog"
+    >
+      <el-form :model="form" label-width="90px" class="config-form">
         <el-form-item label="配置类型" required>
           <el-select v-model="form.configType" style="width: 100%" @change="onTypeChange">
             <el-option label="文本大模型（剧本 / 分镜生成）" value="text" />
@@ -92,37 +98,41 @@
         </el-form-item>
         <el-form-item label="服务商" required>
           <el-select v-model="form.provider" style="width: 100%" @change="onProviderChange" filterable>
-            <el-option-group v-for="group in providerGroups" :key="group.label" :label="group.label">
+            <el-option-group v-for="group in filteredProviderGroups" :key="group.label" :label="group.label">
               <el-option
                 v-for="p in group.providers"
                 :key="p.value"
                 :label="p.label"
                 :value="p.value"
-                :disabled="!p.types.includes(form.configType)"
               >
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <span>{{ p.label }}</span>
-                  <span style="font-size: 11px; color: #999;">{{ p.types.join(' / ') }}</span>
+                <div class="provider-option">
+                  <span class="provider-option-name">{{ p.label }}</span>
+                  <span class="provider-option-tag">{{ p.tagLabel }}</span>
                 </div>
               </el-option>
             </el-option-group>
           </el-select>
+          <div class="form-tip provider-hint" v-if="currentProviderHint">
+            <el-icon><InfoFilled /></el-icon> {{ currentProviderHint }}
+          </div>
         </el-form-item>
         <el-form-item label="Base URL">
-          <el-input v-model="form.baseUrl" placeholder="选择服务商后自动填充">
+          <el-input v-model="form.baseUrl" placeholder="选择服务商后自动填充，或手动输入">
             <template #append>
               <el-button @click="resetBaseUrl" title="重置为默认URL">
                 <el-icon><RefreshRight /></el-icon>
               </el-button>
             </template>
           </el-input>
-          <div class="form-tip" v-if="form.provider">
-            默认: {{ getProviderDefaultUrl(form.provider) }}
+          <div class="form-tip" v-if="form.provider && getProviderDefaultUrl(form.provider)">
+            默认端点：{{ getProviderDefaultUrl(form.provider) }}
           </div>
         </el-form-item>
         <el-form-item label="API Key" required>
-          <el-input v-model="form.apiKey" type="password" placeholder="输入 API 密钥" show-password />
-          <div class="form-tip">密钥仅存储在您的账户中，不会泄露给他人</div>
+          <el-input v-model="form.apiKey" type="password" placeholder="输入 API 密钥（Key / Token）" show-password />
+          <div class="form-tip key-tip">
+            <el-icon><Lock /></el-icon> 密钥加密存储在您的账户，不会对外暴露
+          </div>
         </el-form-item>
         <el-form-item label="模型名称">
           <el-input v-model="form.model" :placeholder="getModelPlaceholder()">
@@ -134,13 +144,19 @@
           </el-input>
         </el-form-item>
         <el-form-item label="设为默认">
-          <el-switch v-model="isDefault" />
-          <span class="switch-hint">开启后，此配置将作为{{ currentTabLabel }}的默认服务</span>
+          <div class="default-row">
+            <el-switch v-model="isDefault" />
+            <span class="switch-hint">启用后此配置作为 {{ currentTabLabel }} 的默认服务</span>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showDialog = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSave">保存配置</el-button>
+        <div class="dialog-footer">
+          <el-button @click="showDialog = false">取消</el-button>
+          <el-button type="primary" :loading="submitting" @click="handleSave">
+            {{ editing ? '保存修改' : '添加配置' }}
+          </el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -149,7 +165,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Edit, Delete, Select, RefreshRight } from '@element-plus/icons-vue'
+import { Plus, Edit, Delete, Select, RefreshRight, InfoFilled, Lock } from '@element-plus/icons-vue'
 import { aiConfigApi } from '@/api/aiConfig'
 
 const configs = ref<any[]>([])
@@ -182,46 +198,70 @@ const tabs = [
   },
 ]
 
-const providerGroups = [
-  {
-    label: '文本大模型',
-    providers: [
-      { value: 'deepseek', label: 'DeepSeek', types: ['text'] },
-      { value: 'openai', label: 'OpenAI (GPT)', types: ['text', 'image', 'tts'] },
-      { value: 'qianwen', label: '阿里通义千问 / DashScope', types: ['text', 'image'] },
-      { value: 'doubao', label: '火山引擎豆包', types: ['text'] },
-      { value: 'moonshot', label: 'Moonshot (月之暗面)', types: ['text'] },
-      { value: 'zhipu', label: '智谱 GLM', types: ['text'] },
-      { value: 'baichuan', label: '百川智能', types: ['text'] },
-      { value: 'wenxin', label: '百度文心一言', types: ['text'] },
-      { value: 'minimax', label: 'MiniMax', types: ['text', 'tts'] },
-    ]
-  },
-  {
-    label: '图像 / 视频生成',
-    providers: [
-      { value: 'dashscope', label: '阿里云百炼 (DashScope)', types: ['image', 'video'] },
-      { value: 'kling', label: '可灵 AI (Kling)', types: ['video', 'image'] },
-      { value: 'jimeng', label: '即梦 AI', types: ['image', 'video'] },
-      { value: 'runway', label: 'Runway', types: ['video'] },
-      { value: 'sd', label: 'Stable Diffusion (本地)', types: ['image'] },
-    ]
-  },
-  {
-    label: '语音合成',
-    providers: [
-      { value: 'volcengine', label: '火山引擎语音合成', types: ['tts'] },
-      { value: 'openai', label: 'OpenAI TTS', types: ['tts'] },
-      { value: 'minimax', label: 'MiniMax 语音', types: ['tts'] },
-    ]
-  },
-  {
-    label: '其他',
-    providers: [
-      { value: 'custom', label: '自定义 (OpenAI 兼容)', types: ['text', 'image', 'video', 'tts'] },
-    ]
-  }
+// All providers with type and tag metadata
+const allProviders = [
+  // ──────── 文本大模型 ────────
+  { value: 'deepseek', label: 'DeepSeek', tagLabel: '推荐·文本', types: ['text'] },
+  { value: 'openai', label: 'OpenAI (GPT)', tagLabel: '文本/图像/TTS', types: ['text', 'image', 'tts'] },
+  { value: 'qianwen', label: '阿里通义千问', tagLabel: '文本/图像', types: ['text', 'image'] },
+  { value: 'doubao', label: '火山引擎豆包', tagLabel: '文本', types: ['text'] },
+  { value: 'moonshot', label: 'Moonshot (月之暗面)', tagLabel: '文本', types: ['text'] },
+  { value: 'zhipu', label: '智谱 GLM', tagLabel: '文本', types: ['text'] },
+  { value: 'baichuan', label: '百川智能', tagLabel: '文本', types: ['text'] },
+  { value: 'wenxin', label: '百度文心一言', tagLabel: '文本', types: ['text'] },
+  { value: 'minimax', label: 'MiniMax', tagLabel: '文本/TTS', types: ['text', 'tts'] },
+  // ──────── 文生图 ────────
+  { value: 'wanx', label: '通义万相 Wanx 2.1（推荐）', tagLabel: '推荐·图像', types: ['image'] },
+  { value: 'dashscope', label: '阿里云百炼 DashScope', tagLabel: '图像/视频', types: ['image', 'video'] },
+  { value: 'seedream', label: '火山引擎 Seedream 3.0', tagLabel: '图像', types: ['image'] },
+  { value: 'kling', label: '可灵 AI (Kling)', tagLabel: '视频/图像', types: ['video', 'image'] },
+  { value: 'jimeng', label: '即梦 AI', tagLabel: '图像/视频', types: ['image', 'video'] },
+  { value: 'runway', label: 'Runway', tagLabel: '视频', types: ['video'] },
+  { value: 'sd', label: 'Stable Diffusion (本地)', tagLabel: '图像', types: ['image'] },
+  // ──────── 文生视频 ────────
+  { value: 'seedance', label: '火山引擎 Seedance 2.0（推荐）', tagLabel: '推荐·视频', types: ['video'] },
+  // ──────── TTS 语音 ────────
+  { value: 'cosyvoice', label: '阿里云 CosyVoice V3（推荐）', tagLabel: '推荐·TTS', types: ['tts'] },
+  { value: 'xunfei', label: '科大讯飞星火 TTS', tagLabel: 'TTS', types: ['tts'] },
+  { value: 'volcengine', label: '火山引擎语音合成', tagLabel: 'TTS', types: ['tts'] },
+  // ──────── 通用 ────────
+  { value: 'custom', label: '自定义 (OpenAI 兼容)', tagLabel: '通用', types: ['text', 'image', 'video', 'tts'] },
 ]
+
+// Provider hints (shown in dialog when selected)
+const providerHints: Record<string, string> = {
+  wanx: '通义万相 Wanx 2.1 — 阿里云百炼，适合短剧封面/分镜批量生成，性价比极高（0.14元/张起）',
+  seedream: '火山引擎 Seedream 3.0 — 人像质感优秀，适合连续剧集封面，需在火山引擎方舟平台开通',
+  seedance: '火山引擎 Seedance 2.0 — 角色一致性强，支持 1080P/60fps，适合短剧片段生成',
+  cosyvoice: '阿里云 CosyVoice V3 — 情感表现力强，适配短剧台词，使用阿里云百炼 API Key',
+  xunfei: '科大讯飞星火 TTS — 中文发音自然，支持方言，请在讯飞开放平台申请 API Key',
+  dashscope: '阿里云百炼（DashScope）— 通义万相文生图/视频统一入口，支持异步批量任务',
+  kling: '可灵 AI — 视频生成效果佳，按时长计费（标准版 ¥0.6/秒）',
+}
+
+// Build filtered provider groups based on selected configType
+const filteredProviderGroups = computed(() => {
+  const type = form.value.configType
+  const byType = allProviders.filter(p => p.types.includes(type))
+
+  const groups: { label: string; providers: typeof byType }[] = []
+
+  // 首选推荐
+  const recommended = byType.filter(p => p.tagLabel.includes('推荐'))
+  if (recommended.length) groups.push({ label: '⭐ 推荐', providers: recommended })
+
+  // 其余按 type 分组
+  const rest = byType.filter(p => !p.tagLabel.includes('推荐') && p.value !== 'custom')
+  if (rest.length) groups.push({ label: '全部服务商', providers: rest })
+
+  // 自定义
+  const custom = byType.filter(p => p.value === 'custom')
+  if (custom.length) groups.push({ label: '其他', providers: custom })
+
+  return groups
+})
+
+const currentProviderHint = computed(() => providerHints[form.value.provider] || '')
 
 // Provider base URL defaults (client-side for instant feedback)
 const providerBaseUrls: Record<string, string> = {
@@ -229,7 +269,11 @@ const providerBaseUrls: Record<string, string> = {
   deepseek: 'https://api.deepseek.com',
   qianwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   dashscope: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  wanx: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  cosyvoice: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   doubao: 'https://ark.cn-beijing.volces.com/api/v3',
+  seedream: 'https://visual.volcengineapi.com',
+  seedance: 'https://open.volcengineapi.com',
   minimax: 'https://api.minimax.chat/v1',
   moonshot: 'https://api.moonshot.cn/v1',
   zhipu: 'https://open.bigmodel.cn/api/paas/v4',
@@ -239,6 +283,7 @@ const providerBaseUrls: Record<string, string> = {
   jimeng: 'https://jimeng.jianying.com/v1',
   runway: 'https://api.dev.runwayml.com/v1',
   volcengine: 'https://openspeech.bytedance.com/api/v1',
+  xunfei: 'https://spark-api-open.xf-yun.com/v1',
   sd: 'http://localhost:7860',
 }
 
@@ -247,6 +292,11 @@ const providerModels: Record<string, Record<string, string>> = {
   deepseek: { text: 'deepseek-chat' },
   qianwen: { text: 'qwen-plus', image: 'wanx-v1' },
   dashscope: { image: 'wanx-v1', video: 'wanx-v1' },
+  wanx: { image: 'wanx2.1-t2i-turbo' },
+  cosyvoice: { tts: 'cosyvoice-v3-flash' },
+  xunfei: { tts: 'x1' },
+  seedream: { image: 'high_aes_general_v30l_zt2i' },
+  seedance: { video: 'seedance2.0-turbo' },
   doubao: { text: 'doubao-pro-32k' },
   minimax: { text: 'abab6.5s-chat', tts: 'speech-01-turbo' },
   moonshot: { text: 'moonshot-v1-8k' },
@@ -277,11 +327,18 @@ function getModelPlaceholder(): string {
 }
 
 function providerLabel(provider: string): string {
+  const p = allProviders.find(p => p.value === provider)
+  if (p) return p.label
   const labels: Record<string, string> = {
     openai: 'OpenAI',
     deepseek: 'DeepSeek',
-    qianwen: '通义千问 / DashScope',
-    dashscope: '阿里云百炼 (DashScope)',
+    qianwen: '通义千问',
+    dashscope: '阿里云百炼',
+    wanx: '通义万相 Wanx 2.1',
+    cosyvoice: 'CosyVoice V3',
+    xunfei: '讯飞星火 TTS',
+    seedream: 'Seedream 3.0',
+    seedance: 'Seedance 2.0',
     doubao: '火山豆包',
     minimax: 'MiniMax',
     moonshot: 'Moonshot',
@@ -311,8 +368,8 @@ function openDialog(row?: any) {
     isDefault.value = row.isDefault === 1
   } else {
     const defaultProvider = activeTab.value === 'text' ? 'deepseek' :
-      activeTab.value === 'image' ? 'dashscope' :
-      activeTab.value === 'video' ? 'kling' : 'volcengine'
+      activeTab.value === 'image' ? 'wanx' :
+      activeTab.value === 'video' ? 'seedance' : 'cosyvoice'
     form.value = {
       id: null,
       configType: activeTab.value,
@@ -327,11 +384,10 @@ function openDialog(row?: any) {
 }
 
 function onTypeChange() {
-  // Reset provider to a sensible default for the type
   const type = form.value.configType
   const defaultProvider = type === 'text' ? 'deepseek' :
-    type === 'image' ? 'dashscope' :
-    type === 'video' ? 'kling' : 'volcengine'
+    type === 'image' ? 'wanx' :
+    type === 'video' ? 'seedance' : 'cosyvoice'
   form.value.provider = defaultProvider
   onProviderChange(defaultProvider)
 }
@@ -557,11 +613,60 @@ onMounted(load)
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 4px;
-  line-height: 1.4;
+  line-height: 1.6;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.config-form .form-tip .el-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-size: 12px;
+}
+.provider-hint {
+  color: var(--primary) !important;
+  background: rgba(99, 102, 241, 0.05);
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+.key-tip {
+  color: var(--color-success) !important;
+}
+.default-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .switch-hint {
   font-size: 12px;
   color: var(--text-muted);
-  margin-left: 10px;
+}
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Provider option in select dropdown */
+.provider-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+.provider-option-name {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.provider-option-tag {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-muted);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  margin-left: 8px;
 }
 </style>

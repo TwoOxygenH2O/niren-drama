@@ -51,8 +51,8 @@ public class AiProviderFactory {
         }
 
         // DashScope (Alibaba Cloud Bailian) uses its own async image generation API.
-        // Both "dashscope" and "qianwen" refer to Alibaba Cloud's DashScope/Bailian service.
-        if ("dashscope".equals(provider) || "qianwen".equals(provider)) {
+        // Both "dashscope" and "qianwen" and "wanx" refer to Alibaba Cloud's DashScope/Bailian service.
+        if ("dashscope".equals(provider) || "qianwen".equals(provider) || "wanx".equals(provider)) {
             return new DashScopeImageProvider(baseUrl, apiKey, model);
         }
 
@@ -62,10 +62,11 @@ public class AiProviderFactory {
     public TtsProvider getTtsProvider(Long userId) {
         AiConfig config = getDefaultConfig(userId, "tts");
         if (config != null && config.getApiKey() != null && !config.getApiKey().isBlank()) {
+            String provider = config.getProvider() != null ? config.getProvider().toLowerCase() : "openai";
             String baseUrl = config.getBaseUrl() != null && !config.getBaseUrl().isBlank()
-                    ? config.getBaseUrl() : "https://api.openai.com/v1";
+                    ? config.getBaseUrl() : getDefaultBaseUrl(provider, "tts");
             String model = config.getModel() != null && !config.getModel().isBlank()
-                    ? config.getModel() : "tts-1";
+                    ? config.getModel() : getDefaultModel(provider, "tts");
             return new OpenAiTtsProvider(baseUrl, config.getApiKey(), model);
         }
         // Fallback to mock when no TTS config is available
@@ -88,8 +89,11 @@ public class AiProviderFactory {
         return switch (provider.toLowerCase()) {
             case "openai" -> "https://api.openai.com/v1";
             case "deepseek" -> "https://api.deepseek.com";
-            case "qianwen", "dashscope" -> "https://dashscope.aliyuncs.com/compatible-mode/v1";
+            case "qianwen", "dashscope", "wanx", "cosyvoice" ->
+                    "https://dashscope.aliyuncs.com/compatible-mode/v1";
             case "doubao" -> "https://ark.cn-beijing.volces.com/api/v3";
+            case "seedream" -> "https://visual.volcengineapi.com";
+            case "seedance" -> "https://open.volcengineapi.com";
             case "minimax" -> "https://api.minimax.chat/v1";
             case "moonshot" -> "https://api.moonshot.cn/v1";
             case "zhipu" -> "https://open.bigmodel.cn/api/paas/v4";
@@ -99,6 +103,7 @@ public class AiProviderFactory {
             case "jimeng" -> "https://jimeng.jianying.com/v1";
             case "runway" -> "https://api.dev.runwayml.com/v1";
             case "volcengine" -> "https://openspeech.bytedance.com/api/v1";
+            case "xunfei" -> "https://spark-api-open.xf-yun.com/v1";
             default -> "https://api.openai.com/v1";
         };
     }
@@ -121,8 +126,16 @@ public class AiProviderFactory {
                 case "image" -> "wanx-v1";
                 default -> "qwen-plus";
             };
+            case "wanx" -> "wanx2.1-t2i-turbo";
+            case "cosyvoice" -> "cosyvoice-v3-flash";
+            case "xunfei" -> "x1";
+            case "seedream" -> "high_aes_general_v30l_zt2i";
+            case "seedance" -> "seedance2.0-turbo";
             case "doubao" -> "doubao-pro-32k";
-            case "minimax" -> "abab6.5s-chat";
+            case "minimax" -> switch (configType) {
+                case "tts" -> "speech-01-turbo";
+                default -> "abab6.5s-chat";
+            };
             case "moonshot" -> "moonshot-v1-8k";
             case "zhipu" -> "glm-4";
             case "baichuan" -> "Baichuan4";
