@@ -45,6 +45,9 @@
         <el-button size="small" @click="clearDynamicSelection" :loading="selectionLoading" :disabled="selectedCount === 0">
           清空动态选择
         </el-button>
+        <el-button size="small" type="primary" @click="$router.push(`/projects/${route.params.id}/synthesis`)">
+          前往合成导出 <el-icon class="ml-1"><ArrowRight /></el-icon>
+        </el-button>
       </div>
     </el-card>
 
