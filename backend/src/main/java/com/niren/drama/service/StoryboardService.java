@@ -8,9 +8,13 @@ import com.niren.drama.ai.TtsProvider;
 import com.niren.drama.dto.storyboard.StoryboardGenerateRequest;
 import com.niren.drama.dto.storyboard.StoryboardPreviewSaveRequest;
 import com.niren.drama.entity.Script;
+import com.niren.drama.entity.Character;
+import com.niren.drama.entity.Scene;
 import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.exception.BusinessException;
+import com.niren.drama.mapper.CharacterMapper;
+import com.niren.drama.mapper.SceneMapper;
 import com.niren.drama.mapper.ScriptMapper;
 import com.niren.drama.mapper.StoryboardMapper;
 import com.niren.drama.mapper.TaskRecordMapper;
@@ -40,6 +44,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -50,6 +55,8 @@ public class StoryboardService {
     private final StoryboardMapper storyboardMapper;
     private final ScriptMapper scriptMapper;
     private final TaskRecordMapper taskRecordMapper;
+    private final CharacterMapper characterMapper;
+    private final SceneMapper sceneMapper;
     private final AiProviderFactory aiProviderFactory;
     private final ProjectService projectService;
     private final CostEstimationService costEstimationService;
@@ -729,7 +736,11 @@ if (isStream) {
                     } else {
                         // Use smart resolution based on camera angle
                         String imageSize = costEstimationService.getOptimalImageSize(shot.getCameraAngle());
-                        String imageUrl = imageProvider.generateImage(prompt, imageSize, PORTRAIT_IMAGE_STYLE);
+                        String imageUrl = imageProvider.generateImage(
+                                prompt,
+                                imageSize,
+                                PORTRAIT_IMAGE_STYLE,
+                                collectReferenceImageUrls(shot));
                         if (imageUrl == null || imageUrl.isBlank()) {
                             throw new BusinessException("图片接口未返回有效图片地址");
                         }
@@ -792,6 +803,30 @@ if (isStream) {
                 sceneId != null ? sceneId : 0,
                 characterId != null ? characterId : 0,
                 angle != null ? angle : "medium");
+    }
+
+    private List<String> collectReferenceImageUrls(Storyboard shot) {
+        Set<String> referenceImageUrls = new LinkedHashSet<>();
+        if (shot.getCharacterId() != null) {
+            Character character = characterMapper.selectById(shot.getCharacterId());
+            if (character != null) {
+                addReferenceImageUrl(referenceImageUrls, character.getImageUrl());
+            }
+        }
+        if (shot.getSceneId() != null) {
+            Scene scene = sceneMapper.selectById(shot.getSceneId());
+            if (scene != null) {
+                addReferenceImageUrl(referenceImageUrls, scene.getImageUrl());
+            }
+        }
+        return new ArrayList<>(referenceImageUrls);
+    }
+
+    private void addReferenceImageUrl(Set<String> referenceImageUrls, String imageUrl) {
+        if (hasText(imageUrl)
+                && (imageUrl.startsWith("http://") || imageUrl.startsWith("https://"))) {
+            referenceImageUrls.add(imageUrl);
+        }
     }
 
     /**
@@ -1300,6 +1335,4 @@ if (isStream) {
             "转场", "切换", "空镜", "远景", "夜景", "天台", "街道", "车流", "门外", "入场", "登场", "离开"
     };
 }
-
-
 
