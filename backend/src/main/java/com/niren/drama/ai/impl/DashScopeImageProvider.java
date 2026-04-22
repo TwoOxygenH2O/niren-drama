@@ -12,6 +12,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
 /**
  * DashScope (Alibaba Cloud Bailian) image provider.
@@ -29,6 +32,7 @@ public class DashScopeImageProvider implements ImageAiProvider {
 
     private static final int MAX_POLL_ATTEMPTS = 60;
     private static final long POLL_INTERVAL_MS = 3000;
+    private static final String DEFAULT_REFERENCE_EDIT_MODEL = "qwen-image-edit";
 
     public DashScopeImageProvider(String baseUrl, String apiKey, String model) {
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
@@ -70,26 +74,7 @@ public class DashScopeImageProvider implements ImageAiProvider {
             }
 
             JsonNode responseJson = objectMapper.readTree(response.body());
-
-            // Check if response contains direct URL (synchronous response)
-            JsonNode dataNode = responseJson.path("data");
-            if (dataNode.isArray() && dataNode.size() > 0) {
-                String url = dataNode.get(0).path("url").asText(null);
-                if (url != null && !url.isBlank()) {
-                    return url;
-                }
-            }
-
-            // Check for async task response (DashScope native format)
-            JsonNode outputNode = responseJson.path("output");
-            if (!outputNode.isMissingNode()) {
-                String taskId = outputNode.path("task_id").asText(null);
-                if (taskId != null && !taskId.isBlank()) {
-                    return pollTaskResult(taskId);
-                }
-            }
-
-            throw new RuntimeException("Unexpected DashScope response format: " + response.body());
+            return extractImageUrl(responseJson);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -98,11 +83,25 @@ public class DashScopeImageProvider implements ImageAiProvider {
         }
     }
 
+    @Override
+    public String generateImage(String prompt, String size, String style, List<String> referenceImageUrls) {
+        List<String> references = normalizeReferenceImageUrls(referenceImageUrls);
+        if (references.isEmpty()) {
+            return generateImage(prompt, size, style);
+        }
+        try {
+            return generateImageWithReferences(prompt, size, style, references);
+        } catch (Exception e) {
+            log.warn("DashScope reference-image generation failed, falling back to text-to-image: {}", e.getMessage());
+            return generateImage(prompt, size, style);
+        }
+    }
+
     /**
      * Poll for async task completion.
      */
     private String pollTaskResult(String taskId) throws Exception {
-        String taskUrl = baseUrl.replace("/compatible-mode/v1", "") + "/api/v1/tasks/" + taskId;
+        String taskUrl = getDashScopeApiBaseUrl() + "/tasks/" + taskId;
 
         for (int i = 0; i < MAX_POLL_ATTEMPTS; i++) {
             Thread.sleep(POLL_INTERVAL_MS);
@@ -137,6 +136,159 @@ public class DashScopeImageProvider implements ImageAiProvider {
                 (MAX_POLL_ATTEMPTS * POLL_INTERVAL_MS / 1000) + " seconds");
     }
 
+    private String generateImageWithReferences(String prompt, String size, String style, List<String> referenceImageUrls)
+            throws Exception {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("model", resolveReferenceEditModel());
+
+        ObjectNode input = body.putObject("input");
+        ArrayNode messages = input.putArray("messages");
+        ObjectNode userMessage = messages.addObject();
+        userMessage.put("role", "user");
+        ArrayNode content = userMessage.putArray("content");
+        for (String referenceImageUrl : referenceImageUrls) {
+            content.addObject().put("image", referenceImageUrl);
+        }
+        content.addObject().put("text", buildReferencePrompt(prompt, size, style));
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getDashScopeApiBaseUrl() + "/services/aigc/multimodal-conversation/generation"))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + apiKey)
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                .timeout(Duration.ofSeconds(180))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() >= 400) {
+            throw new RuntimeException("HTTP " + response.statusCode() + " - " + response.body());
+        }
+        JsonNode responseJson = objectMapper.readTree(response.body());
+        return extractImageUrl(responseJson);
+    }
+
+    private String extractImageUrl(JsonNode responseJson) throws Exception {
+        // OpenAI-compatible response
+        JsonNode dataNode = responseJson.path("data");
+        if (dataNode.isArray() && dataNode.size() > 0) {
+            String url = textValue(dataNode.get(0).path("url"));
+            if (hasText(url)) {
+                return url;
+            }
+        }
+
+        // DashScope async task response
+        JsonNode outputNode = responseJson.path("output");
+        if (!outputNode.isMissingNode()) {
+            String directOutputUrl = findImageUrl(outputNode);
+            if (hasText(directOutputUrl)) {
+                return directOutputUrl;
+            }
+            String taskId = textValue(outputNode.path("task_id"));
+            if (hasText(taskId)) {
+                return pollTaskResult(taskId);
+            }
+        }
+
+        // Multimodal conversation response
+        JsonNode choicesNode = responseJson.path("output").path("choices");
+        if (choicesNode.isArray()) {
+            for (JsonNode choiceNode : choicesNode) {
+                String url = findImageUrl(choiceNode);
+                if (hasText(url)) {
+                    return url;
+                }
+            }
+        }
+
+        String rootLevelUrl = findImageUrl(responseJson);
+        if (hasText(rootLevelUrl)) {
+            return rootLevelUrl;
+        }
+
+        throw new RuntimeException("Unexpected DashScope response format: " + responseJson);
+    }
+
+    private String findImageUrl(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (node.isObject()) {
+            String image = textValue(node.path("image"));
+            if (hasText(image) && isHttpUrl(image)) {
+                return image;
+            }
+            String imageUrl = textValue(node.path("image_url"));
+            if (hasText(imageUrl) && isHttpUrl(imageUrl)) {
+                return imageUrl;
+            }
+            String url = textValue(node.path("url"));
+            if (hasText(url) && isHttpUrl(url)) {
+                return url;
+            }
+            for (String fieldName : List.of("results", "result", "content", "message", "messages", "output")) {
+                String nested = findImageUrl(node.path(fieldName));
+                if (hasText(nested)) {
+                    return nested;
+                }
+            }
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                String nested = findImageUrl(item);
+                if (hasText(nested)) {
+                    return nested;
+                }
+            }
+        }
+        return null;
+    }
+
+    private List<String> normalizeReferenceImageUrls(List<String> referenceImageUrls) {
+        List<String> normalized = new ArrayList<>();
+        if (referenceImageUrls == null) {
+            return normalized;
+        }
+        for (String referenceImageUrl : referenceImageUrls) {
+            if (hasText(referenceImageUrl) && isHttpUrl(referenceImageUrl) && !normalized.contains(referenceImageUrl)) {
+                normalized.add(referenceImageUrl);
+            }
+        }
+        return normalized;
+    }
+
+    private String resolveReferenceEditModel() {
+        if (hasText(model) && (model.contains("image-edit") || model.startsWith("qwen-image"))) {
+            return model;
+        }
+        return DEFAULT_REFERENCE_EDIT_MODEL;
+    }
+
+    private String buildReferencePrompt(String prompt, String size, String style) {
+        StringBuilder builder = new StringBuilder();
+        if (hasText(prompt)) {
+            builder.append(prompt.trim());
+        } else {
+            builder.append("请基于参考图生成符合短剧分镜需求的画面");
+        }
+        if (hasText(style)) {
+            builder.append("，风格要求：").append(style);
+        }
+        if (hasText(size)) {
+            builder.append("，输出尺寸：").append(convertSize(size));
+        }
+        builder.append("，请保持参考人物与场景的一致性，并输出最终图片。");
+        return builder.toString();
+    }
+
+    private String getDashScopeApiBaseUrl() {
+        String normalizedBaseUrl = baseUrl.replace("/compatible-mode/v1", "");
+        if (normalizedBaseUrl.endsWith("/api/v1")) {
+            return normalizedBaseUrl;
+        }
+        return normalizedBaseUrl + "/api/v1";
+    }
+
     /**
      * Convert standard sizes to DashScope supported sizes.
      */
@@ -147,5 +299,40 @@ public class DashScopeImageProvider implements ImageAiProvider {
             case "1792x1024", "1344x768" -> "1280x720";
             default -> "1024x1024";
         };
+    }
+
+    private String textValue(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        String value = node.asText(null);
+        return hasText(value) ? value : null;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private boolean isHttpUrl(String value) {
+        try {
+            URI uri = URI.create(value);
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if ((!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) || !hasText(host)) {
+                return false;
+            }
+            String normalizedHost = host.toLowerCase(Locale.ROOT);
+            if ("localhost".equals(normalizedHost)
+                    || "127.0.0.1".equals(normalizedHost)
+                    || "0.0.0.0".equals(normalizedHost)
+                    || "::1".equals(normalizedHost)) {
+                return false;
+            }
+            return !normalizedHost.startsWith("10.")
+                    && !normalizedHost.startsWith("192.168.")
+                    && !normalizedHost.matches("^172\\.(1[6-9]|2\\d|3[0-1])\\..*");
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 }
