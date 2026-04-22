@@ -702,6 +702,7 @@ if (isStream) {
             int generated = 0;
             int reused = 0;
             int failed = 0;
+            List<String> failedDetails = new ArrayList<>();
 
             // Build image reuse cache: scene+character+angle → imageUrl
             Map<String, String> imageCache = new HashMap<>();
@@ -759,7 +760,10 @@ if (isStream) {
                     failed++;
                     shot.setStatus("image_failed");
                     storyboardMapper.updateById(shot);
-                    log.warn("Failed to generate image for shot {}: {}", shot.getShotNo(), e.getMessage());
+                    String shotLabel = shot.getShotNo() != null ? String.valueOf(shot.getShotNo()) : String.valueOf(shot.getId());
+                    String errorMessage = hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName();
+                    failedDetails.add(String.format("镜头%s: %s", shotLabel, errorMessage));
+                    log.warn("Failed to generate image for shot {}", shotLabel, e);
                 }
                 completed++;
             }
@@ -768,11 +772,11 @@ if (isStream) {
             int readyCount = alreadyReady + reused + generated;
             if (readyCount == 0 && failed > 0) {
                 task.setStatus("FAILED");
-                task.setMessage(String.format("分镜图片生成失败，所选%d个镜头均未生成成功", total));
+                task.setMessage(String.format("分镜图片生成失败，所选%d个镜头均未生成成功。%s", total, buildFailureReasonSummary(failedDetails, 3)));
             } else {
                 task.setStatus("SUCCESS");
                 if (failed > 0) {
-                    task.setMessage(String.format("分镜图片生成完成：成功%d个，复用%d个，已存在%d个，失败%d个", generated, reused, alreadyReady, failed));
+                    task.setMessage(String.format("分镜图片生成完成：成功%d个，复用%d个，已存在%d个，失败%d个。%s", generated, reused, alreadyReady, failed, buildFailureReasonSummary(failedDetails, 3)));
                 } else {
                     task.setMessage(String.format("分镜图片生成完成，共处理%d个镜头，新增%d张，复用%d张，已存在%d张", total, generated, reused, alreadyReady));
                 }
@@ -785,6 +789,20 @@ if (isStream) {
             task.setMessage("分镜图片生成失败: " + e.getMessage());
             taskRecordMapper.updateById(task);
         }
+    }
+
+    private String buildFailureReasonSummary(List<String> failedDetails, int maxItems) {
+        if (failedDetails == null || failedDetails.isEmpty()) {
+            return "";
+        }
+        int limit = Math.max(1, maxItems);
+        List<String> reasons = failedDetails.stream().limit(limit).toList();
+        String summary = String.join("；", reasons);
+        int remaining = failedDetails.size() - reasons.size();
+        if (remaining > 0) {
+            summary = summary + String.format("；另有%d个失败镜头", remaining);
+        }
+        return "失败原因：" + summary;
     }
 
     /**

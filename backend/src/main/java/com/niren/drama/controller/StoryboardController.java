@@ -32,6 +32,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class StoryboardController {
 
+    private static final long SSE_TIMEOUT_MILLIS = 1_800_000L;
+
     private final StoryboardService storyboardService;
     private final CurrentUserHelper currentUserHelper;
     private final ObjectMapper objectMapper;
@@ -52,7 +54,7 @@ public class StoryboardController {
     public SseEmitter generateStream(@RequestBody @Valid StoryboardGenerateRequest request,
                                      @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = getUserId(userDetails);
-        SseEmitter emitter = new SseEmitter(600_000L);
+        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
 
         sseExecutor.execute(() -> {
             try {
@@ -66,7 +68,10 @@ public class StoryboardController {
             }
         });
 
-        emitter.onTimeout(emitter::complete);
+        emitter.onTimeout(() -> {
+            log.warn("Storyboard stream timeout for project {}", request.getProjectId());
+            sendError(emitter, new RuntimeException("流式生成超时，请缩小生成范围后重试"));
+        });
         emitter.onError(e -> log.warn("SSE emitter error: {}", e.getMessage()));
         return emitter;
     }

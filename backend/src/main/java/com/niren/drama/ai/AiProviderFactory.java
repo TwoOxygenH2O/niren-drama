@@ -2,6 +2,7 @@ package com.niren.drama.ai;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.niren.drama.ai.impl.DashScopeImageProvider;
+import com.niren.drama.ai.impl.ExternalImageProvider;
 import com.niren.drama.ai.impl.MockTtsProvider;
 import com.niren.drama.ai.impl.OpenAiImageProvider;
 import com.niren.drama.ai.impl.OpenAiTextProvider;
@@ -96,6 +97,10 @@ public class AiProviderFactory {
             return new DashScopeImageProvider(baseUrl, apiKey, model);
         }
 
+        if ("external".equals(provider)) {
+            return new ExternalImageProvider(baseUrl, apiKey, model);
+        }
+
         return new OpenAiImageProvider(baseUrl, apiKey, model);
     }
 
@@ -138,6 +143,7 @@ public class AiProviderFactory {
         if (provider == null) return "https://api.openai.com/v1";
         return switch (provider.toLowerCase()) {
             case "openai" -> "https://api.openai.com/v1";
+            case "custom" -> "https://api.openai.com/v1";
             case "deepseek" -> "https://api.deepseek.com";
             case "qianwen", "dashscope", "wanx", "cosyvoice" ->
                     "https://dashscope.aliyuncs.com/compatible-mode/v1";
@@ -154,6 +160,8 @@ public class AiProviderFactory {
             case "runway" -> "https://api.dev.runwayml.com/v1";
             case "volcengine" -> "https://openspeech.bytedance.com/api/v1";
             case "xunfei" -> "https://spark-api-open.xf-yun.com/v1";
+            case "sd" -> "http://localhost:7860";
+            case "external" -> "";
             default -> "https://api.openai.com/v1";
         };
     }
@@ -167,13 +175,22 @@ public class AiProviderFactory {
             case "openai" -> switch (configType) {
                 case "text" -> "gpt-4o";
                 case "image" -> "dall-e-3";
+                case "video" -> "sora";
+                case "tts" -> "tts-1";
+                default -> "gpt-4o";
+            };
+            case "custom" -> switch (configType) {
+                case "text" -> "gpt-4o";
+                case "image" -> "dall-e-3";
+                case "video" -> "kling-v1";
                 case "tts" -> "tts-1";
                 default -> "gpt-4o";
             };
             case "deepseek" -> "deepseek-chat";
             case "qianwen", "dashscope" -> switch (configType) {
                 case "text" -> "qwen-plus";
-                case "image" -> "wanx-v1";
+                case "image" -> "qwen-image-2.0-pro";
+                case "video" -> "wanx-v1-video";
                 default -> "qwen-plus";
             };
             case "wanx" -> "wanx2.1-t2i-turbo";
@@ -190,9 +207,19 @@ public class AiProviderFactory {
             case "zhipu" -> "glm-4";
             case "baichuan" -> "Baichuan4";
             case "wenxin" -> "ernie-4.0-8k";
-            case "kling" -> "kling-v1";
-            case "jimeng" -> "jimeng-2.1-pro";
+            case "kling" -> switch (configType) {
+                case "image" -> "kolors-v1";
+                case "video" -> "kling-v1";
+                default -> "kling-v1";
+            };
+            case "jimeng" -> switch (configType) {
+                case "video" -> "jimeng-video-v1";
+                default -> "jimeng-2.1-pro";
+            };
             case "runway" -> "gen-3";
+            case "volcengine" -> "zh_female_qingxin";
+            case "sd" -> "stable-diffusion-xl";
+            case "external" -> "qwen-image-2.0-pro";
             default -> "gpt-4o";
         };
     }

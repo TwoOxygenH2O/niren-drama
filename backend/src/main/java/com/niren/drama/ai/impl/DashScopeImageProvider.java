@@ -60,8 +60,10 @@ public class DashScopeImageProvider implements ImageAiProvider {
             }
 
             String requestBody = objectMapper.writeValueAsString(body);
+                String endpoint = getDashScopeCompatibleBaseUrl() + "/images/generations";
+                log.info("DashScope image request endpoint={}, model={}", endpoint, model);
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/images/generations"))
+                    .uri(URI.create(endpoint))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
@@ -71,8 +73,12 @@ public class DashScopeImageProvider implements ImageAiProvider {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() >= 400) {
+                if (response.statusCode() == 404 && isQwenImageModel(model)) {
+                    log.warn("DashScope compatible image endpoint returned 404 for model {}, fallback to multimodal text-only", model);
+                    return generateImageByMultimodal(prompt, size, style, List.of());
+                }
                 log.error("DashScope image generation API error: {} - {}", response.statusCode(), response.body());
-                throw new RuntimeException("Image generation failed: HTTP " + response.statusCode());
+                throw new RuntimeException("Image generation failed: HTTP " + response.statusCode() + " - " + response.body());
             }
 
             JsonNode responseJson = objectMapper.readTree(response.body());
@@ -88,6 +94,12 @@ public class DashScopeImageProvider implements ImageAiProvider {
     @Override
     public String generateImage(String prompt, String size, String style, List<String> referenceImageUrls) {
         List<String> references = normalizeReferenceImageUrls(referenceImageUrls);
+        if (isQwenImageModel(model)) {
+            if (!references.isEmpty()) {
+                log.info("Ignore {} reference images for model {} and force text-to-image endpoint", references.size(), model);
+            }
+            return generateImage(prompt, size, style);
+        }
         if (references.isEmpty()) {
             return generateImage(prompt, size, style);
         }
@@ -140,6 +152,11 @@ public class DashScopeImageProvider implements ImageAiProvider {
 
     private String generateImageWithReferences(String prompt, String size, String style, List<String> referenceImageUrls)
             throws Exception {
+        return generateImageByMultimodal(prompt, size, style, referenceImageUrls);
+        }
+
+        private String generateImageByMultimodal(String prompt, String size, String style, List<String> referenceImageUrls)
+            throws Exception {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", resolveReferenceEditModel());
 
@@ -153,8 +170,11 @@ public class DashScopeImageProvider implements ImageAiProvider {
         }
         content.addObject().put("text", buildReferencePrompt(prompt, size, style));
 
+        String endpoint = getDashScopeApiBaseUrl() + "/services/aigc/multimodal-conversation/generation";
+        log.info("DashScope multimodal image request endpoint={}, model={}, refCount={}", endpoint, model, referenceImageUrls.size());
+
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(getDashScopeApiBaseUrl() + "/services/aigc/multimodal-conversation/generation"))
+            .uri(URI.create(endpoint))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + apiKey)
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
@@ -284,11 +304,54 @@ public class DashScopeImageProvider implements ImageAiProvider {
     }
 
     private String getDashScopeApiBaseUrl() {
-        String normalizedBaseUrl = baseUrl.replace("/compatible-mode/v1", "");
-        if (normalizedBaseUrl.endsWith("/api/v1")) {
-            return normalizedBaseUrl;
+        return getDashScopeRootBaseUrl() + "/api/v1";
+    }
+
+    private String getDashScopeCompatibleBaseUrl() {
+        return getDashScopeRootBaseUrl() + "/compatible-mode/v1";
+    }
+
+    private String getDashScopeRootBaseUrl() {
+        String normalizedBaseUrl = baseUrl;
+        if (normalizedBaseUrl.endsWith("/")) {
+            normalizedBaseUrl = normalizedBaseUrl.substring(0, normalizedBaseUrl.length() - 1);
         }
-        return normalizedBaseUrl + "/api/v1";
+
+        String[] knownSuffixes = new String[] {
+                "/images/generations",
+                "/services/aigc/multimodal-conversation/generation",
+                "/compatible-mode/v1",
+                "/api/v1"
+        };
+
+        boolean stripped;
+        do {
+            stripped = false;
+            for (String suffix : knownSuffixes) {
+                if (normalizedBaseUrl.endsWith(suffix)) {
+                    normalizedBaseUrl = normalizedBaseUrl.substring(0, normalizedBaseUrl.length() - suffix.length());
+                    stripped = true;
+                    break;
+                }
+            }
+            if (normalizedBaseUrl.endsWith("/")) {
+                normalizedBaseUrl = normalizedBaseUrl.substring(0, normalizedBaseUrl.length() - 1);
+            }
+        } while (stripped);
+
+        return normalizedBaseUrl;
+    }
+
+    private boolean isQwenImageModel(String modelName) {
+        return hasText(modelName) && modelName.toLowerCase(Locale.ROOT).startsWith("qwen-image");
+    }
+
+    private boolean isDashScopeUrlParameterError(Exception e) {
+        if (e == null || !hasText(e.getMessage())) {
+            return false;
+        }
+        String message = e.getMessage().toLowerCase(Locale.ROOT);
+        return message.contains("url error") || (message.contains("invalidparameter") && message.contains("url"));
     }
 
     /**

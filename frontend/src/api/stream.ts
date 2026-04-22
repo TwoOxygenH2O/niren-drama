@@ -26,6 +26,46 @@ export async function streamPreview(url: string, data: unknown, handlers: Stream
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let doneEventReceived = false
+
+  const processEventBlock = (rawEvent: string) => {
+    if (!rawEvent.trim()) {
+      return
+    }
+
+    const lines = rawEvent.split('\n')
+    const eventName = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() || 'message'
+    const dataLine = lines
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trim())
+      .join('')
+
+    if (!dataLine) {
+      return
+    }
+
+    let payload: any
+    try {
+      payload = JSON.parse(dataLine)
+    } catch {
+      const message = normalizeApiErrorMessage('流式响应解析失败，请重试', url)
+      handlers.onError?.(message)
+      throw new Error(message)
+    }
+
+    if (eventName === 'chunk' && Object.prototype.hasOwnProperty.call(payload, 'content')) {
+      handlers.onChunk(String(payload.content ?? ''))
+    }
+    if (eventName === 'done') {
+      doneEventReceived = true
+      handlers.onDone?.(payload.message)
+    }
+    if (eventName === 'error') {
+      const message = normalizeApiErrorMessage(payload.message || '生成失败', url)
+      handlers.onError?.(message)
+      throw new Error(message)
+    }
+  }
 
   while (true) {
     const { done, value } = await reader.read()
@@ -38,29 +78,19 @@ export async function streamPreview(url: string, data: unknown, handlers: Stream
     buffer = events.pop() || ''
 
     for (const rawEvent of events) {
-      const lines = rawEvent.split('\n')
-      const eventName = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() || 'message'
-      const dataLine = lines
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).trim())
-        .join('')
-
-      if (!dataLine) {
-        continue
-      }
-
-      const payload = JSON.parse(dataLine)
-      if (eventName === 'chunk' && payload.content) {
-        handlers.onChunk(payload.content)
-      }
-      if (eventName === 'done') {
-        handlers.onDone?.(payload.message)
-      }
-      if (eventName === 'error') {
-        const message = normalizeApiErrorMessage(payload.message || '生成失败', url)
-        handlers.onError?.(message)
-        throw new Error(message)
-      }
+      processEventBlock(rawEvent)
     }
+  }
+
+  const tail = decoder.decode()
+  if (tail) {
+    buffer += tail
+  }
+  if (buffer.trim()) {
+    processEventBlock(buffer)
+  }
+
+  if (!doneEventReceived) {
+    handlers.onDone?.('流式连接已结束')
   }
 }

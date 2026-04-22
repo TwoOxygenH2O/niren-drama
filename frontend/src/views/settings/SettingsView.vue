@@ -166,7 +166,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Edit, Delete, Select, RefreshRight, InfoFilled, Lock } from '@element-plus/icons-vue'
-import { aiConfigApi } from '@/api/aiConfig'
+import { aiConfigApi } from '../../api/aiConfig'
 
 const configs = ref<any[]>([])
 const showDialog = ref(false)
@@ -214,6 +214,7 @@ const allProviders = [
   { value: 'wanx', label: '通义万相 Wanx 2.1（推荐）', tagLabel: '推荐·图像', types: ['image'] },
   { value: 'dashscope', label: '阿里云百炼 DashScope', tagLabel: '图像/视频', types: ['image', 'video'] },
   { value: 'seedream', label: '火山引擎 Seedream 3.0', tagLabel: '图像', types: ['image'] },
+  { value: 'external', label: '外部接口生图', tagLabel: '图像·中转', types: ['image'] },
   { value: 'kling', label: '可灵 AI (Kling)', tagLabel: '视频/图像', types: ['video', 'image'] },
   { value: 'jimeng', label: '即梦 AI', tagLabel: '图像/视频', types: ['image', 'video'] },
   { value: 'runway', label: 'Runway', tagLabel: '视频', types: ['video'] },
@@ -237,6 +238,7 @@ const providerHints: Record<string, string> = {
   xunfei: '科大讯飞星火 TTS — 中文发音自然，支持方言，请在讯飞开放平台（xf-yun.com）申请 API Key',
   dashscope: '阿里云百炼（DashScope）— 通义万相文生图/视频统一入口，支持异步批量任务',
   kling: '可灵 AI — 视频生成效果佳，按时长计费，请在可灵 AI 官网开通服务',
+  external: '通过外部中转接口生成图片。Base URL 请填写你的外部服务地址，系统会自动拼接 /images/generations。',
 }
 
 // Build filtered provider groups based on selected configType
@@ -285,17 +287,19 @@ const providerBaseUrls: Record<string, string> = {
   volcengine: 'https://openspeech.bytedance.com/api/v1',
   xunfei: 'https://spark-api-open.xf-yun.com/v1',
   sd: 'http://localhost:7860',
+  external: 'http://localhost:9000',
 }
 
 const providerModels: Record<string, Record<string, string>> = {
   openai: { text: 'gpt-4o', image: 'dall-e-3', tts: 'tts-1' },
   deepseek: { text: 'deepseek-chat' },
-  qianwen: { text: 'qwen-plus', image: 'wanx-v1' },
-  dashscope: { image: 'wanx-v1', video: 'wanx-v1' },
+  qianwen: { text: 'qwen-plus', image: 'qwen-image-2.0-pro' },
+  dashscope: { image: 'qwen-image-2.0-pro', video: 'wanx-v1-video' },
   wanx: { image: 'wanx2.1-t2i-turbo' },
   cosyvoice: { tts: 'cosyvoice-v3-flash' },
   xunfei: { tts: 'x1' },
   seedream: { image: 'high_aes_general_v30l_zt2i' },
+  external: { image: 'qwen-image-2.0-pro' },
   seedance: { video: 'seedance2.0-turbo' },
   doubao: { text: 'doubao-pro-32k' },
   minimax: { text: 'abab6.5s-chat', tts: 'speech-01-turbo' },
@@ -365,12 +369,26 @@ function onTypeChange() {
     type === 'image' ? 'wanx' :
     type === 'video' ? 'seedance' : 'cosyvoice'
   form.value.provider = defaultProvider
-  onProviderChange(defaultProvider)
+  void onProviderChange(defaultProvider)
 }
 
-function onProviderChange(val: string) {
+async function onProviderChange(val: string) {
+  // Show local defaults immediately for better UX, then sync with backend defaults.
   form.value.baseUrl = providerBaseUrls[val] || ''
   form.value.model = providerModels[val]?.[form.value.configType] || ''
+
+  try {
+    const res = await aiConfigApi.getProviderDefaults(val, form.value.configType)
+    const defaults = res?.data?.data || {}
+    if (defaults.baseUrl) {
+      form.value.baseUrl = defaults.baseUrl
+    }
+    if (defaults.model) {
+      form.value.model = defaults.model
+    }
+  } catch {
+    // Keep local fallback values when backend defaults are temporarily unavailable.
+  }
 }
 
 function resetBaseUrl() {
