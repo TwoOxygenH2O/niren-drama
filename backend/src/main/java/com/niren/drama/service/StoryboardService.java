@@ -638,25 +638,26 @@ if (isStream) {
             updateTask(task, "RUNNING", 10, "读取剧本内容...");
             Script script = requireScript(request.getScriptId(), request.getProjectId());
 
-            updateTask(task, "RUNNING", 30, "AI正在拆解分镜脚本...");
+            updateTask(task, "RUNNING", 20, "AI正在拆解分镜脚本...");
             TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
             String systemPrompt = buildStoryboardSystemPrompt();
-            StringBuilder simulatedBuffer = new StringBuilder();
-            generateStoryboardPreviewByScenes(textProvider, systemPrompt, script, request, chunk -> {
-                simulatedBuffer.append(chunk);
-            }, null);
-            String storyboardJson = simulatedBuffer.toString();
+            // generateStoryboardPreviewByScenes saves each scene's shots to the database
+            // incrementally (status=preview_draft), so partial progress is preserved even
+            // if the task is interrupted. Pass null for chunkConsumer — we don't need to
+            // stream JSON to anyone in the async path. Use the progressConsumer to keep
+            // the task message up-to-date while scenes are being generated.
+            generateStoryboardPreviewByScenes(textProvider, systemPrompt, script, request, null,
+                    progressMsg -> updateTask(task, "RUNNING", task.getProgress(), progressMsg));
 
-            updateTask(task, "RUNNING", 70, "保存分镜数据...");
-            List<Storyboard> shots = parseStoryboardJson(storyboardJson, request, false);
-            for (Storyboard shot : shots) {
-                shot.setEpisodeNo(script.getEpisodeNo() != null ? script.getEpisodeNo() : 1);
-                storyboardMapper.insert(shot);
-            }
+            long shotCount = storyboardMapper.selectCount(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Storyboard>()
+                            .eq(Storyboard::getProjectId, request.getProjectId())
+                            .eq(Storyboard::getScriptId, request.getScriptId())
+                            .eq(Storyboard::getStatus, "preview_draft"));
 
             task.setStatus("SUCCESS");
             task.setProgress(100);
-            task.setMessage(String.format("分镜生成完成，共%d个镜头", shots.size()));
+            task.setMessage(String.format("分镜生成完成，共%d个镜头", shotCount));
             taskRecordMapper.updateById(task);
 
         } catch (Exception e) {
