@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.TextAiProvider;
 import com.niren.drama.dto.script.BatchScriptPreviewSaveRequest;
+import com.niren.drama.dto.script.OutlinePreviewRepairRequest;
 import com.niren.drama.dto.script.OutlinePreviewSaveRequest;
 import com.niren.drama.dto.script.ScriptGenerateRequest;
 import com.niren.drama.dto.script.ScriptSaveRequest;
@@ -35,7 +36,9 @@ public class ScriptService {
 
     private static final int OUTLINE_CHUNK_SIZE = 4;
     private static final Pattern EPISODE_SCRIPT_PATTERN = Pattern.compile("###EPISODE_START:(\\d+)###\\s*(.*?)\\s*###EPISODE_END###", Pattern.DOTALL);
+    private static final Pattern EPISODE_OUTLINE_START_PATTERN = Pattern.compile("###EPISODE_OUTLINE_START:(\\d+)###");
     private static final Pattern EPISODE_OUTLINE_PATTERN = Pattern.compile("###EPISODE_OUTLINE_START:(\\d+)###\\s*(.*?)\\s*###EPISODE_OUTLINE_END###", Pattern.DOTALL);
+    private static final Pattern EPISODE_OUTLINE_HEADING_PATTERN = Pattern.compile("(?m)^(?:#{1,6}\\s*)?(?:【|\\[)?\\s*第\\s*(\\d+)\\s*集\\s*(?:】|\\])?\\s*([^\\r\\n]*)$");
     private static final Pattern PROJECT_COMMON_INFO_PATTERN = Pattern.compile("###PROJECT_COMMON_INFO_START###\\s*(.*?)\\s*###PROJECT_COMMON_INFO_END###", Pattern.DOTALL);
     private static final Pattern TITLE_PATTERN = Pattern.compile("^标题[：:]\\s*(.+)$", Pattern.MULTILINE);
 
@@ -139,9 +142,11 @@ public class ScriptService {
             throw new BusinessException("大纲预览内容不能为空");
         }
 
-        String commonInfo = extractProjectCommonInfo(previewContent);
+        String commonInfo = extractProjectCommonInfoFromPreview(previewContent);
         Map<Integer, EpisodeOutline> outlineMap = parseEpisodeOutlinesFromPreview(previewContent, totalEpisodes);
-        projectService.updateCommonInfo(userId, project.getId(), commonInfo);
+        if (StringUtils.isNotBlank(commonInfo)) {
+            projectService.updateCommonInfo(userId, project.getId(), commonInfo);
+        }
 
         for (int episodeNo = 1; episodeNo <= totalEpisodes; episodeNo++) {
             EpisodeOutline outline = outlineMap.get(episodeNo);
@@ -150,6 +155,60 @@ public class ScriptService {
             }
             upsertEpisodeOutline(project.getId(), episodeNo, outline, request.getIdea());
         }
+    }
+
+    public Map<String, Object> repairOutlinePreview(Long userId, OutlinePreviewRepairRequest request) {
+        Project project = projectService.getProject(userId, request.getProjectId());
+        int totalEpisodes = resolveTotalEpisodes(project, new ScriptGenerateRequest());
+        String previewContent = StringUtils.trimToEmpty(request.getContent());
+        if (previewContent.isBlank()) {
+            throw new BusinessException("大纲预览内容不能为空");
+        }
+
+        String commonInfo = resolveOutlinePreviewCommonInfo(project, previewContent);
+        Map<Integer, EpisodeOutline> outlineMap = parsePartialEpisodeOutlinesFromPreview(previewContent, totalEpisodes);
+        List<Integer> missingEpisodes = findMissingEpisodes(outlineMap, totalEpisodes);
+        if (missingEpisodes.isEmpty()) {
+            return Map.of(
+                    "content", buildOutlinePreviewContent(commonInfo, outlineMap, totalEpisodes),
+                    "repairedEpisodes", List.of(),
+                    "repairedEpisodeRanges", "",
+                    "totalEpisodes", totalEpisodes);
+        }
+
+        ScriptGenerateRequest generateRequest = new ScriptGenerateRequest();
+        generateRequest.setProjectId(project.getId());
+        generateRequest.setIdea(request.getIdea());
+
+        TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
+        String systemPrompt = buildOutlineSystemPrompt(resolveGenre(project, generateRequest), generateRequest.getStyle());
+        int episodeDuration = resolveEpisodeDuration(project);
+        for (Integer episodeNo : missingEpisodes) {
+            if (episodeNo == null || outlineMap.containsKey(episodeNo)) {
+                continue;
+            }
+            outlineMap.putAll(generateEpisodeOutlineChunk(
+                    textProvider,
+                    systemPrompt,
+                    project,
+                    generateRequest,
+                    commonInfo,
+                    episodeNo,
+                    episodeNo,
+                    totalEpisodes,
+                    episodeDuration));
+        }
+
+        List<Integer> unresolvedEpisodes = findMissingEpisodes(outlineMap, totalEpisodes);
+        if (!unresolvedEpisodes.isEmpty()) {
+            throw createOutlinePreviewParseException(totalEpisodes, unresolvedEpisodes);
+        }
+
+        return Map.of(
+                "content", buildOutlinePreviewContent(commonInfo, outlineMap, totalEpisodes),
+                "repairedEpisodes", missingEpisodes,
+                "repairedEpisodeRanges", formatEpisodeRanges(missingEpisodes),
+                "totalEpisodes", totalEpisodes);
     }
 
     public void saveBatchScriptPreview(Long userId, BatchScriptPreviewSaveRequest request) {
@@ -287,7 +346,7 @@ public class ScriptService {
     public void streamGenerateScriptPreview(Long userId, ScriptGenerateRequest request, Consumer<String> chunkConsumer) {
         Project project = projectService.getProject(userId, request.getProjectId());
         GenerationPlan plan = resolveGenerationPlan(project, request);
-        request.setEpisodeNo(plan.singleEpisode());
+        request.setEpisodeNo(plan.startEpisode() == plan.endEpisode() ? plan.singleEpisode() : null);
         request.setTotalEpisodes(plan.totalEpisodes());
         request.setStartEpisode(plan.startEpisode());
         request.setEndEpisode(plan.endEpisode());
@@ -520,14 +579,15 @@ public class ScriptService {
                    ...该集完整剧本正文...
                    ###EPISODE_END###
                    其中 X 必须是对应集数。
-                3) 不要输出任何解释文字，只输出多集剧本内容和标记。
-                4) 每一集按约 %d 秒体量，控制在 %d-%d 个场景，保证节奏紧凑、承接自然。
-                5) 剧本必须为后续分镜拆解服务，每场都要写清时间、地点、出场角色、动作与情绪。
-                6) 场景格式统一：
+                     3) 只能输出第 %d 到第 %d 集，禁止输出该区间之外的任何集数，输出顺序也必须严格从第 %d 集到第 %d 集。
+                     4) 不要输出任何解释文字，只输出多集剧本内容和标记。
+                     5) 每一集按约 %d 秒体量，控制在 %d-%d 个场景，保证节奏紧凑、承接自然。
+                     6) 剧本必须为后续分镜拆解服务，每场都要写清时间、地点、出场角色、动作与情绪。
+                     7) 场景格式统一：
                    第N场 [场景/时间/地点]
                    角色名：（动作/表情）“台词”
-                7) 连续集剧情要有承接，但每一集都要有明确钩子。
-                8) 角色语言和行为必须严格符合项目通用信息中的人物小传。
+                     8) 连续集剧情要有承接，但每一集都要有明确钩子。
+                     9) 角色语言和行为必须严格符合项目通用信息中的人物小传。
                 """,
                 startEpisode,
                 endEpisode,
@@ -538,6 +598,10 @@ public class ScriptService {
                 materials.commonInfo(),
                 outlines,
                 formatOptionalAdjustment(request.getIdea()),
+                startEpisode,
+                endEpisode,
+                startEpisode,
+                endEpisode,
                 resolveEpisodeDuration(materials.project()),
                 sceneBudget.minScenes(),
                 sceneBudget.maxScenes());
@@ -891,6 +955,7 @@ public class ScriptService {
                 - 结尾留强钩子
                 """,
                 episodeNo,
+                totalEpisodes,
                 materials.project().getName(),
                 resolveGenre(materials.project(), request),
                 totalEpisodes,
@@ -926,7 +991,27 @@ public class ScriptService {
         }
     }
 
-    private Map<Integer, EpisodeOutline> parseEpisodeOutlines(String response, int startEpisode, int endEpisode) {
+    private String extractProjectCommonInfoFromPreview(String response) {
+        try {
+            return extractProjectCommonInfo(response);
+        } catch (BusinessException ex) {
+            int firstEpisodeIndex = findFirstEpisodeOutlineIndex(response);
+            if (firstEpisodeIndex <= 0) {
+                return "";
+            }
+            return response.substring(0, firstEpisodeIndex).trim();
+        }
+    }
+
+    private String resolveOutlinePreviewCommonInfo(Project project, String previewContent) {
+        String commonInfo = StringUtils.trimToNull(extractProjectCommonInfoFromPreview(previewContent));
+        if (commonInfo != null) {
+            return commonInfo;
+        }
+        return StringUtils.defaultString(StringUtils.trimToNull(project.getCommonInfo()));
+    }
+
+    private Map<Integer, EpisodeOutline> parseMarkedEpisodeOutlines(String response, int startEpisode, int endEpisode) {
         Map<Integer, EpisodeOutline> result = new LinkedHashMap<>();
         Matcher matcher = EPISODE_OUTLINE_PATTERN.matcher(response);
         while (matcher.find()) {
@@ -942,6 +1027,11 @@ public class ScriptService {
             }
             result.put(episodeNo, new EpisodeOutline(title, summary));
         }
+        return result;
+    }
+
+    private Map<Integer, EpisodeOutline> parseEpisodeOutlines(String response, int startEpisode, int endEpisode) {
+        Map<Integer, EpisodeOutline> result = parseMarkedEpisodeOutlines(response, startEpisode, endEpisode);
 
         if (result.size() != (endEpisode - startEpisode + 1)) {
             throw new BusinessException(String.format("分集大纲解析失败：第 %d-%d 集标记不完整", startEpisode, endEpisode));
@@ -950,32 +1040,218 @@ public class ScriptService {
     }
 
     private Map<Integer, EpisodeOutline> parseEpisodeOutlinesFromPreview(String response, int totalEpisodes) {
-        Map<Integer, EpisodeOutline> result = new LinkedHashMap<>();
-        Matcher matcher = EPISODE_OUTLINE_PATTERN.matcher(response);
-        while (matcher.find()) {
-            int episodeNo = Integer.parseInt(matcher.group(1));
-            if (episodeNo < 1 || episodeNo > totalEpisodes) {
-                continue;
-            }
-            String rawBlock = matcher.group(2).trim();
-            String title = extractEpisodeTitle(rawBlock, episodeNo);
-            String summary = stripEpisodeTitle(rawBlock).trim();
-            if (StringUtils.isBlank(summary)) {
-                throw new BusinessException("第 " + episodeNo + " 集大纲为空");
-            }
-            result.put(episodeNo, new EpisodeOutline(title, summary));
-        }
-
-        if (result.size() != totalEpisodes) {
-            throw new BusinessException(String.format("大纲预览解析失败：应包含 1-%d 集完整标记", totalEpisodes));
+        Map<Integer, EpisodeOutline> result = parsePartialEpisodeOutlinesFromPreview(response, totalEpisodes);
+        List<Integer> missingEpisodes = findMissingEpisodes(result, totalEpisodes);
+        if (!missingEpisodes.isEmpty()) {
+            throw createOutlinePreviewParseException(totalEpisodes, missingEpisodes);
         }
         return result;
     }
 
-    private String extractEpisodeTitle(String rawBlock, int episodeNo) {
+    private Map<Integer, EpisodeOutline> parsePartialEpisodeOutlinesFromPreview(String response, int totalEpisodes) {
+        Map<Integer, EpisodeOutline> result = parseMarkedEpisodeOutlines(response, 1, totalEpisodes);
+        if (result.size() < totalEpisodes) {
+            Map<Integer, EpisodeOutline> fallbackResult = parseEpisodeOutlinesFromPreviewByHeading(response, totalEpisodes);
+            fallbackResult.forEach(result::putIfAbsent);
+        }
+        return result;
+    }
+
+    private BusinessException createOutlinePreviewParseException(int totalEpisodes, List<Integer> missingEpisodes) {
+        return new BusinessException(
+                422,
+                String.format(
+                        "大纲预览解析失败：缺少第 %s 集标记；请在预览框中补齐“【第X集】”或“###EPISODE_OUTLINE_START:X###”后再保存",
+                        formatEpisodeRanges(missingEpisodes)),
+                buildOutlinePreviewParseErrorData(totalEpisodes, missingEpisodes));
+    }
+
+    private Map<String, Object> buildOutlinePreviewParseErrorData(int totalEpisodes, List<Integer> missingEpisodes) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("type", "OUTLINE_PREVIEW_PARSE_INCOMPLETE");
+        data.put("repairable", !missingEpisodes.isEmpty());
+        data.put("totalEpisodes", totalEpisodes);
+        data.put("missingEpisodes", missingEpisodes);
+        data.put("missingEpisodeRanges", formatEpisodeRanges(missingEpisodes));
+        return data;
+    }
+
+    private Map<Integer, EpisodeOutline> parseEpisodeOutlinesFromPreviewByHeading(String response, int totalEpisodes) {
+        Map<Integer, EpisodeOutline> result = new LinkedHashMap<>();
+        Matcher headingMatcher = EPISODE_OUTLINE_HEADING_PATTERN.matcher(response);
+        List<Integer> starts = new ArrayList<>();
+        List<Integer> episodeNos = new ArrayList<>();
+        List<String> headingSuffixes = new ArrayList<>();
+
+        while (headingMatcher.find()) {
+            starts.add(headingMatcher.start());
+            episodeNos.add(Integer.parseInt(headingMatcher.group(1)));
+            headingSuffixes.add(StringUtils.trimToEmpty(headingMatcher.group(2)));
+        }
+
+        for (int i = 0; i < starts.size(); i++) {
+            int episodeNo = episodeNos.get(i);
+            if (episodeNo < 1 || episodeNo > totalEpisodes) {
+                continue;
+            }
+
+            int from = starts.get(i);
+            int to = (i + 1 < starts.size()) ? starts.get(i + 1) : response.length();
+            EpisodeOutline outline = buildEpisodeOutlineFromHeadingBlock(
+                    response.substring(from, to).trim(),
+                    episodeNo,
+                    headingSuffixes.get(i));
+            if (outline != null) {
+                result.put(episodeNo, outline);
+            }
+        }
+        return result;
+    }
+
+    private EpisodeOutline buildEpisodeOutlineFromHeadingBlock(String rawBlock, int episodeNo, String headingSuffix) {
+        if (StringUtils.isBlank(rawBlock)) {
+            return null;
+        }
+
+        int firstLineBreak = findFirstLineBreak(rawBlock);
+        String body = firstLineBreak >= 0 ? rawBlock.substring(firstLineBreak).trim() : "";
+        String explicitTitle = findEpisodeTitle(body);
+        String summary = stripEpisodeTitle(body).trim();
+        String inlineTitle = normalizeHeadingSuffix(headingSuffix);
+
+        if (StringUtils.isBlank(summary)) {
+            summary = inlineTitle;
+            inlineTitle = "";
+        }
+        if (StringUtils.isBlank(summary)) {
+            return null;
+        }
+
+        String title = StringUtils.defaultIfBlank(explicitTitle, inlineTitle);
+        if (StringUtils.isBlank(title)) {
+            title = "第" + episodeNo + "集";
+        }
+        return new EpisodeOutline(title, summary);
+    }
+
+    private int findFirstEpisodeOutlineIndex(String response) {
+        int firstIndex = -1;
+
+        Matcher markedMatcher = EPISODE_OUTLINE_START_PATTERN.matcher(response);
+        if (markedMatcher.find()) {
+            firstIndex = markedMatcher.start();
+        }
+
+        Matcher headingMatcher = EPISODE_OUTLINE_HEADING_PATTERN.matcher(response);
+        if (headingMatcher.find()) {
+            firstIndex = firstIndex < 0 ? headingMatcher.start() : Math.min(firstIndex, headingMatcher.start());
+        }
+        return firstIndex;
+    }
+
+    private String findEpisodeTitle(String rawBlock) {
         Matcher titleMatcher = TITLE_PATTERN.matcher(rawBlock);
-        if (titleMatcher.find()) {
-            return titleMatcher.group(1).trim();
+        if (!titleMatcher.find()) {
+            return "";
+        }
+        return titleMatcher.group(1).trim();
+    }
+
+    private String normalizeHeadingSuffix(String headingSuffix) {
+        String normalized = StringUtils.trimToEmpty(headingSuffix);
+        normalized = normalized.replaceFirst("^[：:\\-—\\s]+", "").trim();
+        return normalized;
+    }
+
+    private int findFirstLineBreak(String text) {
+        int lineFeed = text.indexOf('\n');
+        int carriageReturn = text.indexOf('\r');
+        if (lineFeed < 0) {
+            return carriageReturn;
+        }
+        if (carriageReturn < 0) {
+            return lineFeed;
+        }
+        return Math.min(lineFeed, carriageReturn);
+    }
+
+    private List<Integer> findMissingEpisodes(Map<Integer, EpisodeOutline> result, int totalEpisodes) {
+        List<Integer> missingEpisodes = new ArrayList<>();
+        for (int episodeNo = 1; episodeNo <= totalEpisodes; episodeNo++) {
+            if (!result.containsKey(episodeNo)) {
+                missingEpisodes.add(episodeNo);
+            }
+        }
+        return missingEpisodes;
+    }
+
+    private String buildOutlinePreviewContent(String commonInfo, Map<Integer, EpisodeOutline> outlineMap, int totalEpisodes) {
+        StringBuilder builder = new StringBuilder();
+        if (StringUtils.isNotBlank(commonInfo)) {
+            builder.append("###PROJECT_COMMON_INFO_START###\n")
+                    .append(commonInfo.trim())
+                    .append("\n###PROJECT_COMMON_INFO_END###");
+        }
+
+        for (int episodeNo = 1; episodeNo <= totalEpisodes; episodeNo++) {
+            EpisodeOutline outline = outlineMap.get(episodeNo);
+            if (outline == null) {
+                continue;
+            }
+            if (builder.length() > 0) {
+                builder.append("\n\n");
+            }
+            builder.append(formatEpisodeOutlineBlock(episodeNo, outline));
+        }
+        return builder.toString().trim();
+    }
+
+    private String formatEpisodeOutlineBlock(int episodeNo, EpisodeOutline outline) {
+        return new StringBuilder()
+                .append("###EPISODE_OUTLINE_START:").append(episodeNo).append("###\n")
+                .append("标题：")
+                .append(StringUtils.defaultIfBlank(outline.title(), "第" + episodeNo + "集"))
+                .append("\n")
+                .append(StringUtils.trimToEmpty(outline.summary()))
+                .append("\n###EPISODE_OUTLINE_END###")
+                .toString();
+    }
+
+    private String formatEpisodeRanges(List<Integer> episodeNos) {
+        if (episodeNos.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder builder = new StringBuilder();
+        int rangeStart = episodeNos.get(0);
+        int rangeEnd = rangeStart;
+        for (int i = 1; i < episodeNos.size(); i++) {
+            int episodeNo = episodeNos.get(i);
+            if (episodeNo == rangeEnd + 1) {
+                rangeEnd = episodeNo;
+                continue;
+            }
+            appendEpisodeRange(builder, rangeStart, rangeEnd);
+            builder.append('、');
+            rangeStart = episodeNo;
+            rangeEnd = episodeNo;
+        }
+        appendEpisodeRange(builder, rangeStart, rangeEnd);
+        return builder.toString();
+    }
+
+    private void appendEpisodeRange(StringBuilder builder, int rangeStart, int rangeEnd) {
+        if (rangeStart == rangeEnd) {
+            builder.append(rangeStart);
+            return;
+        }
+        builder.append(rangeStart).append('-').append(rangeEnd);
+    }
+
+    private String extractEpisodeTitle(String rawBlock, int episodeNo) {
+        String title = findEpisodeTitle(rawBlock);
+        if (StringUtils.isNotBlank(title)) {
+            return title;
         }
         return "第" + episodeNo + "集";
     }

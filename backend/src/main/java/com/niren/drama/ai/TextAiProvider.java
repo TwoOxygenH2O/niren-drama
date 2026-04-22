@@ -16,6 +16,10 @@ public interface TextAiProvider {
     String chatWithHistory(String systemPrompt, List<ChatMessage> messages);
 
     default void streamChat(String systemPrompt, String userMessage, Consumer<String> chunkConsumer) {
-        chunkConsumer.accept(chat(systemPrompt, userMessage));
+        streamChatWithHistory(systemPrompt, List.of(new ChatMessage("user", userMessage)), chunkConsumer);
+    }
+
+    default void streamChatWithHistory(String systemPrompt, List<ChatMessage> messages, Consumer<String> chunkConsumer) {
+        chunkConsumer.accept(chatWithHistory(systemPrompt, messages));
     }
 }

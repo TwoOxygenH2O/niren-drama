@@ -2,6 +2,7 @@ package com.niren.drama.controller;
 
 import com.niren.drama.common.Result;
 import com.niren.drama.dto.script.BatchScriptPreviewSaveRequest;
+import com.niren.drama.dto.script.OutlinePreviewRepairRequest;
 import com.niren.drama.dto.script.OutlinePreviewSaveRequest;
 import com.niren.drama.dto.script.ScriptGenerateRequest;
 import com.niren.drama.dto.script.ScriptSaveRequest;
@@ -115,6 +116,14 @@ public class ScriptController {
         Long userId = getUserId(userDetails);
         scriptService.saveOutlinePreview(userId, request);
         return Result.success();
+    }
+
+    @Operation(summary = "AI修复大纲预览缺失集")
+    @PostMapping("/preview/outline/repair")
+    public Result<Map<String, Object>> repairOutlinePreview(@RequestBody @Valid OutlinePreviewRepairRequest request,
+                                                            @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        return Result.success(scriptService.repairOutlinePreview(userId, request));
     }
 
     @Operation(summary = "保存批量剧本预览")

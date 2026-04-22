@@ -136,7 +136,7 @@
       :phase-text="outlinePreview.generating ? '流式生成中' : '待确认保存'"
       :loading="outlinePreview.generating"
       :confirm-loading="outlinePreview.saving"
-      :confirm-disabled="outlinePreview.generating || !outlinePreview.content.trim()"
+      :confirm-disabled="outlinePreview.generating || outlinePreview.repairing || !outlinePreview.content.trim()"
       confirm-text="确认保存大纲"
       :error-message="outlinePreview.error"
       @confirm="saveOutlinePreview"
@@ -145,6 +145,22 @@
       <template #meta>
         <span class="preview-chip">{{ projectGenreLabel }}</span>
         <span class="preview-chip">{{ projectInfo?.episodes || 0 }} 集</span>
+      </template>
+      <template #footer-prefix>
+        <div class="outline-footer-tools">
+          <span v-if="outlinePreviewRepairHint" class="preview-footer-tip">
+            {{ outlinePreviewRepairHint }}
+          </span>
+          <el-button
+            v-if="canRepairOutlinePreview"
+            text
+            type="warning"
+            :loading="outlinePreview.repairing"
+            @click="repairOutlinePreview"
+          >
+            AI 修复缺失集
+          </el-button>
+        </div>
       </template>
       <div class="preview-toolbar">
         <span>当前内容会直接作为项目通用信息和各集大纲的入库来源。</span>
@@ -233,6 +249,14 @@ import AiPreviewDialog from '@/components/AiPreviewDialog.vue'
 import { projectApi } from '@/api/project'
 import { scriptApi } from '@/api/script'
 
+type OutlinePreviewErrorData = {
+  type?: string
+  repairable?: boolean
+  totalEpisodes?: number
+  missingEpisodes?: number[]
+  missingEpisodeRanges?: string
+}
+
 const route = useRoute()
 const projectId = route.params.id
 
@@ -252,7 +276,9 @@ const outlinePreview = ref({
   content: '',
   generating: false,
   saving: false,
+  repairing: false,
   error: '',
+  errorData: null as OutlinePreviewErrorData | null,
 })
 
 const scriptPreview = ref({
@@ -286,6 +312,29 @@ const hasGeneratedOutline = computed(() => Boolean(projectInfo.value?.commonInfo
 const canGenerateOutline = computed(() => Boolean(outlineSeed.value) && !hasGeneratedOutline.value && !outlinePreview.value.generating && !outlinePreview.value.saving)
 const canGenerateScript = computed(() => hasEpisodeSelection.value && hasGeneratedOutline.value && !scriptPreview.value.generating && !scriptPreview.value.saving)
 const projectGenreLabel = computed(() => normalizeGenreLabel(projectInfo.value?.genre) || '未设置')
+const canRepairOutlinePreview = computed(() => {
+  const errorData = outlinePreview.value.errorData
+  const hasLegacyParseError = outlinePreview.value.error.includes('大纲预览解析失败')
+  const hasRepairableError =
+    (errorData?.type === 'OUTLINE_PREVIEW_PARSE_INCOMPLETE' && errorData?.repairable)
+    || hasLegacyParseError
+  return Boolean(
+    hasRepairableError
+      && !outlinePreview.value.generating
+      && !outlinePreview.value.saving
+      && !outlinePreview.value.repairing
+      && outlinePreview.value.content.trim(),
+  )
+})
+const outlinePreviewRepairHint = computed(() => {
+  if (outlinePreview.value.errorData?.missingEpisodeRanges) {
+    return `缺失集：第 ${outlinePreview.value.errorData.missingEpisodeRanges} 集`
+  }
+  if (outlinePreview.value.error.includes('大纲预览解析失败')) {
+    return '检测到大纲标记不完整，可尝试 AI 自动修复'
+  }
+  return ''
+})
 const scriptPreviewRangeLabel = computed(() => {
   if (scriptPreview.value.mode === 'single') {
     return `第 ${scriptPreview.value.episodeNo} 集`
@@ -365,7 +414,9 @@ function resetOutlinePreview() {
   outlinePreview.value.visible = false
   outlinePreview.value.generating = false
   outlinePreview.value.saving = false
+  outlinePreview.value.repairing = false
   outlinePreview.value.error = ''
+  outlinePreview.value.errorData = null
 }
 
 function resetScriptPreview() {
@@ -384,6 +435,7 @@ async function handleGenerateOutline() {
   outlinePreview.value.visible = true
   outlinePreview.value.content = ''
   outlinePreview.value.error = ''
+  outlinePreview.value.errorData = null
   outlinePreview.value.generating = true
 
   try {
@@ -398,16 +450,19 @@ async function handleGenerateOutline() {
         },
         onDone: () => {
           outlinePreview.value.generating = false
+          outlinePreview.value.errorData = null
           ElMessage.success('大纲预览生成完成，请确认后保存')
         },
         onError: (message) => {
           outlinePreview.value.error = message
+          outlinePreview.value.errorData = null
           outlinePreview.value.generating = false
         },
       },
     )
   } catch (error: any) {
     outlinePreview.value.error = error?.message || '大纲预览生成失败'
+    outlinePreview.value.errorData = null
     outlinePreview.value.generating = false
   }
 }
@@ -423,9 +478,42 @@ async function saveOutlinePreview() {
     ElMessage.success('大纲已保存')
     resetOutlinePreview()
     await Promise.all([loadProject(), loadScripts()])
+  } catch (error: any) {
+    outlinePreview.value.error = error?.message || '大纲预览保存失败'
+    outlinePreview.value.errorData = extractOutlinePreviewErrorData(error)
   } finally {
     outlinePreview.value.saving = false
   }
+}
+
+async function repairOutlinePreview() {
+  outlinePreview.value.repairing = true
+  try {
+    const res = await scriptApi.repairOutlinePreview({
+      projectId: projectId as string,
+      content: outlinePreview.value.content,
+      idea: outlineSeed.value,
+    })
+    const payload = res.data.data || {}
+    outlinePreview.value.content = payload.content || outlinePreview.value.content
+    outlinePreview.value.error = ''
+    outlinePreview.value.errorData = null
+    const repairedRanges = payload.repairedEpisodeRanges ? `第 ${payload.repairedEpisodeRanges} 集` : '缺失集'
+    ElMessage.success(`AI 已补齐 ${repairedRanges}，请确认后保存`)
+  } catch (error: any) {
+    outlinePreview.value.error = error?.message || '大纲预览修复失败'
+    outlinePreview.value.errorData = extractOutlinePreviewErrorData(error) ?? outlinePreview.value.errorData
+  } finally {
+    outlinePreview.value.repairing = false
+  }
+}
+
+function extractOutlinePreviewErrorData(error: any): OutlinePreviewErrorData | null {
+  const data = error?.data || error?.response?.data?.data
+  if (!data || typeof data !== 'object') {
+    return null
+  }
+  return data as OutlinePreviewErrorData
 }
 
 async function handleGenerate() {
@@ -742,5 +830,12 @@ onMounted(async () => {
 .preview-footer-tip {
   color: #64748b;
   font-size: 12px;
+}
+
+.outline-footer-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 </style>

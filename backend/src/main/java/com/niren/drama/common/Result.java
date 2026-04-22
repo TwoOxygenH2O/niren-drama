@@ -23,16 +23,22 @@ public class Result<T> implements Serializable {
     }
 
     public static <T> Result<T> fail(String message) {
-        Result<T> r = new Result<>();
-        r.setCode(500);
-        r.setMessage(message);
-        return r;
+        return fail(500, message, null);
+    }
+
+    public static <T> Result<T> fail(String message, T data) {
+        return fail(500, message, data);
     }
 
     public static <T> Result<T> fail(int code, String message) {
+        return fail(code, message, null);
+    }
+
+    public static <T> Result<T> fail(int code, String message, T data) {
         Result<T> r = new Result<>();
         r.setCode(code);
         r.setMessage(message);
+        r.setData(data);
         return r;
     }
 }

@@ -1,3 +1,5 @@
+import { normalizeApiErrorMessage } from './error'
+
 export interface StreamHandlers {
   onChunk: (content: string) => void
   onDone?: (message?: string) => void
@@ -55,7 +57,7 @@ export async function streamPreview(url: string, data: unknown, handlers: Stream
         handlers.onDone?.(payload.message)
       }
       if (eventName === 'error') {
-        const message = payload.message || '生成失败'
+        const message = normalizeApiErrorMessage(payload.message || '生成失败', url)
         handlers.onError?.(message)
         throw new Error(message)
       }

@@ -30,6 +30,9 @@ public class AiProviderFactory {
     @Value("${niren.ai.text.model:gpt-4o}")
     private String defaultTextModel;
 
+    @Value("${niren.ai.text.max-tokens:16384}")
+    private Integer defaultTextMaxTokens;
+
     @Value("${niren.ai.image.provider:openai}")
     private String defaultImageProvider;
 
@@ -70,7 +73,7 @@ public class AiProviderFactory {
         }
 
         // All text providers use OpenAI-compatible API (DeepSeek, Qianwen, Doubao, etc.)
-        return new OpenAiTextProvider(baseUrl, apiKey, model);
+        return new OpenAiTextProvider(baseUrl, apiKey, model, defaultTextMaxTokens);
     }
 
     public ImageAiProvider getImageProvider(Long userId) {

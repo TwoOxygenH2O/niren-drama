@@ -22,6 +22,9 @@ export const scriptApi = {
   saveOutlinePreview: (data: { projectId: number | string; content: string; idea?: string }) =>
     request.post('/scripts/preview/outline/save', data),
 
+  repairOutlinePreview: (data: { projectId: number | string; content: string; idea?: string }) =>
+    request.post('/scripts/preview/outline/repair', data),
+
   generate: (data: ScriptGenerateParams) =>
     request.post('/scripts/generate', data),
 

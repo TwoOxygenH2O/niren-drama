@@ -56,7 +56,9 @@ public class StoryboardController {
 
         sseExecutor.execute(() -> {
             try {
-                storyboardService.streamGenerateStoryboard(userId, request, chunk -> sendChunk(emitter, chunk));
+                storyboardService.streamGenerateStoryboard(userId, request,
+                        chunk -> sendChunk(emitter, chunk),
+                        progress -> sendProgress(emitter, progress));
                 sendDone(emitter, "分镜预览生成完成");
                 emitter.complete();
             } catch (Exception e) {
@@ -67,6 +69,15 @@ public class StoryboardController {
         emitter.onTimeout(emitter::complete);
         emitter.onError(e -> log.warn("SSE emitter error: {}", e.getMessage()));
         return emitter;
+    }
+
+    private void sendProgress(SseEmitter emitter, String message) {
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("progress")
+                    .data(objectMapper.writeValueAsString(Map.of("message", message)), MediaType.APPLICATION_JSON));
+        } catch (Exception ignored) {
+        }
     }
 
     @Operation(summary = "保存分镜预览")
@@ -134,6 +145,6 @@ public class StoryboardController {
                     .data(objectMapper.writeValueAsString(Map.of("message", e.getMessage())), MediaType.APPLICATION_JSON));
         } catch (Exception ignored) {
         }
-        emitter.completeWithError(e);
+        emitter.complete();
     }
 }

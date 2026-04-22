@@ -14,6 +14,13 @@ import com.niren.drama.exception.BusinessException;
 import com.niren.drama.mapper.ScriptMapper;
 import com.niren.drama.mapper.StoryboardMapper;
 import com.niren.drama.mapper.TaskRecordMapper;
+import com.niren.drama.ai.AiOutputTruncatedException;
+import com.niren.drama.ai.ChatMessage;
+import com.niren.drama.dto.storyboard.StoryboardPreviewRepairRequest;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +61,13 @@ public class StoryboardService {
     /** Image generation style */
     private static final String PORTRAIT_IMAGE_STYLE = "vivid";
 
+    private static final int STORYBOARD_CONTINUATION_MAX_ATTEMPTS = 4;
+    private static final int STORYBOARD_CONTINUATION_TAIL_LENGTH = 600;
+    private static final int STORYBOARD_CONTINUATION_OVERLAP_LENGTH = 200;
+    private static final int STORYBOARD_SCENE_BATCH_TARGET_CHARS = 200;
+    private static final int STORYBOARD_SCENE_BATCH_MIN_CHARS = 50;
+    private static final int STORYBOARD_SCENE_BATCH_MAX_LINES = 4;
+
     /** Enable image reuse for same scene+character+angle combinations */
     @Value("${niren.cost.image-reuse-enabled:true}")
     private boolean imageReuseEnabled;
@@ -78,14 +92,515 @@ public class StoryboardService {
         return task;
     }
 
-    public void streamGenerateStoryboard(Long userId, StoryboardGenerateRequest request, java.util.function.Consumer<String> chunkConsumer) {
+    public void streamGenerateStoryboard(Long userId, StoryboardGenerateRequest request, java.util.function.Consumer<String> chunkConsumer, java.util.function.Consumer<String> progressConsumer) {
         projectService.getProject(userId, request.getProjectId());
         Script script = requireScript(request.getScriptId(), request.getProjectId());
         TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
         String systemPrompt = buildStoryboardSystemPrompt();
-        String userPrompt = buildStoryboardUserPrompt(script.getContent());
-        textProvider.streamChat(systemPrompt, userPrompt, chunkConsumer);
+        generateStoryboardPreviewByScenes(textProvider, systemPrompt, script, request, chunkConsumer, progressConsumer);
     }
+
+    private void generateStoryboardPreviewByScenes(TextAiProvider textProvider,
+                                                   String systemPrompt,
+                                                   Script script,
+                                                   StoryboardGenerateRequest request,
+                                                   java.util.function.Consumer<String> chunkConsumer,
+                                                   java.util.function.Consumer<String> progressConsumer) {
+        List<ScriptScene> scenes = splitScriptScenes(script.getContent());
+        if (scenes.isEmpty()) {
+            throw new BusinessException("剧本内容为空，无法拆分场景");
+        }
+
+        boolean isStream = chunkConsumer != null;
+        if (isStream) {
+            chunkConsumer.accept("{\n  \"shots\": [\n");
+        }
+
+        int nextShotNo = 1;
+        boolean firstShotEmitted = false;
+        
+        List<Storyboard> savedShots = storyboardMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Storyboard>()
+                .eq(Storyboard::getProjectId, request.getProjectId())
+                .eq(Storyboard::getScriptId, request.getScriptId())
+                .eq(Storyboard::getStatus, "preview_draft")
+                .orderByAsc(Storyboard::getShotNo));
+
+        int startSceneIndex = 0;
+
+        if (!savedShots.isEmpty()) {
+            java.time.LocalDateTime scriptUpdate = script.getUpdateTime();
+            java.time.LocalDateTime previewTime = savedShots.get(0).getCreateTime();
+            if (scriptUpdate != null && scriptUpdate.isAfter(previewTime)) {
+                storyboardMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Storyboard>()
+                        .eq(Storyboard::getProjectId, request.getProjectId())
+                        .eq(Storyboard::getScriptId, request.getScriptId())
+                        .eq(Storyboard::getStatus, "preview_draft"));
+            } else {
+                long maxSceneId = -1;
+                for (Storyboard s : savedShots) {
+                    if (s.getSceneId() != null && s.getSceneId() > maxSceneId) {
+                        maxSceneId = s.getSceneId();
+                    }
+                    if (s.getShotNo() >= nextShotNo) {
+                        nextShotNo = s.getShotNo() + 1;
+                    }
+                    // re-emit
+                    if (isStream) {
+                        try {
+                            String shotJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(s);
+                            String chunk = (firstShotEmitted ? ",\n" : "") + "    " + shotJson.replace("\n", "\n    ");
+                            chunkConsumer.accept(chunk);
+                            firstShotEmitted = true;
+                        } catch (Exception ignored) {}
+                    }
+                }
+                startSceneIndex = (int) maxSceneId + 1;
+            }
+        }
+
+        for (int sceneIndex = startSceneIndex; sceneIndex < scenes.size(); sceneIndex++) {
+            ArrayNode sceneShots = generateSceneShotsWithFallback(
+                    textProvider,
+                    systemPrompt,
+                    scenes,
+                    sceneIndex,
+                    request,
+                    progressConsumer,
+                    STORYBOARD_SCENE_BATCH_TARGET_CHARS);
+
+            for (JsonNode shotNode : sceneShots) {
+                ObjectNode shotObject = shotNode.isObject()
+                        ? ((ObjectNode) shotNode).deepCopy()
+                        : objectMapper.convertValue(shotNode, ObjectNode.class);
+                shotObject.put("shotNo", nextShotNo++);
+
+                // parse into Storyboard locally to save
+                Storyboard draftShot = objectMapper.convertValue(shotObject, Storyboard.class);
+                draftShot.setProjectId(request.getProjectId());
+                draftShot.setScriptId(request.getScriptId());
+                draftShot.setSceneId((long) sceneIndex); // hack to remember sceneIndex
+                draftShot.setStatus("preview_draft");
+                if (script.getEpisodeNo() != null) {
+                    draftShot.setEpisodeNo(script.getEpisodeNo());
+                } else {
+                    draftShot.setEpisodeNo(1);
+                }
+                storyboardMapper.insert(draftShot);
+if (isStream) {
+                    try {
+                        String shotJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(shotObject);
+                        String chunk = (firstShotEmitted ? ",\n" : "") + "    " + shotJson.replace("\n", "\n    ");
+                        chunkConsumer.accept(chunk);
+                        firstShotEmitted = true;
+                    } catch (Exception e) {
+                        log.warn("Failed to stringify shot", e);
+                    }
+                }
+            }
+        }
+
+        if (isStream) {
+            chunkConsumer.accept("\n  ]\n}");
+        }
+    }
+
+    private ArrayNode generateSceneShotsWithFallback(TextAiProvider textProvider,
+                                                     String systemPrompt,
+                                                     List<ScriptScene> scenes,
+                                                     int sceneIndex,
+                                                     StoryboardGenerateRequest request,
+                                                     java.util.function.Consumer<String> progressConsumer,
+                                                     int batchMaxChars) {
+        ScriptScene scene = scenes.get(sceneIndex);
+        List<SceneBatch> batches = splitSceneBatches(scene, batchMaxChars);
+        ArrayNode sceneShots = objectMapper.createArrayNode();
+
+        try {
+            for (SceneBatch batch : batches) {
+                String progressLabel = buildSceneBatchProgressLabel(scenes.size(), sceneIndex, batch);
+                if (progressConsumer != null) {
+                    progressConsumer.accept(progressLabel);
+                }
+                String batchPrompt = buildStoryboardSceneBatchUserPrompt(scenes, sceneIndex, batch);
+                String batchStoryboardJson = generateStoryboardPreviewContent(
+                        textProvider,
+                        systemPrompt,
+                        batchPrompt,
+                        request,
+                        null,
+                        progressConsumer,
+                        progressLabel);
+                ArrayNode batchShots = parseGeneratedSceneShots(batchStoryboardJson, scene, batch);
+                batchShots.forEach(sceneShots::add);
+            }
+        } catch (BusinessException ex) {
+            if (shouldRetrySceneWithSmallerBatches(ex, batchMaxChars)) {
+                int smallerBatchChars = Math.max(STORYBOARD_SCENE_BATCH_MIN_CHARS, batchMaxChars / 2);
+                if (smallerBatchChars < batchMaxChars) {
+                    log.warn("Storyboard scene {} failed with batch size {}, retrying with smaller chunks. reason={}",
+                            scene.sceneNo(),
+                            batchMaxChars,
+                            ex.getMessage());
+                    if (progressConsumer != null) {
+                        progressConsumer.accept(String.format("第 %d/%d 场较长，正在拆成更小片段重试", sceneIndex + 1, scenes.size()));
+                    }
+                    return generateSceneShotsWithFallback(
+                            textProvider,
+                            systemPrompt,
+                            scenes,
+                            sceneIndex,
+                            request,
+                            progressConsumer,
+                            smallerBatchChars);
+                }
+            }
+            throw ex;
+        }
+
+        if (sceneShots.isEmpty()) {
+            throw new BusinessException(String.format("第 %d 场分镜生成结果为空，请重试", scene.sceneNo()));
+        }
+        return sceneShots;
+    }
+
+    private ArrayNode parseGeneratedSceneShots(String storyboardJson, ScriptScene scene, SceneBatch batch) {
+        JsonNode sceneRoot;
+        JsonNode shotsNode;
+        try {
+            sceneRoot = extractStoryboardRoot(storyboardJson);
+            shotsNode = resolveShotsNode(sceneRoot);
+        } catch (IOException e) {
+            throw new BusinessException(String.format(
+                    "第 %d 场第 %d/%d 段分镜生成结果解析失败，请重试",
+                    scene.sceneNo(),
+                    batch.batchIndex(),
+                    batch.totalBatches()));
+        }
+        if (!shotsNode.isArray() || shotsNode.isEmpty()) {
+            throw new BusinessException(String.format(
+                    "第 %d 场第 %d/%d 段分镜生成结果为空，请重试",
+                    scene.sceneNo(),
+                    batch.batchIndex(),
+                    batch.totalBatches()));
+        }
+
+        ArrayNode normalizedShots = objectMapper.createArrayNode();
+        for (JsonNode shotNode : shotsNode) {
+            ObjectNode shotObject = shotNode.isObject()
+                    ? ((ObjectNode) shotNode).deepCopy()
+                    : objectMapper.convertValue(shotNode, ObjectNode.class);
+            if (!hasText(textOrNull(shotObject, "sceneName")) && hasText(scene.sceneLabel())) {
+                shotObject.put("sceneName", scene.sceneLabel());
+            }
+            normalizedShots.add(shotObject);
+        }
+        return normalizedShots;
+    }
+
+    private boolean shouldRetrySceneWithSmallerBatches(BusinessException ex, int batchMaxChars) {
+        if (batchMaxChars <= STORYBOARD_SCENE_BATCH_MIN_CHARS) {
+            return false;
+        }
+        String message = ex.getMessage();
+        if (!hasText(message)) {
+            return false;
+        }
+        return message.contains("长度上限")
+                || message.contains("未完成")
+                || message.contains("解析失败")
+                || message.contains("结果为空");
+    }
+
+    private String generateStoryboardPreviewContent(TextAiProvider textProvider,
+                                                    String systemPrompt,
+                                                    String userPrompt,
+                                                    StoryboardGenerateRequest request,
+                                                    java.util.function.Consumer<String> chunkConsumer,
+                                                    java.util.function.Consumer<String> progressConsumer,
+                                                    String phaseText) {
+        StringBuilder accumulatedContent = new StringBuilder();
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(new ChatMessage("user", userPrompt));
+
+        for (int attempt = 0; attempt < STORYBOARD_CONTINUATION_MAX_ATTEMPTS; attempt++) {
+            boolean streamDirectly = chunkConsumer != null && attempt == 0;
+            StringBuilder attemptContent = new StringBuilder();
+            try {
+                if (progressConsumer != null && attempt > 0) {
+                    progressConsumer.accept(String.format("%s，正在继续补全输出 (第 %d 次，可能耗时较长)...", phaseText, attempt));
+                }
+                textProvider.streamChatWithHistory(systemPrompt, messages, chunk -> {
+                    if (streamDirectly) {
+                        accumulatedContent.append(chunk);
+                        chunkConsumer.accept(chunk);
+                        return;
+                    }
+                    attemptContent.append(chunk);
+                });
+            } catch (AiOutputTruncatedException ex) {
+                if (!streamDirectly) {
+                    flushContinuationChunk(accumulatedContent, attemptContent, chunkConsumer);
+                }
+                if (isCompleteStoryboardPreview(accumulatedContent.toString(), request)) {
+                    return normalizeStoryboardPreviewContent(accumulatedContent.toString());
+                }
+                if (attempt + 1 >= STORYBOARD_CONTINUATION_MAX_ATTEMPTS) {
+                    throw new BusinessException("分镜预览生成达到长度上限，多次续写后仍未完成，请缩小当前剧本范围或减少镜头复杂度后重试");
+                }
+                log.info("Storyboard preview truncated at attempt {}, continuing generation", attempt + 1);
+                messages = buildStoryboardContinuationMessages(userPrompt, accumulatedContent.toString(), true);
+                continue;
+            }
+
+            if (!streamDirectly) {
+                flushContinuationChunk(accumulatedContent, attemptContent, chunkConsumer);
+            }
+            if (isCompleteStoryboardPreview(accumulatedContent.toString(), request)) {
+                return normalizeStoryboardPreviewContent(accumulatedContent.toString());
+            }
+            if (attempt + 1 >= STORYBOARD_CONTINUATION_MAX_ATTEMPTS) {
+                break;
+            }
+            log.info("Storyboard preview still incomplete after attempt {}, requesting continuation", attempt + 1);
+            messages = buildStoryboardContinuationMessages(userPrompt, accumulatedContent.toString(), false);
+        }
+
+        throw new BusinessException("分镜预览生成未完成，请缩小当前剧本范围或减少镜头复杂度后重试");
+    }
+
+    private void flushContinuationChunk(StringBuilder accumulatedContent,
+                                        StringBuilder attemptContent,
+                                        java.util.function.Consumer<String> chunkConsumer) {
+        String appendedContent = mergeContinuationContent(accumulatedContent, attemptContent.toString());
+        if (hasText(appendedContent) && chunkConsumer != null) {
+            chunkConsumer.accept(appendedContent);
+        }
+    }
+
+    private String mergeContinuationContent(StringBuilder accumulatedContent, String continuationContent) {
+        if (!hasText(continuationContent)) {
+            return "";
+        }
+        int existingLen = accumulatedContent.length();
+        int searchTailLen = Math.min(existingLen, STORYBOARD_CONTINUATION_TAIL_LENGTH);
+        if (searchTailLen == 0) {
+            accumulatedContent.append(continuationContent);
+            return continuationContent;
+        }
+
+        String tail = accumulatedContent.substring(existingLen - searchTailLen);
+        String overlapCandidate = continuationContent.substring(0, Math.min(continuationContent.length(), STORYBOARD_CONTINUATION_OVERLAP_LENGTH));
+
+        int overlapStart = -1;
+        for (int i = Math.min(tail.length(), overlapCandidate.length()); i > 10; i--) {
+            String suffix = tail.substring(tail.length() - i);
+            String prefix = overlapCandidate.substring(0, i);
+            if (suffix.equals(prefix)) {
+                overlapStart = i;
+                break;
+            }
+        }
+
+        String newContent;
+        if (overlapStart > 0) {
+            newContent = continuationContent.substring(overlapStart);
+        } else {
+            newContent = continuationContent;
+        }
+        accumulatedContent.append(newContent);
+        return newContent;
+    }
+
+    private List<ChatMessage> buildStoryboardContinuationMessages(String originalPrompt, String currentContent, boolean explicitLengthTruncation) {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(new ChatMessage("user", originalPrompt));
+        messages.add(new ChatMessage("assistant", currentContent));
+        String continuePrompt = explicitLengthTruncation
+                ? "上一段输出因长度限制被截断了。请**直接从截断的地方继续写**，不要重复已经输出过的内容，也不要说多余的话，保证最终拼起来是一个完整的JSON结构。"
+                : "看起来你的输出中 JSON 结构尚未完整闭合（例如缺少 `]}`）。请直接继续补全剩余的内容，不要重复已有的，只补齐剩下的部分。";
+        messages.add(new ChatMessage("user", continuePrompt));
+        return messages;
+    }
+
+    private boolean isCompleteStoryboardPreview(String content, StoryboardGenerateRequest request) {
+        if (!hasText(content)) return false;
+        String trimmed = content.trim();
+        if (trimmed.endsWith("]") || trimmed.endsWith("}")) {
+            try {
+                String normalizedContent = normalizeStoryboardPreviewContent(content);
+                List<Storyboard> shots = parseStoryboardJson(normalizedContent, request, true);
+                return !shots.isEmpty();
+            } catch (BusinessException ex) {
+                return false; // Not a valid JSON or parsing failed completely
+            }
+        }
+        return false;
+    }
+
+    private List<ScriptScene> splitScriptScenes(String content) {
+        List<ScriptScene> scenes = new ArrayList<>();
+        if (!hasText(content)) {
+            return scenes;
+        }
+        String[] lines = content.split("\\r?\\n");
+        Pattern scenePattern = Pattern.compile("^\\s*第([零一二三四五六七八九十百千\\d]+)场\\s*(.*)$");
+
+        int currentSceneNo = 0;
+        String currentHeader = "";
+        String currentLabel = "";
+        StringBuilder currentContent = new StringBuilder();
+
+        for (String line : lines) {
+            if (!hasText(line.trim())) {
+                currentContent.append("\n");
+                continue;
+            }
+            Matcher matcher = scenePattern.matcher(line);
+            if (matcher.find()) {
+                if (currentContent.toString().trim().length() > 0) {
+                    appendScriptScene(scenes, currentSceneNo, currentHeader, currentLabel, currentContent);
+                }
+                currentSceneNo++;
+                currentHeader = matcher.group(0).trim();
+                currentLabel = matcher.group(2).trim();
+                currentContent.setLength(0);
+                currentContent.append(line).append("\n");
+            } else {
+                currentContent.append(line).append("\n");
+            }
+        }
+
+        if (currentContent.toString().trim().length() > 0) {
+            appendScriptScene(scenes, currentSceneNo > 0 ? currentSceneNo : 1, currentHeader, currentLabel, currentContent);
+        }
+
+        return scenes;
+    }
+
+    private void appendScriptScene(List<ScriptScene> scenes,
+                                   Integer sceneNo,
+                                   String header,
+                                   String sceneLabel,
+                                   StringBuilder content) {
+        String normalizedContent = content.toString().trim();
+        if (normalizedContent.isEmpty()) {
+            return;
+        }
+        scenes.add(new ScriptScene(sceneNo, header, sceneLabel, normalizedContent));
+    }
+
+    private List<SceneBatch> splitSceneBatches(ScriptScene scene, int batchMaxChars) {
+        List<String> rawBatches = new ArrayList<>();
+        String sceneContent = scene.content().replace("\r\n", "\n").trim();
+        String body = sceneContent;
+        if (hasText(scene.header()) && body.startsWith(scene.header())) {
+            body = body.substring(scene.header().length()).trim();
+        }
+        if (!hasText(body)) {
+            rawBatches.add(sceneContent);
+        } else {
+            String[] lines = body.split("\n");
+            StringBuilder current = new StringBuilder();
+            int currentChars = 0;
+            int currentLines = 0;
+
+            for (String rawLine : lines) {
+                String line = rawLine == null ? "" : rawLine.trim();
+                if (!hasText(line)) {
+                    continue;
+                }
+                boolean shouldFlush = current.length() > 0
+                        && (currentChars + line.length() > batchMaxChars
+                        || currentLines >= STORYBOARD_SCENE_BATCH_MAX_LINES);
+                if (shouldFlush) {
+                    rawBatches.add(current.toString().trim());
+                    current = new StringBuilder();
+                    currentChars = 0;
+                    currentLines = 0;
+                }
+                if (current.length() > 0) {
+                    current.append('\n');
+                }
+                current.append(line);
+                currentChars += line.length();
+                currentLines++;
+            }
+
+            if (current.length() > 0) {
+                rawBatches.add(current.toString().trim());
+            }
+        }
+
+        if (rawBatches.isEmpty()) {
+            rawBatches.add(sceneContent);
+        }
+
+        List<SceneBatch> batches = new ArrayList<>();
+        for (int i = 0; i < rawBatches.size(); i++) {
+            batches.add(new SceneBatch(i + 1, rawBatches.size(), rawBatches.get(i)));
+        }
+        return batches;
+    }
+
+    private String buildSceneBatchProgressLabel(int totalScenes, int sceneIndex, SceneBatch batch) {
+        if (batch.totalBatches() <= 1) {
+            return String.format("正在生成第 %d/%d 场分镜", sceneIndex + 1, totalScenes);
+        }
+        return String.format(
+                "正在生成第 %d/%d 场第 %d/%d 段分镜",
+                sceneIndex + 1,
+                totalScenes,
+                batch.batchIndex(),
+                batch.totalBatches());
+    }
+
+    private String buildStoryboardSceneBatchUserPrompt(List<ScriptScene> scenes, int sceneIndex, SceneBatch batch) {
+        ScriptScene scene = scenes.get(sceneIndex);
+        String previousScene = sceneIndex > 0 ? scenes.get(sceneIndex - 1).displayName() : "无";
+        String nextScene = sceneIndex + 1 < scenes.size() ? scenes.get(sceneIndex + 1).displayName() : "无";
+        String sceneNameHint = hasText(scene.sceneLabel()) ? scene.sceneLabel() : scene.displayName();
+        return String.format("""
+                请仅为当前场景的当前片段生成分镜 JSON，不要输出其他场景或本场其他片段内容。
+
+                场景拆分上下文：
+                - 本集共 %d 场，当前生成第 %d 场
+                - 当前场景共 %d 段，本次生成第 %d 段
+                - 上一场：%s
+                - 下一场：%s
+                - 当前场景标题：%s
+
+                当前片段内容：
+                %s
+
+                额外要求：
+                1. 只生成当前片段对应的镜头，禁止扩写到上一场、下一场。
+                2. 当前片段通常拆为 1-4 个镜头。
+                3. 如果这不是第 1 段，直接承接当前片段动作。
+                4. 如果这是最后一段，把当前场景收束补完整。
+                5. sceneName 优先使用“%s”。
+                6. 返回格式必须为 {"shots": [...]}。
+                7. 严禁Markdown格式文字。
+                """,
+                scenes.size(),
+                scene.sceneNo(),
+                batch.totalBatches(),
+                batch.batchIndex(),
+                previousScene,
+                nextScene,
+                scene.displayName(),
+                batch.content(),
+                sceneNameHint);
+    }
+
+    private record ScriptScene(int sceneNo, String header, String sceneLabel, String content) {
+        private String displayName() {
+            return sceneLabel != null && !sceneLabel.isBlank()
+                    ? "第" + sceneNo + "场[" + sceneLabel + "]"
+                    : "第" + sceneNo + "场";
+        }
+    }
+
+    private record SceneBatch(int batchIndex, int totalBatches, String content) {}
 
     public List<Storyboard> saveStoryboardPreview(Long userId, StoryboardPreviewSaveRequest request) {
         projectService.getProject(userId, request.getProjectId());
@@ -119,8 +634,11 @@ public class StoryboardService {
             updateTask(task, "RUNNING", 30, "AI正在拆解分镜脚本...");
             TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
             String systemPrompt = buildStoryboardSystemPrompt();
-            String userPrompt = buildStoryboardUserPrompt(script.getContent());
-            String storyboardJson = textProvider.chat(systemPrompt, userPrompt);
+            StringBuilder simulatedBuffer = new StringBuilder();
+            generateStoryboardPreviewByScenes(textProvider, systemPrompt, script, request, chunk -> {
+                simulatedBuffer.append(chunk);
+            }, null);
+            String storyboardJson = simulatedBuffer.toString();
 
             updateTask(task, "RUNNING", 70, "保存分镜数据...");
             List<Storyboard> shots = parseStoryboardJson(storyboardJson, request, false);
@@ -463,6 +981,43 @@ public class StoryboardService {
                 """, scriptContent);
     }
 
+    private String normalizeStoryboardPreviewContent(String content) {
+        if (content == null) return "{}";
+        int startObj = content.indexOf('{');
+        int startArr = content.indexOf('[');
+        if (startObj == -1 && startArr == -1) {
+            return content; // fall back to generic text parser
+        }
+        int startIdx = (startObj != -1 && startArr != -1) ? Math.min(startObj, startArr) : Math.max(startObj, startArr);
+        int endObj = content.lastIndexOf('}');
+        int endArr = content.lastIndexOf(']');
+        int endIdx = Math.max(endObj, endArr);
+        if (endIdx > startIdx) {
+            return content.substring(startIdx, endIdx + 1);
+        }
+        return content.substring(startIdx);
+    }
+
+    private JsonNode extractStoryboardRoot(String json) throws IOException {
+        String cleanJson = json.replace("`json", "").replace("`", "").trim();
+        return objectMapper.readTree(cleanJson);
+    }
+
+    private JsonNode resolveShotsNode(JsonNode root) {
+        if (root.isArray()) return root;
+        if (root.has("shots") && root.get("shots").isArray()) return root.get("shots");
+        if (root.has("分镜") && root.get("分镜").isArray()) return root.get("分镜");
+        return root;
+    }
+
+
+
+
+
+
+
+
+
     private List<Storyboard> parseStoryboardJson(String json, StoryboardGenerateRequest request, boolean strict) {
         List<Storyboard> shots = new ArrayList<>();
         try {
@@ -697,3 +1252,6 @@ public class StoryboardService {
             "转场", "切换", "空镜", "远景", "夜景", "天台", "街道", "车流", "门外", "入场", "登场", "离开"
     };
 }
+
+
+

@@ -54,6 +54,7 @@ niren:
       base-url: ${AI_TEXT_BASE_URL:https://api.openai.com/v1}
       api-key: ${AI_TEXT_API_KEY:}
       model: ${AI_TEXT_MODEL:gpt-4o}
+      max-tokens: ${AI_TEXT_MAX_TOKENS:8192}
     image:
       provider: ${AI_IMAGE_PROVIDER:openai}
       base-url: ${AI_IMAGE_BASE_URL:https://api.openai.com/v1}

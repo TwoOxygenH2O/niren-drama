@@ -1,6 +1,15 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import { normalizeApiErrorMessage } from './error'
+
+function createBusinessError(payload: any, requestUrl = '') {
+  const message = normalizeApiErrorMessage(payload?.message, requestUrl)
+  const error = new Error(message)
+  ;(error as any).code = payload?.code
+  ;(error as any).data = payload?.data
+  return error
+}
 
 const request = axios.create({
   baseURL: '/api',
@@ -24,8 +33,10 @@ request.interceptors.response.use(
   (response) => {
     const res = response.data
     if (res.code !== undefined && res.code !== 200) {
-      ElMessage.error(res.message || '请求失败')
-      return Promise.reject(new Error(res.message))
+      const requestUrl = response.config?.url || ''
+      const message = normalizeApiErrorMessage(res.message, requestUrl)
+      ElMessage.error(message)
+      return Promise.reject(createBusinessError({ ...res, message }, requestUrl))
     }
     return response
   },
@@ -36,7 +47,12 @@ request.interceptors.response.use(
       userStore.logout()
       window.location.href = '/login'
     } else {
-      ElMessage.error(error.response?.data?.message || error.message || '网络错误')
+      const payload = error.response?.data
+      const message = normalizeApiErrorMessage(payload?.message || error.message, requestUrl)
+      ElMessage.error(message || '网络错误')
+      if (payload?.message) {
+        return Promise.reject(createBusinessError({ ...payload, message }, requestUrl))
+      }
     }
     return Promise.reject(error)
   }

@@ -117,7 +117,7 @@
       :phase-text="previewDialog.generating ? '流式生成中' : '待确认保存'"
       :loading="previewDialog.generating"
       :confirm-loading="previewDialog.saving"
-      :confirm-disabled="previewDialog.generating || !previewDialog.content.trim()"
+      :confirm-disabled="previewDialog.generating || previewDialog.repairing || !previewDialog.content.trim()"
       confirm-text="确认保存分镜"
       :error-message="previewDialog.error"
       @confirm="savePreview"
@@ -126,6 +126,22 @@
       <template #meta>
         <span class="preview-chip">{{ selectedScriptLabel }}</span>
         <span class="preview-chip">JSON 结构</span>
+      </template>
+      <template #footer-prefix>
+        <div class="preview-footer-tools">
+          <span v-if="storyboardRepairHint" class="preview-footer-tip">
+            {{ storyboardRepairHint }}
+          </span>
+          <el-button
+            v-if="canRepairStoryboardPreview"
+            text
+            type="warning"
+            :loading="previewDialog.repairing"
+            @click="repairPreview"
+          >
+            AI 修复 JSON
+          </el-button>
+        </div>
       </template>
       <div class="preview-toolbar">
         <span>建议保留 {"shots": [...]} 的整体结构；保存时会严格校验 JSON，再替换当前剧本分镜。</span>
@@ -149,6 +165,11 @@ import AiPreviewDialog from '@/components/AiPreviewDialog.vue'
 import { scriptApi } from '@/api/script'
 import { storyboardApi } from '@/api/storyboard'
 
+type StoryboardPreviewErrorData = {
+  type?: string
+  repairable?: boolean
+}
+
 const route = useRoute()
 const projectId = route.params.id
 
@@ -162,14 +183,36 @@ const previewDialog = ref({
   visible: false,
   generating: false,
   saving: false,
+  repairing: false,
   error: '',
   content: '',
+  errorData: null as StoryboardPreviewErrorData | null,
 })
 
 const recommendedCount = computed(() => storyboards.value.filter((shot) => !!shot.dynamicRecommended).length)
 const selectedCount = computed(() => storyboards.value.filter((shot) => !!shot.dynamicSelected).length)
 const selectedScript = computed(() => scripts.value.find((script) => String(script.id) === String(genForm.value.scriptId)))
 const selectedScriptLabel = computed(() => selectedScript.value?.title || (selectedScript.value ? `第${selectedScript.value.episodeNo}集` : '未选择剧本'))
+const canRepairStoryboardPreview = computed(() => {
+  const errorData = previewDialog.value.errorData
+  const hasLegacyParseError = previewDialog.value.error.includes('分镜预览解析失败')
+  const hasRepairableError =
+    (errorData?.type === 'STORYBOARD_PREVIEW_PARSE_FAILED' && errorData?.repairable)
+    || hasLegacyParseError
+  return Boolean(
+    hasRepairableError
+      && !previewDialog.value.generating
+      && !previewDialog.value.saving
+      && !previewDialog.value.repairing
+      && previewDialog.value.content.trim(),
+  )
+})
+const storyboardRepairHint = computed(() => {
+  if (canRepairStoryboardPreview.value) {
+    return '检测到分镜 JSON 结构异常，可尝试 AI 自动修复'
+  }
+  return ''
+})
 
 const shotStatusLabel = (status: string) => ({
   draft: '草稿',
@@ -185,7 +228,9 @@ function resetPreviewDialog() {
   previewDialog.value.visible = false
   previewDialog.value.generating = false
   previewDialog.value.saving = false
+  previewDialog.value.repairing = false
   previewDialog.value.error = ''
+  previewDialog.value.errorData = null
 }
 
 async function handleGenerate() {
@@ -197,6 +242,7 @@ async function handleGenerate() {
   previewDialog.value.generating = true
   previewDialog.value.error = ''
   previewDialog.value.content = ''
+  previewDialog.value.errorData = null
 
   try {
     await storyboardApi.generatePreviewStream(
@@ -207,16 +253,19 @@ async function handleGenerate() {
         },
         onDone: () => {
           previewDialog.value.generating = false
+          previewDialog.value.errorData = null
           ElMessage.success('分镜预览生成完成，请确认后保存')
         },
         onError: (message) => {
           previewDialog.value.error = message
+          previewDialog.value.errorData = null
           previewDialog.value.generating = false
         },
       },
     )
   } catch (error: any) {
     previewDialog.value.error = error?.message || '分镜预览生成失败'
+    previewDialog.value.errorData = null
     previewDialog.value.generating = false
   }
 }
@@ -232,9 +281,41 @@ async function savePreview() {
     ElMessage.success('分镜已保存')
     resetPreviewDialog()
     await loadStoryboards()
+  } catch (error: any) {
+    previewDialog.value.error = error?.message || '分镜预览保存失败'
+    previewDialog.value.errorData = extractStoryboardPreviewErrorData(error)
   } finally {
     previewDialog.value.saving = false
   }
+}
+
+async function repairPreview() {
+  previewDialog.value.repairing = true
+  try {
+    const res = await storyboardApi.repairPreview({
+      scriptId: genForm.value.scriptId,
+      projectId: projectId as string,
+      content: previewDialog.value.content,
+    })
+    const payload = res.data.data || {}
+    previewDialog.value.content = payload.content || previewDialog.value.content
+    previewDialog.value.error = ''
+    previewDialog.value.errorData = null
+    ElMessage.success(`分镜 JSON 已修复，共 ${payload.shotCount || 0} 个镜头，请确认后保存`)
+  } catch (error: any) {
+    previewDialog.value.error = error?.message || '分镜预览修复失败'
+    previewDialog.value.errorData = extractStoryboardPreviewErrorData(error) ?? previewDialog.value.errorData
+  } finally {
+    previewDialog.value.repairing = false
+  }
+}
+
+function extractStoryboardPreviewErrorData(error: any): StoryboardPreviewErrorData | null {
+  const data = error?.data || error?.response?.data?.data
+  if (!data || typeof data !== 'object') {
+    return null
+  }
+  return data as StoryboardPreviewErrorData
 }
 
 async function loadStoryboards() {
@@ -355,6 +436,13 @@ onMounted(async () => {
   font-size: 12px;
   line-height: 1.7;
   box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.preview-footer-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .recommend-card {
