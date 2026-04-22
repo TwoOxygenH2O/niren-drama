@@ -13,8 +13,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * DashScope (Alibaba Cloud Bailian) image provider.
@@ -245,16 +247,16 @@ public class DashScopeImageProvider implements ImageAiProvider {
     }
 
     private List<String> normalizeReferenceImageUrls(List<String> referenceImageUrls) {
-        List<String> normalized = new ArrayList<>();
+        Set<String> normalized = new LinkedHashSet<>();
         if (referenceImageUrls == null) {
-            return normalized;
+            return new ArrayList<>();
         }
         for (String referenceImageUrl : referenceImageUrls) {
-            if (hasText(referenceImageUrl) && isHttpUrl(referenceImageUrl) && !normalized.contains(referenceImageUrl)) {
+            if (hasText(referenceImageUrl) && isHttpUrl(referenceImageUrl)) {
                 normalized.add(referenceImageUrl);
             }
         }
-        return normalized;
+        return new ArrayList<>(normalized);
     }
 
     private String resolveReferenceEditModel() {
@@ -323,14 +325,21 @@ public class DashScopeImageProvider implements ImageAiProvider {
             }
             String normalizedHost = host.toLowerCase(Locale.ROOT);
             if ("localhost".equals(normalizedHost)
-                    || "127.0.0.1".equals(normalizedHost)
+                    || normalizedHost.startsWith("127.")
                     || "0.0.0.0".equals(normalizedHost)
                     || "::1".equals(normalizedHost)) {
                 return false;
             }
             return !normalizedHost.startsWith("10.")
+                    && !normalizedHost.startsWith("169.254.")
                     && !normalizedHost.startsWith("192.168.")
-                    && !normalizedHost.matches("^172\\.(1[6-9]|2\\d|3[0-1])\\..*");
+                    && !normalizedHost.matches("^172\\.(1[6-9]|2\\d|3[0-1])\\..*")
+                    && !normalizedHost.startsWith("fc")
+                    && !normalizedHost.startsWith("fd")
+                    && !normalizedHost.startsWith("fe8")
+                    && !normalizedHost.startsWith("fe9")
+                    && !normalizedHost.startsWith("fea")
+                    && !normalizedHost.startsWith("feb");
         } catch (IllegalArgumentException e) {
             return false;
         }

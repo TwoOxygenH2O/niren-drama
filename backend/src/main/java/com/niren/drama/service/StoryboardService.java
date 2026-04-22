@@ -44,6 +44,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -805,7 +806,7 @@ if (isStream) {
     }
 
     private List<String> collectReferenceImageUrls(Storyboard shot) {
-        List<String> referenceImageUrls = new ArrayList<>();
+        Set<String> referenceImageUrls = new LinkedHashSet<>();
         if (shot.getCharacterId() != null) {
             Character character = characterMapper.selectById(shot.getCharacterId());
             if (character != null) {
@@ -818,13 +819,12 @@ if (isStream) {
                 addReferenceImageUrl(referenceImageUrls, scene.getImageUrl());
             }
         }
-        return referenceImageUrls;
+        return new ArrayList<>(referenceImageUrls);
     }
 
-    private void addReferenceImageUrl(List<String> referenceImageUrls, String imageUrl) {
+    private void addReferenceImageUrl(Set<String> referenceImageUrls, String imageUrl) {
         if (hasText(imageUrl)
-                && (imageUrl.startsWith("http://") || imageUrl.startsWith("https://"))
-                && !referenceImageUrls.contains(imageUrl)) {
+                && (imageUrl.startsWith("http://") || imageUrl.startsWith("https://"))) {
             referenceImageUrls.add(imageUrl);
         }
     }
@@ -1335,5 +1335,4 @@ if (isStream) {
             "转场", "切换", "空镜", "远景", "夜景", "天台", "街道", "车流", "门外", "入场", "登场", "离开"
     };
 }
-
 
