@@ -56,8 +56,11 @@ public class VideoCompositionService {
     /**
      * Start the video composition process for a project.
      */
-    public TaskRecord startCompose(Long userId, Long projectId) {
+    public TaskRecord startCompose(Long userId, Long projectId, java.util.List<Long> shotIds) {
         List<Storyboard> shots = storyboardService.listByProject(projectId);
+        if (shotIds != null && !shotIds.isEmpty()) {
+            shots = shots.stream().filter(s -> shotIds.contains(s.getId())).collect(java.util.stream.Collectors.toList());
+        }
         if (shots.isEmpty()) {
             throw new BusinessException("项目下没有分镜数据，请先生成分镜");
         }
@@ -81,8 +84,13 @@ public class VideoCompositionService {
         return task;
     }
 
-    public TaskRecord startGenerateDynamicVideos(Long userId, Long projectId) {
-        List<Storyboard> selectedShots = storyboardService.listByProject(projectId).stream()
+    public TaskRecord startGenerateDynamicVideos(Long userId, Long projectId, java.util.List<Long> shotIds) {
+        java.util.List<com.niren.drama.entity.Storyboard> allShots = storyboardService.listByProject(projectId);
+        if (shotIds != null && !shotIds.isEmpty()) {
+            allShots = allShots.stream().filter(s -> shotIds.contains(s.getId())).toList();
+        }
+        List<com.niren.drama.entity.Storyboard> selectedShots = allShots.stream()
+
                 .filter(this::shouldUseDynamicVideo)
                 .toList();
 

@@ -1,9 +1,11 @@
 package com.niren.drama.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.niren.drama.common.CurrentUserHelper;
 import com.niren.drama.common.Result;
 import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
+import com.niren.drama.exception.BusinessException;
 import com.niren.drama.service.StoryboardService;
 import com.niren.drama.service.VideoCompositionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -20,6 +22,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -33,36 +36,76 @@ public class VideoController {
     private final VideoCompositionService videoCompositionService;
     private final CurrentUserHelper currentUserHelper;
 
+    private List<Long> parseShotIds(JsonNode body) {
+        if (body == null || body.isNull()) {
+            return null;
+        }
+
+        JsonNode shotIdsNode = body.isArray() ? body : body.get("shotIds");
+        if (shotIdsNode == null || shotIdsNode.isNull()) {
+            return List.of();
+        }
+        if (!shotIdsNode.isArray()) {
+            throw new BusinessException("shotIds 参数格式不正确");
+        }
+
+        List<Long> shotIds = new ArrayList<>();
+        for (JsonNode node : shotIdsNode) {
+            String rawValue = node.asText();
+            if (rawValue == null || rawValue.isBlank()) {
+                continue;
+            }
+            try {
+                shotIds.add(Long.valueOf(rawValue));
+            } catch (NumberFormatException ex) {
+                throw new BusinessException("shotIds 参数格式不正确");
+            }
+        }
+        return shotIds;
+    }
+
+    private List<Long> parseRequestedShotIds(JsonNode body) {
+        List<Long> shotIds = parseShotIds(body);
+        if (body != null && shotIds != null && shotIds.isEmpty()) {
+            throw new BusinessException("请至少选择一个分镜");
+        }
+        return shotIds;
+    }
+
     @Operation(summary = "生成分镜图片（异步）")
     @PostMapping("/generate-images/{projectId}")
-    public Result<TaskRecord> generateImages(@PathVariable Long projectId,
+    public Result<TaskRecord> generateImages(@PathVariable Long projectId, @RequestBody(required = false) JsonNode body,
                                               @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = currentUserHelper.getUserId(userDetails);
-        return Result.success(storyboardService.startGenerateStoryboardImages(userId, projectId));
+        List<Long> shotIds = parseRequestedShotIds(body);
+        return Result.success(storyboardService.startGenerateStoryboardImages(userId, projectId, shotIds));
     }
 
     @Operation(summary = "生成分镜配音（异步）")
     @PostMapping("/generate-audio/{projectId}")
-    public Result<TaskRecord> generateAudio(@PathVariable Long projectId,
+    public Result<TaskRecord> generateAudio(@PathVariable Long projectId, @RequestBody(required = false) JsonNode body,
                                              @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = currentUserHelper.getUserId(userDetails);
-        return Result.success(storyboardService.startGenerateStoryboardAudio(userId, projectId));
+        List<Long> shotIds = parseRequestedShotIds(body);
+        return Result.success(storyboardService.startGenerateStoryboardAudio(userId, projectId, shotIds));
     }
 
     @Operation(summary = "生成动态镜头片段（异步）")
     @PostMapping("/generate-dynamic/{projectId}")
-    public Result<TaskRecord> generateDynamic(@PathVariable Long projectId,
+    public Result<TaskRecord> generateDynamic(@PathVariable Long projectId, @RequestBody(required = false) JsonNode body,
                                               @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = currentUserHelper.getUserId(userDetails);
-        return Result.success(videoCompositionService.startGenerateDynamicVideos(userId, projectId));
+        List<Long> shotIds = parseRequestedShotIds(body);
+        return Result.success(videoCompositionService.startGenerateDynamicVideos(userId, projectId, shotIds));
     }
 
     @Operation(summary = "合成视频（异步）")
     @PostMapping("/compose/{projectId}")
-    public Result<TaskRecord> compose(@PathVariable Long projectId,
+    public Result<TaskRecord> compose(@PathVariable Long projectId, @RequestBody(required = false) JsonNode body,
                                        @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = currentUserHelper.getUserId(userDetails);
-        return Result.success(videoCompositionService.startCompose(userId, projectId));
+        List<Long> shotIds = parseRequestedShotIds(body);
+        return Result.success(videoCompositionService.startCompose(userId, projectId, shotIds));
     }
 
     @Operation(summary = "获取项目视频合成状态")

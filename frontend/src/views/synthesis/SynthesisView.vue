@@ -67,7 +67,7 @@
             <div class="step-desc">AI 为每个分镜生成关键帧画面</div>
             <div class="step-tip">{{ overview.imagesReady }} / {{ overview.totalShots }} 已就绪</div>
           </div>
-          <el-button type="primary" :loading="imageLoading" @click="handleGenerateImages"
+          <el-button type="primary" :loading="imageLoading" @click="openDialog('images')"
                      :disabled="overview.totalShots === 0">
             {{ overview.imagesReady === overview.totalShots && overview.totalShots > 0 ? '重新生成' : '开始生成' }}
           </el-button>
@@ -80,7 +80,7 @@
             <div class="step-desc">只为你勾选的镜头生成动态片段</div>
             <div class="step-tip">{{ overview.dynamicReady }} / {{ overview.dynamicSelected }} 已生成</div>
           </div>
-          <el-button type="primary" :loading="dynamicLoading" @click="handleGenerateDynamic"
+          <el-button type="primary" :loading="dynamicLoading" @click="openDialog('dynamic')"
                      :disabled="overview.dynamicSelected === 0 || overview.imagesReady === 0">
             {{ overview.dynamicReady === overview.dynamicSelected && overview.dynamicSelected > 0 ? '重新生成' : '开始生成' }}
           </el-button>
@@ -93,7 +93,7 @@
             <div class="step-desc">TTS 为台词和旁白配音</div>
             <div class="step-tip">{{ overview.audioReady }} / {{ overview.totalShots }} 已就绪</div>
           </div>
-          <el-button type="primary" :loading="audioLoading" @click="handleGenerateAudio"
+          <el-button type="primary" :loading="audioLoading" @click="openDialog('audio')"
                      :disabled="overview.totalShots === 0">
             {{ overview.audioReady === overview.totalShots && overview.totalShots > 0 ? '重新生成' : '开始生成' }}
           </el-button>
@@ -106,7 +106,7 @@
             <div class="step-desc">优先使用动态片段，没有则回退到静态图片</div>
             <div class="step-tip">支持动态与静态镜头混合输出</div>
           </div>
-          <el-button type="success" :loading="composeLoading" @click="handleCompose"
+          <el-button type="success" :loading="composeLoading" @click="openDialog('compose')"
                      :disabled="overview.imagesReady === 0">
             {{ overview.videoUrl ? '重新合成' : '开始合成' }}
           </el-button>
@@ -179,10 +179,49 @@
       </div>
     </div>
   </div>
+
+    
+    <!-- Shot Selection Dialog -->
+    <el-dialog
+      v-model="showSelectDialog"
+      :title="dialogTitle"
+      width="800px"
+      destroy-on-close
+      :close-on-click-modal="false"
+      @closed="resetDialogSelection"
+    >
+      <el-table 
+        :key="dialogType"
+        :data="dialogShots"
+        @selection-change="handleSelectionChange" 
+        height="500px"
+        empty-text="当前没有可选分镜"
+      >
+        <el-table-column type="selection" width="55" :selectable="selectableMethod" />
+        <el-table-column prop="shotNo" label="镜头号" width="80" />
+        <el-table-column prop="description" label="画面描述" min-width="200" show-overflow-tooltip />
+        <el-table-column label="状态 (图/音/动)" width="150" align="center">
+          <template #default="{ row }">
+            <span v-if="row.imageUrl" title="图片就绪">🖼️ </span>
+            <span v-if="row.audioUrl" title="配音就绪">🎵 </span>
+            <span v-if="row.videoUrl" title="动态就绪">🎬 </span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="showSelectDialog = false">取消</el-button>
+          <el-button type="primary" @click="confirmGenerate" :loading="submitLoading" :disabled="selectedShotIds.length === 0">
+            确定 (已选 {{ selectedShotIds.length }})
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Download, InfoFilled } from '@element-plus/icons-vue'
@@ -209,6 +248,98 @@ const audioLoading = ref(false)
 const composeLoading = ref(false)
 const downloadLoading = ref(false)
 
+type DialogType = 'images' | 'dynamic' | 'audio' | 'compose'
+
+const showSelectDialog = ref(false)
+const dialogType = ref<DialogType>('images')
+const selectedShotIds = ref<Array<number | string>>([])
+const submitLoading = ref(false)
+
+const dialogTitle = computed(() => {
+  switch(dialogType.value) {
+    case 'images': return '选择需要生成图片的分镜'
+    case 'dynamic': return '选择需要生成动态的分镜'
+    case 'audio': return '选择需要生成配音的分镜'
+    case 'compose': return '选择参与合成的分镜'
+    default: return '选择分镜'
+  }
+})
+
+const dialogShots = computed(() => {
+  if (dialogType.value === 'dynamic') {
+    return shots.value.filter((shot) => !!shot.imageUrl)
+  }
+  if (dialogType.value === 'compose') {
+    return shots.value.filter((shot) => !!shot.imageUrl || !!shot.videoUrl)
+  }
+  return shots.value
+})
+
+const selectableMethod = (row: any) => {
+  if (dialogType.value === 'dynamic') return !!row.imageUrl
+  if (dialogType.value === 'compose') return !!row.imageUrl || !!row.videoUrl
+  return true
+}
+
+const handleSelectionChange = (rows: any[]) => {
+  selectedShotIds.value = rows.map((row) => row.id)
+}
+
+const resetDialogSelection = () => {
+  selectedShotIds.value = []
+}
+
+const openDialog = (type: DialogType) => {
+  dialogType.value = type
+  resetDialogSelection()
+  showSelectDialog.value = true
+}
+
+const confirmGenerate = async () => {
+  if (selectedShotIds.value.length === 0) {
+    ElMessage.warning('请至少选择一个分镜')
+    return
+  }
+
+  const shotIds = [...selectedShotIds.value]
+  showSelectDialog.value = false
+  submitLoading.value = true
+  
+  try {
+    let res
+    if (dialogType.value === 'images') {
+      imageLoading.value = true
+      res = await videoApi.generateImages(projectId, shotIds)
+      ElMessage.success('分镜图片生成任务已提交')
+    } else if (dialogType.value === 'dynamic') {
+      dynamicLoading.value = true
+      res = await videoApi.generateDynamic(projectId, shotIds)
+      ElMessage.success('动态镜头生成任务已提交')
+    } else if (dialogType.value === 'audio') {
+      audioLoading.value = true
+      res = await videoApi.generateAudio(projectId, shotIds)
+      ElMessage.success('分镜配音生成任务已提交')
+    } else if (dialogType.value === 'compose') {
+      composeLoading.value = true
+      res = await videoApi.compose(projectId, shotIds)
+      ElMessage.success('视频合成任务已提交')
+    }
+    if (res && res.data && res.data.data) {
+      currentTask.value = res.data.data
+      startPolling(currentTask.value.id)
+      setTimeout(loadOverview, 2000)
+    }
+  } catch(e: any) {
+     ElMessage.error(e.response?.data?.message || '提交失败')
+  } finally {
+     submitLoading.value = false
+     imageLoading.value = false
+     dynamicLoading.value = false
+     audioLoading.value = false
+     composeLoading.value = false
+  }
+}
+
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 async function loadOverview() {
@@ -229,64 +360,9 @@ async function loadShots() {
   }
 }
 
-async function handleGenerateImages() {
-  imageLoading.value = true
-  try {
-    const res = await videoApi.generateImages(projectId)
-    currentTask.value = res.data.data
-    ElMessage.success('分镜图片生成任务已提交')
-    startPolling(currentTask.value.id)
-  } catch (e: any) {
-    ElMessage.error(e.response?.data?.message || '提交失败')
-  } finally {
-    imageLoading.value = false
-  }
-}
 
-async function handleGenerateAudio() {
-  audioLoading.value = true
-  try {
-    const res = await videoApi.generateAudio(projectId)
-    currentTask.value = res.data.data
-    ElMessage.success('配音生成任务已提交')
-    startPolling(currentTask.value.id)
-  } catch (e: any) {
-    ElMessage.error(e.response?.data?.message || '提交失败')
-  } finally {
-    audioLoading.value = false
-  }
-}
 
-async function handleGenerateDynamic() {
-  dynamicLoading.value = true
-  try {
-    const res = await videoApi.generateDynamic(projectId)
-    currentTask.value = res.data.data
-    ElMessage.success('动态镜头生成任务已提交')
-    startPolling(currentTask.value.id)
-  } catch (e: any) {
-    ElMessage.error(e.response?.data?.message || '提交失败')
-  } finally {
-    dynamicLoading.value = false
-  }
-}
 
-async function handleCompose() {
-  composeLoading.value = true
-  try {
-    if (overview.value.dynamicSelected > overview.value.dynamicReady) {
-      ElMessage.warning('部分已选动态镜头尚未生成片段，未生成部分将回退为静态图片')
-    }
-    const res = await videoApi.compose(projectId)
-    currentTask.value = res.data.data
-    ElMessage.success('视频合成任务已提交')
-    startPolling(currentTask.value.id)
-  } catch (e: any) {
-    ElMessage.error(e.response?.data?.message || '提交失败')
-  } finally {
-    composeLoading.value = false
-  }
-}
 
 function handleDownload() {
   downloadLoading.value = true
@@ -685,3 +761,4 @@ onUnmounted(() => {
 .status-completed { background: #d1fae5; color: #065f46; }
 .status-failed { background: #fee2e2; color: #991b1b; }
 </style>
+    

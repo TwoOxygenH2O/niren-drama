@@ -663,8 +663,11 @@ if (isStream) {
     /**
      * Start generating images for all storyboard shots of a project.
      */
-    public TaskRecord startGenerateStoryboardImages(Long userId, Long projectId) {
+    public TaskRecord startGenerateStoryboardImages(Long userId, Long projectId, java.util.List<Long> shotIds) {
         List<Storyboard> shots = listByProject(projectId);
+        if (shotIds != null && !shotIds.isEmpty()) {
+            shots = shots.stream().filter(s -> shotIds.contains(s.getId())).toList();
+        }
         if (shots.isEmpty()) throw new BusinessException("项目下没有分镜数据，请先生成分镜");
 
         TaskRecord task = new TaskRecord();
@@ -687,7 +690,10 @@ if (isStream) {
             ImageAiProvider imageProvider = aiProviderFactory.getImageProvider(userId);
             int total = shots.size();
             int completed = 0;
+            int alreadyReady = 0;
+            int generated = 0;
             int reused = 0;
+            int failed = 0;
 
             // Build image reuse cache: scene+character+angle → imageUrl
             Map<String, String> imageCache = new HashMap<>();
@@ -697,6 +703,7 @@ if (isStream) {
 
             for (Storyboard shot : shots) {
                 if (shot.getImageUrl() != null && !shot.getImageUrl().isBlank()) {
+                    alreadyReady++;
                     completed++;
                     continue;
                 }
@@ -723,9 +730,13 @@ if (isStream) {
                         // Use smart resolution based on camera angle
                         String imageSize = costEstimationService.getOptimalImageSize(shot.getCameraAngle());
                         String imageUrl = imageProvider.generateImage(prompt, imageSize, PORTRAIT_IMAGE_STYLE);
+                        if (imageUrl == null || imageUrl.isBlank()) {
+                            throw new BusinessException("图片接口未返回有效图片地址");
+                        }
                         shot.setImageUrl(imageUrl);
                         shot.setStatus("image_generated");
                         storyboardMapper.updateById(shot);
+                        generated++;
 
                         // Cache this image for reuse
                         if (imageReuseEnabled && cacheKey != null) {
@@ -733,14 +744,27 @@ if (isStream) {
                         }
                     }
                 } catch (Exception e) {
+                    failed++;
+                    shot.setStatus("image_failed");
+                    storyboardMapper.updateById(shot);
                     log.warn("Failed to generate image for shot {}: {}", shot.getShotNo(), e.getMessage());
                 }
                 completed++;
             }
 
-            task.setStatus("SUCCESS");
             task.setProgress(100);
-            task.setMessage(String.format("分镜图片生成完成，共处理%d个镜头，复用%d张图片", total, reused));
+            int readyCount = alreadyReady + reused + generated;
+            if (readyCount == 0 && failed > 0) {
+                task.setStatus("FAILED");
+                task.setMessage(String.format("分镜图片生成失败，所选%d个镜头均未生成成功", total));
+            } else {
+                task.setStatus("SUCCESS");
+                if (failed > 0) {
+                    task.setMessage(String.format("分镜图片生成完成：成功%d个，复用%d个，已存在%d个，失败%d个", generated, reused, alreadyReady, failed));
+                } else {
+                    task.setMessage(String.format("分镜图片生成完成，共处理%d个镜头，新增%d张，复用%d张，已存在%d张", total, generated, reused, alreadyReady));
+                }
+            }
             taskRecordMapper.updateById(task);
 
         } catch (Exception e) {
@@ -788,8 +812,11 @@ if (isStream) {
     /**
      * Start generating TTS audio for all storyboard shots of a project.
      */
-    public TaskRecord startGenerateStoryboardAudio(Long userId, Long projectId) {
+    public TaskRecord startGenerateStoryboardAudio(Long userId, Long projectId, java.util.List<Long> shotIds) {
         List<Storyboard> shots = listByProject(projectId);
+        if (shotIds != null && !shotIds.isEmpty()) {
+            shots = shots.stream().filter(s -> shotIds.contains(s.getId())).toList();
+        }
         if (shots.isEmpty()) throw new BusinessException("项目下没有分镜数据，请先生成分镜");
 
         TaskRecord task = new TaskRecord();
@@ -812,6 +839,10 @@ if (isStream) {
             TtsProvider ttsProvider = aiProviderFactory.getTtsProvider(userId);
             int total = shots.size();
             int completed = 0;
+            int alreadyReady = 0;
+            int generated = 0;
+            int skippedNoText = 0;
+            int failed = 0;
 
             Path audioDir = Paths.get(uploadPath, "audios");
             Files.createDirectories(audioDir);
@@ -820,11 +851,13 @@ if (isStream) {
                 // Build text to synthesize: combine dialogue and narration
                 String text = buildTtsText(shot);
                 if (text.isBlank()) {
+                    skippedNoText++;
                     completed++;
                     continue;
                 }
 
                 if (shot.getAudioUrl() != null && !shot.getAudioUrl().isBlank()) {
+                    alreadyReady++;
                     completed++;
                     continue;
                 }
@@ -835,24 +868,39 @@ if (isStream) {
 
                 try {
                     byte[] audioData = ttsProvider.synthesize(text, "alloy", 1.0f, 1.0f);
-                    if (audioData != null && audioData.length > 100) {
-                        String filename = UUID.randomUUID().toString().replace("-", "") + ".mp3";
-                        Path audioFile = audioDir.resolve(filename);
-                        Files.write(audioFile, audioData);
-
-                        shot.setAudioUrl(baseUrl + "/audios/" + filename);
-                        shot.setStatus("audio_generated");
-                        storyboardMapper.updateById(shot);
+                    if (audioData == null || audioData.length <= 100) {
+                        throw new BusinessException("配音接口未返回有效音频数据");
                     }
+                    String filename = UUID.randomUUID().toString().replace("-", "") + ".mp3";
+                    Path audioFile = audioDir.resolve(filename);
+                    Files.write(audioFile, audioData);
+
+                    shot.setAudioUrl(baseUrl + "/audios/" + filename);
+                    shot.setStatus("audio_generated");
+                    storyboardMapper.updateById(shot);
+                    generated++;
                 } catch (Exception e) {
+                    failed++;
+                    shot.setStatus("audio_failed");
+                    storyboardMapper.updateById(shot);
                     log.warn("Failed to generate audio for shot {}: {}", shot.getShotNo(), e.getMessage());
                 }
                 completed++;
             }
 
-            task.setStatus("SUCCESS");
             task.setProgress(100);
-            task.setMessage(String.format("分镜配音生成完成，共处理%d个镜头", total));
+            int readyCount = alreadyReady + generated;
+            if (readyCount == 0 && failed > 0) {
+                task.setStatus("FAILED");
+                task.setMessage(String.format("分镜配音生成失败，所选%d个镜头均未生成成功", total));
+            } else {
+                task.setStatus("SUCCESS");
+                if (failed > 0 || skippedNoText > 0) {
+                    task.setMessage(String.format("分镜配音处理完成：新增%d个，已存在%d个，无文本%d个，失败%d个", generated, alreadyReady, skippedNoText, failed));
+                } else {
+                    task.setMessage(String.format("分镜配音生成完成，共处理%d个镜头", total));
+                }
+            }
             taskRecordMapper.updateById(task);
 
         } catch (Exception e) {

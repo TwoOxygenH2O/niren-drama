@@ -20,14 +20,15 @@
         </template>
       </el-table-column>
       <el-table-column prop="createTime" label="创建时间" width="160" />
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
-          <el-button text type="primary" @click="$router.push(`/projects/${row.id}`)">详情</el-button>
-          <el-button text type="primary" @click="$router.push(`/projects/${row.id}/script`)">剧本</el-button>
-          <el-button text type="primary" @click="$router.push(`/projects/${row.id}/storyboard`)">分镜</el-button>
+          <el-button link type="primary" @click="$router.push(`/projects/${row.id}`)">详情</el-button>
+          <el-button link type="primary" @click="$router.push(`/projects/${row.id}/script`)">剧本</el-button>
+          <el-button link type="primary" @click="$router.push(`/projects/${row.id}/storyboard`)">分镜</el-button>
+          <el-button link type="primary" @click="$router.push(`/projects/${row.id}/synthesis`)">合成</el-button>
           <el-popconfirm title="确认删除？" @confirm="handleDelete(row.id)">
             <template #reference>
-              <el-button text type="danger">删除</el-button>
+              <el-button link type="danger">删除</el-button>
             </template>
           </el-popconfirm>
         </template>
