@@ -253,13 +253,12 @@ public class ScriptService {
             String commonInfo = extractProjectCommonInfo(commonInfoResponse);
             projectService.updateCommonInfo(userId, project.getId(), commonInfo);
 
-            Map<Integer, EpisodeOutline> outlineMap = new LinkedHashMap<>();
             int generatedCount = 0;
             for (int chunkStart = 1; chunkStart <= totalEpisodes; chunkStart += OUTLINE_CHUNK_SIZE) {
                 int chunkEnd = Math.min(totalEpisodes, chunkStart + OUTLINE_CHUNK_SIZE - 1);
-                int progress = 20 + Math.min(55, (int) (((chunkEnd * 1.0) / totalEpisodes) * 55));
+                int progress = 20 + Math.min(75, (int) (((chunkEnd * 1.0) / totalEpisodes) * 75));
                 updateTask(task, "RUNNING", progress,
-                        String.format("正在生成第 %d-%d 集分集大纲...", chunkStart, chunkEnd));
+                        String.format("正在生成并保存第 %d-%d 集分集大纲...", chunkStart, chunkEnd));
 
                 Map<Integer, EpisodeOutline> chunkOutlines = generateEpisodeOutlineChunk(
                     textProvider,
@@ -271,17 +270,16 @@ public class ScriptService {
                     chunkEnd,
                     totalEpisodes,
                     episodeDuration);
-                outlineMap.putAll(chunkOutlines);
+                // Save each chunk to the database immediately after generation so that
+                // partial progress is not lost if a later chunk or the overall task fails.
+                for (Map.Entry<Integer, EpisodeOutline> entry : chunkOutlines.entrySet()) {
+                    upsertEpisodeOutline(request.getProjectId(), entry.getKey(), entry.getValue(), request.getIdea());
+                }
                 generatedCount += chunkOutlines.size();
             }
 
-            if (outlineMap.size() != totalEpisodes) {
-                throw new BusinessException(String.format("分集大纲生成不完整，期望 %d 集，实际 %d 集", totalEpisodes, outlineMap.size()));
-            }
-
-            updateTask(task, "RUNNING", 85, "正在写入分集大纲...");
-            for (Map.Entry<Integer, EpisodeOutline> entry : outlineMap.entrySet()) {
-                upsertEpisodeOutline(request.getProjectId(), entry.getKey(), entry.getValue(), request.getIdea());
+            if (generatedCount != totalEpisodes) {
+                throw new BusinessException(String.format("分集大纲生成不完整，期望 %d 集，实际 %d 集", totalEpisodes, generatedCount));
             }
 
             task.setStatus("SUCCESS");
@@ -305,7 +303,6 @@ public class ScriptService {
             Project project = projectService.getProject(userId, request.getProjectId());
             int startEpisode = request.getStartEpisode() != null ? request.getStartEpisode() : 1;
             int endEpisode = request.getEndEpisode() != null ? request.getEndEpisode() : startEpisode;
-            int totalEpisodes = request.getTotalEpisodes() != null ? request.getTotalEpisodes() : endEpisode;
             GenerationMaterials materials = loadGenerationMaterials(project, startEpisode, endEpisode);
 
             updateTask(task, "RUNNING", 5,
@@ -313,22 +310,17 @@ public class ScriptService {
             TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
             String systemPrompt = buildScriptSystemPrompt(resolveGenre(project, request), request.getStyle());
 
-            updateTask(task, "RUNNING", 20,
-                String.format("AI正在批量生成第 %d-%d 集剧本...", startEpisode, endEpisode));
-
-            String batchPrompt = buildBatchScriptUserPrompt(request, materials, startEpisode, endEpisode, totalEpisodes);
-            String batchContent = textProvider.chat(systemPrompt, batchPrompt);
-
-            updateTask(task, "RUNNING", 70,
-                String.format("正在拆分并保存第 %d-%d 集...", startEpisode, endEpisode));
-
-            Map<Integer, String> episodeScripts = splitBatchScripts(batchContent, startEpisode, endEpisode);
+            // Generate and save each episode individually so that completed episodes are
+            // persisted immediately. This avoids losing all progress when the AI returns
+            // a very long response that gets truncated partway through the batch.
             for (int ep = startEpisode; ep <= endEpisode; ep++) {
-                String content = episodeScripts.get(ep);
-                if (StringUtils.isBlank(content)) {
-                    throw new BusinessException("第 " + ep + " 集剧本拆分失败");
-                }
-                upsertGeneratedScript(request.getProjectId(), ep, content, request.getIdea());
+                int progress = 10 + (int) (((ep - startEpisode + 1.0) / batchCount) * 80);
+                updateTask(task, "RUNNING", progress,
+                        String.format("AI正在生成第 %d/%d 集剧本（第 %d 集）...",
+                                ep - startEpisode + 1, batchCount, ep));
+                String userPrompt = buildScriptUserPrompt(request, materials, ep);
+                String scriptContent = textProvider.chat(systemPrompt, userPrompt);
+                upsertGeneratedScript(request.getProjectId(), ep, scriptContent, request.getIdea());
             }
 
             task.setStatus("SUCCESS");
