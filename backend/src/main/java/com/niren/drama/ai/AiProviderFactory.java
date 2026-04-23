@@ -1,7 +1,8 @@
 package com.niren.drama.ai;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.niren.drama.ai.impl.DashScopeImageProvider;
+import com.niren.drama.ai.impl.AliyunImageProvider;
+import com.niren.drama.ai.impl.AliyunTtsProvider;
 import com.niren.drama.ai.impl.ExternalImageProvider;
 import com.niren.drama.ai.impl.MockTtsProvider;
 import com.niren.drama.ai.impl.OpenAiImageProvider;
@@ -34,98 +35,161 @@ public class AiProviderFactory {
     @Value("${niren.ai.text.max-tokens:16384}")
     private Integer defaultTextMaxTokens;
 
-    @Value("${niren.ai.image.provider:openai}")
+    @Value("${niren.ai.image.provider:aliyun}")
     private String defaultImageProvider;
 
-    @Value("${niren.ai.image.base-url:https://api.openai.com/v1}")
+    @Value("${niren.ai.image.base-url:https://dashscope.aliyuncs.com/api/v1}")
     private String defaultImageBaseUrl;
 
     @Value("${niren.ai.image.api-key:}")
     private String defaultImageApiKey;
 
-    @Value("${niren.ai.image.model:dall-e-3}")
+    @Value("${niren.ai.image.model:qwen-image-2.0-pro}")
     private String defaultImageModel;
 
-    @Value("${niren.ai.tts.provider:volcengine}")
+    @Value("${niren.ai.video.provider:aliyun}")
+    private String defaultVideoProvider;
+
+    @Value("${niren.ai.video.base-url:https://dashscope.aliyuncs.com/api/v1}")
+    private String defaultVideoBaseUrl;
+
+    @Value("${niren.ai.video.api-key:}")
+    private String defaultVideoApiKey;
+
+    @Value("${niren.ai.video.model:wan2.6-t2v}")
+    private String defaultVideoModel;
+
+    @Value("${niren.ai.tts.provider:aliyun}")
     private String defaultTtsProvider;
 
-    @Value("${niren.ai.tts.base-url:}")
+    @Value("${niren.ai.tts.base-url:https://dashscope.aliyuncs.com/api/v1}")
     private String defaultTtsBaseUrl;
 
     @Value("${niren.ai.tts.api-key:}")
     private String defaultTtsApiKey;
 
-    @Value("${niren.ai.tts.model:}")
+    @Value("${niren.ai.tts.model:qwen3-tts-instruct-flash}")
     private String defaultTtsModel;
 
     public TextAiProvider getTextProvider(Long userId) {
-        AiConfig config = getDefaultConfig(userId, "text");
-        String provider = hasText(config != null ? config.getProvider() : null) ? config.getProvider() : defaultTextProvider;
-        String baseUrl = hasText(config != null ? config.getBaseUrl() : null) ? config.getBaseUrl() : defaultTextBaseUrl;
-        String apiKey = hasText(config != null ? config.getApiKey() : null) ? config.getApiKey() : defaultTextApiKey;
-        String model = hasText(config != null ? config.getModel() : null) ? config.getModel() : defaultTextModel;
-
-        // Auto-fill base URL if missing based on provider
-        if (!hasText(baseUrl)) {
-            baseUrl = getDefaultBaseUrl(provider, "text");
-        }
-        if (!hasText(model)) {
-            model = getDefaultModel(provider, "text");
-        }
+        AiResolvedConfig resolved = resolveConfig(userId, "text");
 
         // All text providers use OpenAI-compatible API (DeepSeek, Qianwen, Doubao, etc.)
-        return new OpenAiTextProvider(baseUrl, apiKey, model, defaultTextMaxTokens);
+        return new OpenAiTextProvider(resolved.baseUrl(), resolved.apiKey(), resolved.model(), defaultTextMaxTokens);
     }
 
     public ImageAiProvider getImageProvider(Long userId) {
-        AiConfig config = getDefaultConfig(userId, "image");
-        String provider = hasText(config != null ? config.getProvider() : null) ? config.getProvider() : defaultImageProvider;
-        String baseUrl = hasText(config != null ? config.getBaseUrl() : null) ? config.getBaseUrl() : defaultImageBaseUrl;
-        String apiKey = hasText(config != null ? config.getApiKey() : null) ? config.getApiKey() : defaultImageApiKey;
-        String model = hasText(config != null ? config.getModel() : null) ? config.getModel() : defaultImageModel;
+        AiResolvedConfig resolved = resolveConfig(userId, "image");
+        String provider = resolved.provider();
+        String baseUrl = resolved.baseUrl();
+        String apiKey = resolved.apiKey();
+        String model = resolved.model();
 
-        if (!hasText(baseUrl)) {
-            baseUrl = getDefaultBaseUrl(provider, "image");
-        }
-        if (!hasText(model)) {
-            model = getDefaultModel(provider, "image");
+        if (isAliyunProvider(provider)) {
+            return new AliyunImageProvider(baseUrl, apiKey, model, provider);
         }
 
-        // DashScope (Alibaba Cloud Bailian) uses its own async image generation API.
-        // The providers "dashscope", "qianwen", and "wanx" all refer to Alibaba Cloud's DashScope/Bailian service.
-        if ("dashscope".equals(provider) || "qianwen".equals(provider) || "wanx".equals(provider)) {
-            return new DashScopeImageProvider(baseUrl, apiKey, model);
-        }
-
-        if ("external".equals(provider)) {
-            return new ExternalImageProvider(baseUrl, apiKey, model);
+        if ("custom".equalsIgnoreCase(provider) || "external".equalsIgnoreCase(provider)) {
+            return new ExternalImageProvider(baseUrl, apiKey, model, provider);
         }
 
         return new OpenAiImageProvider(baseUrl, apiKey, model);
     }
 
     public TtsProvider getTtsProvider(Long userId) {
-        AiConfig config = getDefaultConfig(userId, "tts");
-        String provider = hasText(config != null ? config.getProvider() : null) ? config.getProvider() : defaultTtsProvider;
-        String baseUrl = hasText(config != null ? config.getBaseUrl() : null) ? config.getBaseUrl() : defaultTtsBaseUrl;
-        String apiKey = hasText(config != null ? config.getApiKey() : null) ? config.getApiKey() : defaultTtsApiKey;
-        String model = hasText(config != null ? config.getModel() : null) ? config.getModel() : defaultTtsModel;
+        AiResolvedConfig resolved = resolveConfig(userId, "tts");
+        String provider = resolved.provider();
+        String apiKey = resolved.apiKey();
+        if (!hasText(apiKey)) {
+            return new MockTtsProvider();
+        }
+        if (isAliyunProvider(provider)) {
+            return new AliyunTtsProvider(resolved.baseUrl(), apiKey, resolved.model(), provider);
+        }
+        return new OpenAiTtsProvider(resolved.baseUrl(), apiKey, resolved.model(), provider);
+    }
+
+    public AiResolvedConfig resolveConfig(Long userId, String configType) {
+        AiConfig config = getDefaultConfig(userId, configType);
+        String provider = firstNonBlank(config != null ? config.getProvider() : null, getDefaultProvider(configType));
+        String baseUrl = firstNonBlank(config != null ? config.getBaseUrl() : null, getConfiguredDefaultBaseUrl(configType));
+        String apiKey = firstNonBlank(config != null ? config.getApiKey() : null, getConfiguredDefaultApiKey(configType));
+        String model = firstNonBlank(config != null ? config.getModel() : null, getConfiguredDefaultModel(configType));
 
         if (!hasText(baseUrl)) {
-            baseUrl = getDefaultBaseUrl(provider, "tts");
+            baseUrl = getDefaultBaseUrl(provider, configType);
         }
         if (!hasText(model)) {
-            model = getDefaultModel(provider, "tts");
+            model = getDefaultModel(provider, configType);
         }
-        if (hasText(apiKey)) {
-            return new OpenAiTtsProvider(baseUrl, apiKey, model);
-        }
-        // Fallback to mock when no TTS config is available
-        return new MockTtsProvider();
+
+        return new AiResolvedConfig(
+                configType,
+                provider,
+                baseUrl,
+                apiKey,
+                model,
+                config != null ? config.getExtra() : null);
     }
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String firstNonBlank(String primary, String fallback) {
+        return hasText(primary) ? primary : fallback;
+    }
+
+    private boolean isAliyunProvider(String provider) {
+        if (!hasText(provider)) {
+            return false;
+        }
+        String normalized = provider.trim().toLowerCase();
+        return "aliyun".equals(normalized)
+                || "qianwen".equals(normalized)
+                || "dashscope".equals(normalized)
+                || "wanx".equals(normalized)
+                || "cosyvoice".equals(normalized);
+    }
+
+    private String getDefaultProvider(String configType) {
+        return switch (configType) {
+            case "image" -> defaultImageProvider;
+            case "video" -> defaultVideoProvider;
+            case "tts" -> defaultTtsProvider;
+            case "text" -> defaultTextProvider;
+            default -> defaultTextProvider;
+        };
+    }
+
+    private String getConfiguredDefaultBaseUrl(String configType) {
+        return switch (configType) {
+            case "image" -> defaultImageBaseUrl;
+            case "video" -> defaultVideoBaseUrl;
+            case "tts" -> defaultTtsBaseUrl;
+            case "text" -> defaultTextBaseUrl;
+            default -> defaultTextBaseUrl;
+        };
+    }
+
+    private String getConfiguredDefaultApiKey(String configType) {
+        return switch (configType) {
+            case "image" -> defaultImageApiKey;
+            case "video" -> defaultVideoApiKey;
+            case "tts" -> defaultTtsApiKey;
+            case "text" -> defaultTextApiKey;
+            default -> defaultTextApiKey;
+        };
+    }
+
+    private String getConfiguredDefaultModel(String configType) {
+        return switch (configType) {
+            case "image" -> defaultImageModel;
+            case "video" -> defaultVideoModel;
+            case "tts" -> defaultTtsModel;
+            case "text" -> defaultTextModel;
+            default -> defaultTextModel;
+        };
     }
 
     private AiConfig getDefaultConfig(Long userId, String type) {
@@ -143,10 +207,12 @@ public class AiProviderFactory {
         if (provider == null) return "https://api.openai.com/v1";
         return switch (provider.toLowerCase()) {
             case "openai" -> "https://api.openai.com/v1";
-            case "custom" -> "https://api.openai.com/v1";
+            case "custom" -> "text".equals(configType) ? "https://api.openai.com/v1" : "";
             case "deepseek" -> "https://api.deepseek.com";
-            case "qianwen", "dashscope", "wanx", "cosyvoice" ->
-                    "https://dashscope.aliyuncs.com/compatible-mode/v1";
+            case "aliyun", "qianwen", "dashscope", "wanx", "cosyvoice" ->
+                "text".equals(configType)
+                    ? "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                    : "https://dashscope.aliyuncs.com/api/v1";
             case "doubao" -> "https://ark.cn-beijing.volces.com/api/v3";
             case "seedream" -> "https://visual.volcengineapi.com";
             case "seedance" -> "https://open.volcengineapi.com";
@@ -181,20 +247,17 @@ public class AiProviderFactory {
             };
             case "custom" -> switch (configType) {
                 case "text" -> "gpt-4o";
-                case "image" -> "dall-e-3";
-                case "video" -> "kling-v1";
-                case "tts" -> "tts-1";
+                case "image", "video", "tts" -> "";
                 default -> "gpt-4o";
             };
             case "deepseek" -> "deepseek-chat";
-            case "qianwen", "dashscope" -> switch (configType) {
+            case "aliyun", "qianwen", "dashscope", "wanx", "cosyvoice" -> switch (configType) {
                 case "text" -> "qwen-plus";
                 case "image" -> "qwen-image-2.0-pro";
-                case "video" -> "wanx-v1-video";
+                case "video" -> "wan2.6-t2v";
+                case "tts" -> "qwen3-tts-instruct-flash";
                 default -> "qwen-plus";
             };
-            case "wanx" -> "wanx2.1-t2i-turbo";
-            case "cosyvoice" -> "cosyvoice-v3-flash";
             case "xunfei" -> "x1";
             case "seedream" -> "high_aes_general_v30l_zt2i";
             case "seedance" -> "seedance2.0-turbo";
@@ -219,7 +282,7 @@ public class AiProviderFactory {
             case "runway" -> "gen-3";
             case "volcengine" -> "zh_female_qingxin";
             case "sd" -> "stable-diffusion-xl";
-            case "external" -> "qwen-image-2.0-pro";
+            case "external" -> "";
             default -> "gpt-4o";
         };
     }

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.niren.drama.ai.ImageAiProvider;
+import com.niren.drama.ai.trace.AiTraceSupport;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.URI;
@@ -16,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -48,6 +50,13 @@ public class DashScopeImageProvider implements ImageAiProvider {
 
     @Override
     public String generateImage(String prompt, String size, String style) {
+        String endpoint = getDashScopeCompatibleBaseUrl() + "/images/generations";
+        String requestBody = null;
+        HttpResponse<String> response = null;
+        String responseBody = null;
+        String imageUrl = null;
+        String error = null;
+        Map<String, String> headers = AiTraceSupport.jsonHeaders(apiKey);
         try {
             // DashScope uses OpenAI-compatible /images/generations endpoint
             ObjectNode body = objectMapper.createObjectNode();
@@ -59,9 +68,8 @@ public class DashScopeImageProvider implements ImageAiProvider {
                 body.put("style", style);
             }
 
-            String requestBody = objectMapper.writeValueAsString(body);
-                String endpoint = getDashScopeCompatibleBaseUrl() + "/images/generations";
-                log.info("DashScope image request endpoint={}, model={}", endpoint, model);
+            requestBody = objectMapper.writeValueAsString(body);
+            log.info("DashScope image request endpoint={}, model={}", endpoint, model);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(endpoint))
                     .header("Content-Type", "application/json")
@@ -70,24 +78,64 @@ public class DashScopeImageProvider implements ImageAiProvider {
                     .timeout(Duration.ofSeconds(120))
                     .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            responseBody = response.body();
 
             if (response.statusCode() >= 400) {
                 if (response.statusCode() == 404 && isQwenImageModel(model)) {
+                    AiTraceSupport.record(
+                            "image",
+                            "dashscope",
+                            "generate_image",
+                            "POST",
+                            endpoint,
+                            headers,
+                            requestBody,
+                            response.statusCode(),
+                            response.headers().firstValue("Content-Type").orElse(null),
+                            responseBody,
+                            responseBody.length(),
+                            false,
+                            null,
+                            "HTTP 404 fallback to multimodal endpoint");
                     log.warn("DashScope compatible image endpoint returned 404 for model {}, fallback to multimodal text-only", model);
                     return generateImageByMultimodal(prompt, size, style, List.of());
                 }
-                log.error("DashScope image generation API error: {} - {}", response.statusCode(), response.body());
-                throw new RuntimeException("Image generation failed: HTTP " + response.statusCode() + " - " + response.body());
+                log.error("DashScope image generation API error: {} - {}", response.statusCode(), responseBody);
+                error = "HTTP " + response.statusCode() + " - " + responseBody;
+                throw new RuntimeException("Image generation failed: " + error);
             }
 
-            JsonNode responseJson = objectMapper.readTree(response.body());
-            return extractImageUrl(responseJson);
+            JsonNode responseJson = objectMapper.readTree(responseBody);
+            imageUrl = extractImageUrl(responseJson);
+            return imageUrl;
         } catch (RuntimeException e) {
+            if (!hasText(error)) {
+                error = e.getMessage();
+            }
             throw e;
         } catch (Exception e) {
+            if (!hasText(error)) {
+                error = e.getMessage();
+            }
             log.error("DashScope image generation failed", e);
             throw new RuntimeException("Image generation failed: " + e.getMessage());
+        } finally {
+            AiTraceSupport.record(
+                    "image",
+                    "dashscope",
+                    "generate_image",
+                    "POST",
+                    endpoint,
+                    headers,
+                    requestBody,
+                    response != null ? response.statusCode() : null,
+                    response != null ? response.headers().firstValue("Content-Type").orElse(null) : null,
+                    responseBody,
+                    responseBody != null ? responseBody.length() : null,
+                    hasText(imageUrl),
+                    imageUrl,
+                    error);
         }
     }
 
@@ -128,7 +176,23 @@ public class DashScopeImageProvider implements ImageAiProvider {
                     .build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            JsonNode json = objectMapper.readTree(response.body());
+                    String responseBody = response.body();
+                    AiTraceSupport.record(
+                        "image",
+                        "dashscope",
+                        "poll_image_task",
+                        "GET",
+                        taskUrl,
+                        Map.of("Authorization", AiTraceSupport.maskBearer(apiKey)),
+                        null,
+                        response.statusCode(),
+                        response.headers().firstValue("Content-Type").orElse(null),
+                        responseBody,
+                        responseBody.length(),
+                        response.statusCode() < 400,
+                        null,
+                        response.statusCode() >= 400 ? ("HTTP " + response.statusCode()) : null);
+                    JsonNode json = objectMapper.readTree(responseBody);
             JsonNode output = json.path("output");
             String status = output.path("task_status").asText("");
 
@@ -173,20 +237,57 @@ public class DashScopeImageProvider implements ImageAiProvider {
         String endpoint = getDashScopeApiBaseUrl() + "/services/aigc/multimodal-conversation/generation";
         log.info("DashScope multimodal image request endpoint={}, model={}, refCount={}", endpoint, model, referenceImageUrls.size());
 
+    String requestBody = objectMapper.writeValueAsString(body);
+
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create(endpoint))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+        .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .timeout(Duration.ofSeconds(180))
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    String responseBody = response.body();
+    String imageUrl = null;
+    String error = null;
         if (response.statusCode() >= 400) {
-            throw new RuntimeException("HTTP " + response.statusCode() + " - " + response.body());
+        error = "HTTP " + response.statusCode() + " - " + responseBody;
+        AiTraceSupport.record(
+            "image",
+            "dashscope",
+            "generate_image_multimodal",
+            "POST",
+            endpoint,
+            AiTraceSupport.jsonHeaders(apiKey),
+            requestBody,
+            response.statusCode(),
+            response.headers().firstValue("Content-Type").orElse(null),
+            responseBody,
+            responseBody.length(),
+            false,
+            null,
+            error);
+        throw new RuntimeException(error);
         }
-        JsonNode responseJson = objectMapper.readTree(response.body());
-        return extractImageUrl(responseJson);
+    JsonNode responseJson = objectMapper.readTree(responseBody);
+    imageUrl = extractImageUrl(responseJson);
+    AiTraceSupport.record(
+        "image",
+        "dashscope",
+        "generate_image_multimodal",
+        "POST",
+        endpoint,
+        AiTraceSupport.jsonHeaders(apiKey),
+        requestBody,
+        response.statusCode(),
+        response.headers().firstValue("Content-Type").orElse(null),
+        responseBody,
+        responseBody.length(),
+        hasText(imageUrl),
+        imageUrl,
+        null);
+    return imageUrl;
     }
 
     private String extractImageUrl(JsonNode responseJson) throws Exception {

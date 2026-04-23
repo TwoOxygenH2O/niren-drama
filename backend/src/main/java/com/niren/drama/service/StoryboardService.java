@@ -5,6 +5,8 @@ import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.ImageAiProvider;
 import com.niren.drama.ai.TextAiProvider;
 import com.niren.drama.ai.TtsProvider;
+import com.niren.drama.ai.trace.AiCallTrace;
+import com.niren.drama.ai.trace.AiTraceContext;
 import com.niren.drama.dto.storyboard.StoryboardGenerateRequest;
 import com.niren.drama.dto.storyboard.StoryboardPreviewSaveRequest;
 import com.niren.drama.entity.Script;
@@ -52,6 +54,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class StoryboardService {
 
+    private static final int MAX_TASK_TRACE_CALLS = 20;
+
     private final StoryboardMapper storyboardMapper;
     private final ScriptMapper scriptMapper;
     private final TaskRecordMapper taskRecordMapper;
@@ -67,6 +71,22 @@ public class StoryboardService {
     private static final String PORTRAIT_IMAGE_SIZE = "1024x1792";
     /** Image generation style */
     private static final String PORTRAIT_IMAGE_STYLE = "vivid";
+        private static final String DEFAULT_IMAGE_NEGATIVE_PROMPT = String.join("，",
+            "中年感",
+            "老年感",
+            "显老",
+            "成熟老态",
+            "面部模糊",
+            "脸部被遮挡",
+            "五官崩坏",
+            "脸部畸形",
+            "路人脸",
+            "男女特征混乱",
+            "低清晰度",
+            "低分辨率",
+            "人物漂移",
+            "多余肢体",
+            "手部畸形");
 
     private static final int STORYBOARD_CONTINUATION_MAX_ATTEMPTS = 4;
     private static final int STORYBOARD_CONTINUATION_TAIL_LENGTH = 600;
@@ -694,6 +714,8 @@ if (isStream) {
     public void generateStoryboardImagesAsync(Long userId, Long projectId, List<Storyboard> shots, Long taskId) {
         TaskRecord task = taskRecordMapper.selectById(taskId);
         if (task == null) return;
+        ArrayNode traceCalls = objectMapper.createArrayNode();
+        int omittedTraceCalls = 0;
         try {
             ImageAiProvider imageProvider = aiProviderFactory.getImageProvider(userId);
             int total = shots.size();
@@ -718,9 +740,13 @@ if (isStream) {
                 }
 
                 String prompt = shot.getImagePrompt();
+                Character character = resolveShotCharacter(shot);
                 if (prompt == null || prompt.isBlank()) {
-                    prompt = buildImagePrompt(shot);
+                    prompt = buildImagePrompt(shot, character);
                 }
+                List<String> referenceImageUrls = collectReferenceImageUrls(shot, character);
+                String generationPrompt = buildImageGenerationPrompt(prompt, character, referenceImageUrls);
+                String negativePrompt = buildImageNegativePrompt(character);
 
                 updateTask(task, "RUNNING",
                         10 + (80 * completed / total),
@@ -739,10 +765,11 @@ if (isStream) {
                         // Use smart resolution based on camera angle
                         String imageSize = costEstimationService.getOptimalImageSize(shot.getCameraAngle());
                         String imageUrl = imageProvider.generateImage(
-                                prompt,
+                            generationPrompt,
                                 imageSize,
                                 PORTRAIT_IMAGE_STYLE,
-                                collectReferenceImageUrls(shot));
+                            referenceImageUrls,
+                            negativePrompt);
                         if (imageUrl == null || imageUrl.isBlank()) {
                             throw new BusinessException("图片接口未返回有效图片地址");
                         }
@@ -764,6 +791,8 @@ if (isStream) {
                     String errorMessage = hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName();
                     failedDetails.add(String.format("镜头%s: %s", shotLabel, errorMessage));
                     log.warn("Failed to generate image for shot {}", shotLabel, e);
+                } finally {
+                    omittedTraceCalls = appendTraceCalls(traceCalls, shot, AiTraceContext.drain(), omittedTraceCalls);
                 }
                 completed++;
             }
@@ -781,12 +810,21 @@ if (isStream) {
                     task.setMessage(String.format("分镜图片生成完成，共处理%d个镜头，新增%d张，复用%d张，已存在%d张", total, generated, reused, alreadyReady));
                 }
             }
+            task.setResult(buildTaskTraceResult("image", projectId, traceCalls, omittedTraceCalls,
+                    Map.of(
+                            "total", total,
+                            "generated", generated,
+                            "reused", reused,
+                            "alreadyReady", alreadyReady,
+                            "failed", failed)));
             taskRecordMapper.updateById(task);
 
         } catch (Exception e) {
             log.error("Storyboard image generation failed for task {}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("分镜图片生成失败: " + e.getMessage());
+            task.setResult(buildTaskTraceResult("image", projectId, traceCalls, omittedTraceCalls,
+                    Map.of("error", e.getMessage())));
             taskRecordMapper.updateById(task);
         }
     }
@@ -825,12 +863,14 @@ if (isStream) {
     }
 
     private List<String> collectReferenceImageUrls(Storyboard shot) {
+        return collectReferenceImageUrls(shot, null);
+    }
+
+    private List<String> collectReferenceImageUrls(Storyboard shot, Character resolvedCharacter) {
         Set<String> referenceImageUrls = new LinkedHashSet<>();
-        if (shot.getCharacterId() != null) {
-            Character character = characterMapper.selectById(shot.getCharacterId());
-            if (character != null) {
-                addReferenceImageUrl(referenceImageUrls, character.getImageUrl());
-            }
+        Character character = resolvedCharacter != null ? resolvedCharacter : resolveShotCharacter(shot);
+        if (character != null) {
+            addReferenceImageUrl(referenceImageUrls, character.getImageUrl());
         }
         if (shot.getSceneId() != null) {
             Scene scene = sceneMapper.selectById(shot.getSceneId());
@@ -889,6 +929,8 @@ if (isStream) {
     public void generateStoryboardAudioAsync(Long userId, Long projectId, List<Storyboard> shots, Long taskId) {
         TaskRecord task = taskRecordMapper.selectById(taskId);
         if (task == null) return;
+        ArrayNode traceCalls = objectMapper.createArrayNode();
+        int omittedTraceCalls = 0;
         try {
             TtsProvider ttsProvider = aiProviderFactory.getTtsProvider(userId);
             int total = shots.size();
@@ -897,6 +939,7 @@ if (isStream) {
             int generated = 0;
             int skippedNoText = 0;
             int failed = 0;
+            List<String> failedDetails = new ArrayList<>();
 
             Path audioDir = Paths.get(uploadPath, "audios");
             Files.createDirectories(audioDir);
@@ -921,7 +964,8 @@ if (isStream) {
                         String.format("正在生成第%d/%d个分镜配音...", completed + 1, total));
 
                 try {
-                    byte[] audioData = ttsProvider.synthesize(text, "alloy", 1.0f, 1.0f);
+                    String voiceId = resolveVoiceId(userId, shot);
+                    byte[] audioData = ttsProvider.synthesize(text, voiceId, 1.0f, 1.0f);
                     if (audioData == null || audioData.length <= 100) {
                         throw new BusinessException("配音接口未返回有效音频数据");
                     }
@@ -937,7 +981,12 @@ if (isStream) {
                     failed++;
                     shot.setStatus("audio_failed");
                     storyboardMapper.updateById(shot);
+                    String shotLabel = shot.getShotNo() != null ? String.valueOf(shot.getShotNo()) : String.valueOf(shot.getId());
+                    String errorMessage = hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName();
+                    failedDetails.add(String.format("镜头%s: %s", shotLabel, errorMessage));
                     log.warn("Failed to generate audio for shot {}: {}", shot.getShotNo(), e.getMessage());
+                } finally {
+                    omittedTraceCalls = appendTraceCalls(traceCalls, shot, AiTraceContext.drain(), omittedTraceCalls);
                 }
                 completed++;
             }
@@ -946,23 +995,60 @@ if (isStream) {
             int readyCount = alreadyReady + generated;
             if (readyCount == 0 && failed > 0) {
                 task.setStatus("FAILED");
-                task.setMessage(String.format("分镜配音生成失败，所选%d个镜头均未生成成功", total));
+                task.setMessage(String.format("分镜配音生成失败，所选%d个镜头均未生成成功。%s", total, buildFailureReasonSummary(failedDetails, 3)));
             } else {
                 task.setStatus("SUCCESS");
                 if (failed > 0 || skippedNoText > 0) {
-                    task.setMessage(String.format("分镜配音处理完成：新增%d个，已存在%d个，无文本%d个，失败%d个", generated, alreadyReady, skippedNoText, failed));
+                    task.setMessage(String.format("分镜配音处理完成：新增%d个，已存在%d个，无文本%d个，失败%d个。%s", generated, alreadyReady, skippedNoText, failed, buildFailureReasonSummary(failedDetails, 3)));
                 } else {
                     task.setMessage(String.format("分镜配音生成完成，共处理%d个镜头", total));
                 }
             }
+            task.setResult(buildTaskTraceResult("tts", projectId, traceCalls, omittedTraceCalls,
+                    Map.of(
+                            "total", total,
+                            "generated", generated,
+                            "alreadyReady", alreadyReady,
+                            "skippedNoText", skippedNoText,
+                            "failed", failed)));
             taskRecordMapper.updateById(task);
 
         } catch (Exception e) {
             log.error("Storyboard audio generation failed for task {}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("分镜配音生成失败: " + e.getMessage());
+            task.setResult(buildTaskTraceResult("tts", projectId, traceCalls, omittedTraceCalls,
+                    Map.of("error", e.getMessage())));
             taskRecordMapper.updateById(task);
         }
+    }
+
+    private String resolveVoiceId(Long userId, Storyboard shot) {
+        String defaultVoiceId = resolveDefaultVoiceId(userId);
+        if (shot.getCharacterId() == null) {
+            return defaultVoiceId;
+        }
+        Character character = characterMapper.selectById(shot.getCharacterId());
+        if (character == null || !hasText(character.getVoiceId())) {
+            return defaultVoiceId;
+        }
+        return character.getVoiceId();
+    }
+
+    private String resolveDefaultVoiceId(Long userId) {
+        try {
+            String provider = aiProviderFactory.resolveConfig(userId, "tts").provider();
+            if (hasText(provider)) {
+                String normalized = provider.trim().toLowerCase(Locale.ROOT);
+                if ("aliyun".equals(normalized)
+                        || "dashscope".equals(normalized)
+                        || "cosyvoice".equals(normalized)) {
+                    return "Cherry";
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "alloy";
     }
 
     private String buildTtsText(Storyboard shot) {
@@ -1020,6 +1106,49 @@ if (isStream) {
         task.setProgress(progress);
         task.setMessage(message);
         taskRecordMapper.updateById(task);
+    }
+
+    private int appendTraceCalls(ArrayNode calls, Storyboard shot, List<AiCallTrace> traces, int omittedTraceCalls) {
+        if (traces == null || traces.isEmpty()) {
+            return omittedTraceCalls;
+        }
+        for (AiCallTrace trace : traces) {
+            if (calls.size() >= MAX_TASK_TRACE_CALLS) {
+                omittedTraceCalls++;
+                continue;
+            }
+            ObjectNode node = objectMapper.valueToTree(trace);
+            if (shot != null) {
+                if (shot.getId() != null) {
+                    node.put("shotId", shot.getId());
+                }
+                if (shot.getShotNo() != null) {
+                    node.put("shotNo", shot.getShotNo());
+                }
+            }
+            calls.add(node);
+        }
+        return omittedTraceCalls;
+    }
+
+    private String buildTaskTraceResult(String mediaType,
+                                        Long projectId,
+                                        ArrayNode calls,
+                                        int omittedTraceCalls,
+                                        Map<String, ?> summary) {
+        try {
+            ObjectNode root = objectMapper.createObjectNode();
+            root.put("mediaType", mediaType);
+            root.put("projectId", projectId);
+            root.put("storedCalls", calls.size());
+            root.put("omittedCalls", omittedTraceCalls);
+            root.set("summary", objectMapper.valueToTree(summary));
+            root.set("calls", calls);
+            return objectMapper.writeValueAsString(root);
+        } catch (Exception e) {
+            log.warn("Failed to serialize AI task trace result", e);
+            return null;
+        }
     }
 
     private String buildStoryboardSystemPrompt() {
@@ -1145,9 +1274,14 @@ if (isStream) {
                 shot.setNarration(shotNode.path("narration").asText(null));
                 shot.setDuration(shotNode.path("duration").asInt(5));
                 shot.setStatus("draft");
+                String characterName = textOrNull(shotNode, "characterName");
+                Character resolvedCharacter = resolveCharacterByName(request.getProjectId(), characterName);
+                if (resolvedCharacter != null) {
+                    shot.setCharacterId(resolvedCharacter.getId());
+                }
                 shot.setImagePrompt(textOrNull(shotNode, "imagePrompt"));
                 if (!hasText(shot.getImagePrompt())) {
-                    shot.setImagePrompt(buildImagePrompt(shot));
+                    shot.setImagePrompt(buildImagePrompt(shot, resolvedCharacter));
                 }
                 shot.setVideoPrompt(textOrNull(shotNode, "videoPrompt"));
                 applyDynamicRecommendation(shot, shotNode);
@@ -1192,11 +1326,18 @@ if (isStream) {
     }
 
     private String buildImagePrompt(Storyboard shot) {
+        return buildImagePrompt(shot, resolveShotCharacter(shot));
+    }
+
+    private String buildImagePrompt(Storyboard shot, Character character) {
         String cameraAngle = shot.getCameraAngle() != null ? shot.getCameraAngle() : "medium shot";
         String description = shot.getDescription() != null ? shot.getDescription() : "短剧场景画面";
+        String characterAnchor = buildCharacterAnchor(character);
         return String.format(
-                "竖版9:16构图，%s镜头，%s，电影级质感，高清4K，戏剧性光影，高饱和度色彩，短剧封面级画质，景深效果，专业摄影",
-                cameraAngle, description);
+                "竖版9:16构图，%s镜头，%s%s，电影级质感，高清4K，戏剧性光影，高饱和度色彩，短剧封面级画质，景深效果，专业摄影",
+                cameraAngle,
+                hasText(characterAnchor) ? characterAnchor + "，" : "",
+                description);
     }
 
     private void applyDynamicRecommendation(Storyboard shot, JsonNode shotNode) {
@@ -1343,6 +1484,168 @@ if (isStream) {
             }
         }
         return false;
+    }
+
+    private Character resolveShotCharacter(Storyboard shot) {
+        if (shot == null || shot.getCharacterId() == null) {
+            return null;
+        }
+        return characterMapper.selectById(shot.getCharacterId());
+    }
+
+    private Character resolveCharacterByName(Long projectId, String characterName) {
+        if (projectId == null || !hasText(characterName)) {
+            return null;
+        }
+        String trimmedName = characterName.trim();
+        Character exactMatch = characterMapper.selectOne(new LambdaQueryWrapper<Character>()
+                .eq(Character::getProjectId, projectId)
+                .eq(Character::getName, trimmedName)
+                .last("LIMIT 1"));
+        if (exactMatch != null) {
+            return exactMatch;
+        }
+
+        String normalizedTarget = normalizeCharacterLookupKey(trimmedName);
+        if (!hasText(normalizedTarget)) {
+            return null;
+        }
+        List<Character> characters = characterMapper.selectList(new LambdaQueryWrapper<Character>()
+                .eq(Character::getProjectId, projectId)
+                .orderByAsc(Character::getSortOrder)
+                .orderByAsc(Character::getCreateTime));
+        for (Character character : characters) {
+            if (normalizedTarget.equals(normalizeCharacterLookupKey(character.getName()))) {
+                return character;
+            }
+        }
+        return null;
+    }
+
+    private String normalizeCharacterLookupKey(String value) {
+        if (!hasText(value)) {
+            return "";
+        }
+        StringBuilder normalized = new StringBuilder();
+        for (char ch : value.trim().toCharArray()) {
+            if (java.lang.Character.isLetterOrDigit(ch)) {
+                normalized.append(java.lang.Character.toLowerCase(ch));
+            }
+        }
+        return normalized.toString();
+    }
+
+    private String buildImageGenerationPrompt(String originalPrompt, Character character, List<String> referenceImageUrls) {
+        if (character == null) {
+            return originalPrompt;
+        }
+        StringBuilder builder = new StringBuilder();
+        builder.append("角色设定锚点：主体必须是角色“")
+                .append(character.getName())
+                .append("”");
+
+        List<String> anchors = new ArrayList<>();
+        if (hasText(character.getGender())) {
+            anchors.add("性别" + displayGender(character.getGender()));
+        }
+        if (hasText(character.getAge())) {
+            anchors.add("年龄" + character.getAge());
+        }
+        if (hasText(character.getAppearance())) {
+            anchors.add("外貌特征" + character.getAppearance());
+        }
+        if (!anchors.isEmpty()) {
+            builder.append("，").append(String.join("，", anchors));
+        }
+        builder.append("。人物年龄感、脸型、发型、体态必须保持稳定，脸部清晰可辨。");
+
+        if (hasCharacterReferenceImage(character, referenceImageUrls)) {
+            builder.append("已提供该角色参考图，必须严格保持与参考图为同一人物，不得改变年龄感、五官、发型和服装识别特征。");
+        }
+
+        builder.append("当前镜头要求：").append(originalPrompt);
+        return builder.toString();
+    }
+
+    private boolean hasCharacterReferenceImage(Character character, List<String> referenceImageUrls) {
+        return character != null
+                && hasText(character.getImageUrl())
+                && referenceImageUrls != null
+                && referenceImageUrls.contains(character.getImageUrl());
+    }
+
+    private String buildImageNegativePrompt(Character character) {
+        LinkedHashSet<String> negativeTerms = new LinkedHashSet<>();
+        for (String term : DEFAULT_IMAGE_NEGATIVE_PROMPT.split("，")) {
+            if (hasText(term)) {
+                negativeTerms.add(term);
+            }
+        }
+        if (character != null) {
+            String gender = lower(character.getGender());
+            if ("female".equals(gender)) {
+                negativeTerms.add("男性化五官");
+                negativeTerms.add("男性身形");
+            } else if ("male".equals(gender)) {
+                negativeTerms.add("女性化五官");
+                negativeTerms.add("女性化妆容");
+            }
+            if (looksYoung(character.getAge())) {
+                negativeTerms.add("中老年面相");
+                negativeTerms.add("年龄偏大");
+            }
+        }
+        return String.join("，", negativeTerms);
+    }
+
+    private boolean looksYoung(String age) {
+        if (!hasText(age)) {
+            return false;
+        }
+        String normalized = lower(age);
+        if (normalized.contains("少女") || normalized.contains("年轻") || normalized.contains("青年")) {
+            return true;
+        }
+        Matcher matcher = Pattern.compile("\\d+").matcher(normalized);
+        if (matcher.find()) {
+            try {
+                return Integer.parseInt(matcher.group()) <= 30;
+            } catch (NumberFormatException ignored) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    private String displayGender(String gender) {
+        if (!hasText(gender)) {
+            return "";
+        }
+        return switch (gender.trim().toLowerCase(Locale.ROOT)) {
+            case "female" -> "女性";
+            case "male" -> "男性";
+            default -> gender;
+        };
+    }
+
+    private String buildCharacterAnchor(Character character) {
+        if (character == null) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        if (hasText(character.getName())) {
+            parts.add("角色“" + character.getName() + "”");
+        }
+        if (hasText(character.getGender())) {
+            parts.add(displayGender(character.getGender()));
+        }
+        if (hasText(character.getAge())) {
+            parts.add(character.getAge());
+        }
+        if (hasText(character.getAppearance())) {
+            parts.add(character.getAppearance());
+        }
+        return String.join("，", parts);
     }
 
     private static final String[] ACTION_KEYWORDS = {

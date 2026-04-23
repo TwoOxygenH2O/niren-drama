@@ -56,20 +56,21 @@ niren:
       model: ${AI_TEXT_MODEL:gpt-4o}
       max-tokens: ${AI_TEXT_MAX_TOKENS:8192}
     image:
-      provider: ${AI_IMAGE_PROVIDER:openai}
-      base-url: ${AI_IMAGE_BASE_URL:https://api.openai.com/v1}
+      provider: ${AI_IMAGE_PROVIDER:aliyun}
+      base-url: ${AI_IMAGE_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
       api-key: ${AI_IMAGE_API_KEY:}
-      model: ${AI_IMAGE_MODEL:dall-e-3}
+      model: ${AI_IMAGE_MODEL:qwen-image-2.0-pro}
     video:
-      provider: ${AI_VIDEO_PROVIDER:kling}
-      base-url: ${AI_VIDEO_BASE_URL:}
+      provider: ${AI_VIDEO_PROVIDER:aliyun}
+      base-url: ${AI_VIDEO_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
       api-key: ${AI_VIDEO_API_KEY:}
-      model: ${AI_VIDEO_MODEL:}
+      model: ${AI_VIDEO_MODEL:wan2.6-t2v}
     tts:
-      provider: ${AI_TTS_PROVIDER:volcengine}
-      base-url: ${AI_TTS_BASE_URL:}
+      provider: ${AI_TTS_PROVIDER:aliyun}
+      base-url: ${AI_TTS_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
       api-key: ${AI_TTS_API_KEY:}
-      voice: ${AI_TTS_VOICE:zh_female_qingxin}
+      model: ${AI_TTS_MODEL:qwen3-tts-instruct-flash}
+      voice: ${AI_TTS_VOICE:Cherry}
   cost:
     image-reuse-enabled: ${COST_IMAGE_REUSE:true}
     quality-tier: ${COST_QUALITY_TIER:standard}

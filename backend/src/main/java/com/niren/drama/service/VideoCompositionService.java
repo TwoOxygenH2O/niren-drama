@@ -1,5 +1,10 @@
 package com.niren.drama.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.niren.drama.ai.trace.AiCallTrace;
+import com.niren.drama.ai.trace.AiTraceContext;
 import com.niren.drama.entity.Project;
 import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
@@ -36,10 +41,14 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class VideoCompositionService {
 
+    private static final int MAX_TASK_TRACE_CALLS = 20;
+
     private final StoryboardService storyboardService;
     private final StoryboardMapper storyboardMapper;
     private final ProjectMapper projectMapper;
     private final TaskRecordMapper taskRecordMapper;
+    private final AiVideoGenerationService aiVideoGenerationService;
+    private final ObjectMapper objectMapper;
     private final ObjectProvider<VideoCompositionService> selfProvider;
 
     @Value("${niren.upload.path:./uploads}")
@@ -98,9 +107,9 @@ public class VideoCompositionService {
             throw new BusinessException("当前项目没有选中的动态镜头");
         }
 
-        boolean allReadyForDynamic = selectedShots.stream().allMatch(s -> hasText(s.getImageUrl()));
+        boolean allReadyForDynamic = selectedShots.stream().allMatch(s -> hasText(s.getVideoPrompt()) || hasText(s.getDescription()));
         if (!allReadyForDynamic) {
-            throw new BusinessException("仍有已选动态镜头缺少关键帧图片，请先完成分镜图片生成");
+            throw new BusinessException("仍有已选动态镜头缺少视频提示词，请先完成分镜生成或补全镜头描述");
         }
 
         TaskRecord task = new TaskRecord();
@@ -112,7 +121,7 @@ public class VideoCompositionService {
         task.setMessage("动态镜头生成任务已提交...");
         taskRecordMapper.insert(task);
 
-        selfProvider.getObject().generateDynamicVideosAsync(projectId, selectedShots, task.getId());
+        selfProvider.getObject().generateDynamicVideosAsync(userId, projectId, selectedShots, task.getId());
         return task;
     }
 
@@ -227,26 +236,22 @@ public class VideoCompositionService {
     }
 
     @Async("aiTaskExecutor")
-    public void generateDynamicVideosAsync(Long projectId, List<Storyboard> shots, Long taskId) {
+    public void generateDynamicVideosAsync(Long userId, Long projectId, List<Storyboard> shots, Long taskId) {
         TaskRecord task = taskRecordMapper.selectById(taskId);
         if (task == null) return;
-
-        Path workDir = null;
+        ArrayNode traceCalls = objectMapper.createArrayNode();
+        int omittedTraceCalls = 0;
         try {
-            workDir = Paths.get(uploadPath, "dynamic", projectId.toString(), String.valueOf(taskId));
-            Files.createDirectories(workDir);
-
-            Path outputDir = Paths.get(uploadPath, SHOT_VIDEO_DIR);
-            Files.createDirectories(outputDir);
-
             int total = shots.size();
             int completed = 0;
             int generated = 0;
+            int failed = 0;
+            List<String> failedDetails = new ArrayList<>();
 
             for (Storyboard shot : shots) {
                 completed++;
-                if (!hasText(shot.getImageUrl())) {
-                    log.warn("Dynamic shot {} has no keyframe image, skipped", shot.getShotNo());
+                if (!hasText(shot.getVideoPrompt()) && !hasText(shot.getDescription())) {
+                    log.warn("Dynamic shot {} has no usable video prompt, skipped", shot.getShotNo());
                     continue;
                 }
 
@@ -254,40 +259,52 @@ public class VideoCompositionService {
                         10 + (80 * completed / total),
                         String.format("正在生成第%d/%d个动态镜头...", completed, total));
 
-                Path imagePath = workDir.resolve("dynamic_" + shot.getShotNo() + ".jpg");
-                downloadFile(shot.getImageUrl(), imagePath);
-
-                String fileName = "shot_" + projectId + "_" + shot.getShotNo() + "_"
-                        + UUID.randomUUID().toString().replace("-", "") + ".mp4";
-                Path outputPath = outputDir.resolve(fileName);
-
-                renderDynamicShotVideo(imagePath, outputPath,
-                        shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 5,
-                        shot.getMotionLevel());
-
-                if (Files.exists(outputPath) && Files.size(outputPath) > 0) {
-                    shot.setVideoUrl(baseUrl + "/" + SHOT_VIDEO_DIR + "/" + fileName);
+                try {
+                    String videoUrl = aiVideoGenerationService.generateVideo(userId, shot);
+                    if (!hasText(videoUrl)) {
+                        throw new BusinessException("视频接口未返回有效视频地址");
+                    }
+                    shot.setVideoUrl(videoUrl);
                     shot.setRenderMode("video");
                     shot.setStatus("video_generated");
                     storyboardMapper.updateById(shot);
                     generated++;
+                } catch (Exception e) {
+                    failed++;
+                    shot.setStatus("video_failed");
+                    storyboardMapper.updateById(shot);
+                    String shotLabel = shot.getShotNo() != null ? String.valueOf(shot.getShotNo()) : String.valueOf(shot.getId());
+                    String errorMessage = hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName();
+                    failedDetails.add(String.format("镜头%s: %s", shotLabel, errorMessage));
+                    log.warn("Failed to generate dynamic video for shot {}", shotLabel, e);
+                } finally {
+                    omittedTraceCalls = appendTraceCalls(traceCalls, shot, AiTraceContext.drain(), omittedTraceCalls);
                 }
             }
 
-            if (generated == 0) {
+            if (generated == 0 && failed > 0) {
                 throw new BusinessException("没有成功生成任何动态镜头片段");
             }
 
-            task.setStatus("SUCCESS");
+            task.setStatus(failed > 0 ? "SUCCESS" : "SUCCESS");
             task.setProgress(100);
-            task.setMessage(String.format("动态镜头生成完成，共生成%d个片段", generated));
+            if (failed > 0) {
+                task.setMessage(String.format("动态镜头生成完成：成功%d个，失败%d个。%s", generated, failed, buildFailureReasonSummary(failedDetails, 3)));
+            } else {
+                task.setMessage(String.format("动态镜头生成完成，共生成%d个片段", generated));
+            }
+            task.setResult(buildTaskTraceResult("video", projectId, traceCalls, omittedTraceCalls,
+                    java.util.Map.of(
+                            "total", total,
+                            "generated", generated,
+                            "failed", failed)));
             taskRecordMapper.updateById(task);
-
-            cleanupDirectory(workDir);
         } catch (Exception e) {
             log.error("Dynamic video generation failed for task {}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("动态镜头生成失败: " + e.getMessage());
+            task.setResult(buildTaskTraceResult("video", projectId, traceCalls, omittedTraceCalls,
+                    java.util.Map.of("error", e.getMessage())));
             taskRecordMapper.updateById(task);
         }
     }
@@ -560,6 +577,63 @@ public class VideoCompositionService {
         task.setProgress(progress);
         task.setMessage(message);
         taskRecordMapper.updateById(task);
+    }
+
+    private int appendTraceCalls(ArrayNode calls, Storyboard shot, List<AiCallTrace> traces, int omittedTraceCalls) {
+        if (traces == null || traces.isEmpty()) {
+            return omittedTraceCalls;
+        }
+        for (AiCallTrace trace : traces) {
+            if (calls.size() >= MAX_TASK_TRACE_CALLS) {
+                omittedTraceCalls++;
+                continue;
+            }
+            ObjectNode node = objectMapper.valueToTree(trace);
+            if (shot != null) {
+                if (shot.getId() != null) {
+                    node.put("shotId", shot.getId());
+                }
+                if (shot.getShotNo() != null) {
+                    node.put("shotNo", shot.getShotNo());
+                }
+            }
+            calls.add(node);
+        }
+        return omittedTraceCalls;
+    }
+
+    private String buildTaskTraceResult(String mediaType,
+                                        Long projectId,
+                                        ArrayNode calls,
+                                        int omittedTraceCalls,
+                                        java.util.Map<String, ?> summary) {
+        try {
+            ObjectNode root = objectMapper.createObjectNode();
+            root.put("mediaType", mediaType);
+            root.put("projectId", projectId);
+            root.put("storedCalls", calls.size());
+            root.put("omittedCalls", omittedTraceCalls);
+            root.set("summary", objectMapper.valueToTree(summary));
+            root.set("calls", calls);
+            return objectMapper.writeValueAsString(root);
+        } catch (Exception e) {
+            log.warn("Failed to serialize AI task trace result", e);
+            return null;
+        }
+    }
+
+    private String buildFailureReasonSummary(List<String> failedDetails, int maxItems) {
+        if (failedDetails == null || failedDetails.isEmpty()) {
+            return "";
+        }
+        int limit = Math.max(1, maxItems);
+        List<String> reasons = failedDetails.stream().limit(limit).toList();
+        String summary = String.join("；", reasons);
+        int remaining = failedDetails.size() - reasons.size();
+        if (remaining > 0) {
+            summary = summary + String.format("；另有%d个失败镜头", remaining);
+        }
+        return "失败原因：" + summary;
     }
 
     /**

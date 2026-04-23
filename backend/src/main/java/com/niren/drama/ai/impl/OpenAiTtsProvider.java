@@ -3,6 +3,7 @@ package com.niren.drama.ai.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.niren.drama.ai.TtsProvider;
 import com.niren.drama.ai.VoiceInfo;
+import com.niren.drama.ai.trace.AiTraceSupport;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.URI;
@@ -21,6 +22,7 @@ import java.util.Map;
 @Slf4j
 public class OpenAiTtsProvider implements TtsProvider {
 
+    private final String providerName;
     private final String baseUrl;
     private final String apiKey;
     private final String model;
@@ -28,6 +30,11 @@ public class OpenAiTtsProvider implements TtsProvider {
     private final ObjectMapper objectMapper;
 
     public OpenAiTtsProvider(String baseUrl, String apiKey, String model) {
+        this(baseUrl, apiKey, model, "openai");
+    }
+
+    public OpenAiTtsProvider(String baseUrl, String apiKey, String model, String providerName) {
+        this.providerName = providerName != null && !providerName.isBlank() ? providerName : "openai";
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
         this.model = model != null && !model.isBlank() ? model : "tts-1";
@@ -39,6 +46,13 @@ public class OpenAiTtsProvider implements TtsProvider {
 
     @Override
     public byte[] synthesize(String text, String voiceId, float speed, float pitch) {
+        String endpoint = normalizeBaseUrl(baseUrl) + "/audio/speech";
+        String requestBody = null;
+        HttpResponse<byte[]> response = null;
+        byte[] responseBytes = null;
+        String responseBody = null;
+        String error = null;
+        Map<String, String> headers = AiTraceSupport.jsonHeaders(apiKey);
         try {
             String voice = (voiceId != null && !voiceId.isBlank()) ? voiceId : "alloy";
             Map<String, Object> body = Map.of(
@@ -49,30 +63,59 @@ public class OpenAiTtsProvider implements TtsProvider {
                     "response_format", "mp3"
             );
 
-            String requestBody = objectMapper.writeValueAsString(body);
+            requestBody = objectMapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/audio/speech"))
+                    .uri(URI.create(endpoint))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                     .timeout(Duration.ofSeconds(120))
                     .build();
 
-            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            responseBytes = response.body();
 
             if (response.statusCode() != 200) {
-                String errorBody = new String(response.body());
+                String errorBody = new String(responseBytes);
+                responseBody = errorBody;
+                error = "TTS API returned status " + response.statusCode() + ": " + errorBody;
                 log.error("TTS API error (status {}): {}", response.statusCode(), errorBody);
-                throw new RuntimeException("TTS API returned status " + response.statusCode() + ": " + errorBody);
+                throw new RuntimeException(error);
             }
 
             log.info("TTS synthesize success: voice={}, textLength={}, audioSize={} bytes",
-                    voice, text.length(), response.body().length);
-            return response.body();
+                    voice, text.length(), responseBytes.length);
+            return responseBytes;
         } catch (Exception e) {
+            if (!AiTraceSupport.hasText(error)) {
+                error = e.getMessage();
+            }
             log.error("OpenAI TTS API call failed", e);
             throw new RuntimeException("TTS synthesis failed: " + e.getMessage(), e);
+        } finally {
+            AiTraceSupport.record(
+                    "tts",
+                    providerName,
+                    "synthesize_speech",
+                    "POST",
+                    endpoint,
+                    headers,
+                    requestBody,
+                    response != null ? response.statusCode() : null,
+                    response != null ? response.headers().firstValue("Content-Type").orElse(null) : null,
+                    responseBody,
+                    responseBytes != null ? responseBytes.length : null,
+                    response != null && response.statusCode() == 200 && responseBytes != null && responseBytes.length > 0,
+                    null,
+                    error);
         }
+    }
+
+    private String normalizeBaseUrl(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
     }
 
     @Override

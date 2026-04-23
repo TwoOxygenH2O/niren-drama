@@ -43,7 +43,7 @@
       >
         <div class="config-card-header">
           <div class="provider-badge">
-            <span class="provider-name">{{ providerLabel(config.provider) }}</span>
+            <span class="provider-name">{{ providerLabel(config.provider, config.configType) }}</span>
             <el-tag v-if="config.isDefault === 1" type="success" size="small" effect="dark">默认</el-tag>
           </div>
           <div class="config-actions">
@@ -135,13 +135,28 @@
           </div>
         </el-form-item>
         <el-form-item label="模型名称">
-          <el-input v-model="form.model" :placeholder="getModelPlaceholder()">
-            <template #append>
-              <el-button @click="resetModel" title="重置为默认模型">
-                <el-icon><RefreshRight /></el-icon>
-              </el-button>
-            </template>
-          </el-input>
+          <div class="model-input-row">
+            <el-select
+              v-model="form.model"
+              filterable
+              allow-create
+              default-first-option
+              clearable
+              style="width: 100%"
+              :placeholder="getModelPlaceholder()"
+            >
+              <el-option
+                v-for="model in modelOptions"
+                :key="model"
+                :label="model"
+                :value="model"
+              />
+            </el-select>
+            <el-button @click="resetModel" title="重置为默认模型">
+              <el-icon><RefreshRight /></el-icon>
+            </el-button>
+          </div>
+          <div class="form-tip">可从推荐列表中选择，也可直接输入自定义模型名</div>
         </el-form-item>
         <el-form-item label="设为默认">
           <div class="default-row">
@@ -202,43 +217,30 @@ const tabs = [
 const allProviders = [
   // ──────── 文本大模型 ────────
   { value: 'deepseek', label: 'DeepSeek', tagLabel: '推荐·文本', types: ['text'] },
-  { value: 'openai', label: 'OpenAI (GPT)', tagLabel: '文本/图像/TTS', types: ['text', 'image', 'tts'] },
-  { value: 'qianwen', label: '阿里通义千问', tagLabel: '文本/图像', types: ['text', 'image'] },
+  { value: 'openai', label: 'OpenAI (GPT)', tagLabel: '文本', types: ['text'] },
+  { value: 'qianwen', label: '阿里通义千问', tagLabel: '文本', types: ['text'] },
   { value: 'doubao', label: '火山引擎豆包', tagLabel: '文本', types: ['text'] },
   { value: 'moonshot', label: 'Moonshot (月之暗面)', tagLabel: '文本', types: ['text'] },
   { value: 'zhipu', label: '智谱 GLM', tagLabel: '文本', types: ['text'] },
   { value: 'baichuan', label: '百川智能', tagLabel: '文本', types: ['text'] },
   { value: 'wenxin', label: '百度文心一言', tagLabel: '文本', types: ['text'] },
-  { value: 'minimax', label: 'MiniMax', tagLabel: '文本/TTS', types: ['text', 'tts'] },
-  // ──────── 文生图 ────────
-  { value: 'wanx', label: '通义万相 Wanx 2.1（推荐）', tagLabel: '推荐·图像', types: ['image'] },
-  { value: 'dashscope', label: '阿里云百炼 DashScope', tagLabel: '图像/视频', types: ['image', 'video'] },
-  { value: 'seedream', label: '火山引擎 Seedream 3.0', tagLabel: '图像', types: ['image'] },
-  { value: 'external', label: '外部接口生图', tagLabel: '图像·中转', types: ['image'] },
-  { value: 'kling', label: '可灵 AI (Kling)', tagLabel: '视频/图像', types: ['video', 'image'] },
-  { value: 'jimeng', label: '即梦 AI', tagLabel: '图像/视频', types: ['image', 'video'] },
-  { value: 'runway', label: 'Runway', tagLabel: '视频', types: ['video'] },
-  { value: 'sd', label: 'Stable Diffusion (本地)', tagLabel: '图像', types: ['image'] },
-  // ──────── 文生视频 ────────
-  { value: 'seedance', label: '火山引擎 Seedance 2.0（推荐）', tagLabel: '推荐·视频', types: ['video'] },
-  // ──────── TTS 语音 ────────
-  { value: 'cosyvoice', label: '阿里云 CosyVoice V3（推荐）', tagLabel: '推荐·TTS', types: ['tts'] },
-  { value: 'xunfei', label: '科大讯飞星火 TTS', tagLabel: 'TTS', types: ['tts'] },
-  { value: 'volcengine', label: '火山引擎语音合成', tagLabel: 'TTS', types: ['tts'] },
+  { value: 'minimax', label: 'MiniMax', tagLabel: '文本', types: ['text'] },
+  // ──────── 图片/视频/TTS 仅保留阿里云与自定义 ────────
+  { value: 'aliyun', label: '阿里云千问生图', tagLabel: '推荐·图像', types: ['image'] },
+  { value: 'aliyun', label: '阿里云万相视频', tagLabel: '推荐·视频', types: ['video'] },
+  { value: 'aliyun', label: '阿里云 Qwen TTS', tagLabel: '推荐·TTS', types: ['tts'] },
   // ──────── 通用 ────────
-  { value: 'custom', label: '自定义 (OpenAI 兼容)', tagLabel: '通用', types: ['text', 'image', 'video', 'tts'] },
+  { value: 'custom', label: '自定义接口', tagLabel: '通用', types: ['text', 'image', 'video', 'tts'] },
 ]
 
 // Provider hints (shown in dialog when selected)
 const providerHints: Record<string, string> = {
-  wanx: '通义万相 Wanx 2.1 — 阿里云百炼，适合短剧封面/分镜批量生成，性价比极高，需开通阿里云百炼服务',
-  seedream: '火山引擎 Seedream 3.0 — 人像质感优秀，适合连续剧集封面，需在火山引擎方舟平台开通',
-  seedance: '火山引擎 Seedance 2.0 — 角色一致性强，支持 1080P/60fps，适合短剧片段生成，需在火山引擎方舟平台开通',
-  cosyvoice: '阿里云 CosyVoice V3 — 情感表现力强，适配短剧台词，使用阿里云百炼 API Key（与 Wanx 同一账号）',
-  xunfei: '科大讯飞星火 TTS — 中文发音自然，支持方言，请在讯飞开放平台（xf-yun.com）申请 API Key',
-  dashscope: '阿里云百炼（DashScope）— 通义万相文生图/视频统一入口，支持异步批量任务',
-  kling: '可灵 AI — 视频生成效果佳，按时长计费，请在可灵 AI 官网开通服务',
-  external: '通过外部中转接口生成图片。Base URL 请填写你的外部服务地址，系统会自动拼接 /images/generations。',
+  'image:aliyun': '阿里云千问生图使用 DashScope 原生 multimodal-generation 接口，模型仅支持 qwen-image-2.0 与 qwen-image-2.0-pro。',
+  'video:aliyun': '阿里云万相视频使用 DashScope 原生 video-synthesis 接口，当前仅保留 wan2.6-t2v。',
+  'tts:aliyun': '阿里云 Qwen TTS 使用 DashScope 原生 multimodal-conversation 接口，当前默认模型为 qwen3-tts-instruct-flash。',
+  'image:custom': '自定义图片接口请填写你的真实图片生成端点，系统不会再自动按 OpenAI 方式混用阿里云接口。',
+  'video:custom': '自定义视频接口请填写你的真实视频生成端点；若为异步任务，请确保返回任务查询地址或 taskId。',
+  'tts:custom': '自定义 TTS 当前按 OpenAI 兼容 speech 接口调用，请填写真实兼容端点。',
 }
 
 // Build filtered provider groups based on selected configType
@@ -263,65 +265,80 @@ const filteredProviderGroups = computed(() => {
   return groups
 })
 
-const currentProviderHint = computed(() => providerHints[form.value.provider] || '')
+const currentProviderHint = computed(() => providerHints[`${form.value.configType}:${form.value.provider}`] || '')
 
 // Provider base URL defaults (client-side for instant feedback)
-const providerBaseUrls: Record<string, string> = {
+type ProviderBaseUrlValue = string | Partial<Record<string, string>>
+
+const providerBaseUrls: Record<string, ProviderBaseUrlValue> = {
   openai: 'https://api.openai.com/v1',
   deepseek: 'https://api.deepseek.com',
   qianwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  dashscope: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  wanx: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  cosyvoice: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  aliyun: {
+    image: 'https://dashscope.aliyuncs.com/api/v1',
+    video: 'https://dashscope.aliyuncs.com/api/v1',
+    tts: 'https://dashscope.aliyuncs.com/api/v1',
+  },
   doubao: 'https://ark.cn-beijing.volces.com/api/v3',
-  seedream: 'https://visual.volcengineapi.com',
-  seedance: 'https://open.volcengineapi.com',
   minimax: 'https://api.minimax.chat/v1',
   moonshot: 'https://api.moonshot.cn/v1',
   zhipu: 'https://open.bigmodel.cn/api/paas/v4',
   baichuan: 'https://api.baichuan-ai.com/v1',
   wenxin: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop',
-  kling: 'https://api.klingai.com/v1',
-  jimeng: 'https://jimeng.jianying.com/v1',
-  runway: 'https://api.dev.runwayml.com/v1',
-  volcengine: 'https://openspeech.bytedance.com/api/v1',
-  xunfei: 'https://spark-api-open.xf-yun.com/v1',
-  sd: 'http://localhost:7860',
-  external: 'http://localhost:9000',
+  custom: {
+    image: '',
+    video: '',
+    tts: '',
+    text: 'https://api.openai.com/v1',
+  },
 }
 
 const providerModels: Record<string, Record<string, string>> = {
   openai: { text: 'gpt-4o', image: 'dall-e-3', tts: 'tts-1' },
   deepseek: { text: 'deepseek-chat' },
   qianwen: { text: 'qwen-plus', image: 'qwen-image-2.0-pro' },
-  dashscope: { image: 'qwen-image-2.0-pro', video: 'wanx-v1-video' },
-  wanx: { image: 'wanx2.1-t2i-turbo' },
-  cosyvoice: { tts: 'cosyvoice-v3-flash' },
-  xunfei: { tts: 'x1' },
-  seedream: { image: 'high_aes_general_v30l_zt2i' },
-  external: { image: 'qwen-image-2.0-pro' },
-  seedance: { video: 'seedance2.0-turbo' },
+  aliyun: { image: 'qwen-image-2.0-pro', video: 'wan2.6-t2v', tts: 'qwen3-tts-instruct-flash' },
+  custom: { image: '', video: '', tts: '', text: 'gpt-4o' },
   doubao: { text: 'doubao-pro-32k' },
   minimax: { text: 'abab6.5s-chat', tts: 'speech-01-turbo' },
   moonshot: { text: 'moonshot-v1-8k' },
   zhipu: { text: 'glm-4' },
   baichuan: { text: 'Baichuan4' },
   wenxin: { text: 'ernie-4.0-8k' },
-  kling: { video: 'kling-v1', image: 'kolors-v1' },
-  jimeng: { image: 'jimeng-2.1-pro', video: 'jimeng-video-v1' },
-  runway: { video: 'gen-3' },
-  volcengine: { tts: 'zh_female_qingxin' },
-  sd: { image: 'stable-diffusion-xl' },
 }
 
 const form = ref({ id: null as any, configType: 'text', provider: 'deepseek', baseUrl: '', apiKey: '', model: '' })
 
+const commonModelOptions: Record<string, string[]> = {
+  text: ['gpt-4o', 'gpt-4.1', 'deepseek-chat', 'qwen-plus', 'glm-4'],
+  image: ['qwen-image-2.0', 'qwen-image-2.0-pro'],
+  video: ['wan2.6-t2v'],
+  tts: ['qwen3-tts-instruct-flash'],
+}
+
 const currentTabLabel = computed(() => tabs.find(t => t.type === activeTab.value)?.label || '')
+
+const modelOptions = computed(() => {
+  const providerDefault = providerModels[form.value.provider]?.[form.value.configType]
+  const currentValue = form.value.model
+  return Array.from(new Set([
+    providerDefault,
+    ...(commonModelOptions[form.value.configType] || []),
+    currentValue,
+  ].filter(Boolean)))
+})
 
 const filteredConfigs = (type: string) => configs.value.filter(c => c.configType === type)
 
+function resolveProviderDefaultUrl(provider: string, configType: string): string {
+  const defaults = providerBaseUrls[provider]
+  if (!defaults) return ''
+  if (typeof defaults === 'string') return defaults
+  return defaults[configType] || ''
+}
+
 function getProviderDefaultUrl(provider: string): string {
-  return providerBaseUrls[provider] || ''
+  return resolveProviderDefaultUrl(provider, form.value.configType)
 }
 
 function getModelPlaceholder(): string {
@@ -330,9 +347,26 @@ function getModelPlaceholder(): string {
   return model ? `推荐: ${model}` : '输入模型名称'
 }
 
-function providerLabel(provider: string): string {
-  const p = allProviders.find(p => p.value === provider)
+function providerLabel(provider: string, configType = activeTab.value): string {
+  const p = allProviders.find(p => p.value === provider && p.types.includes(configType))
   return p ? p.label : provider
+}
+
+function normalizeProvider(provider: string, configType: string): string {
+  if (configType === 'text') {
+    return provider
+  }
+  if (['aliyun', 'qianwen', 'dashscope', 'wanx', 'cosyvoice'].includes(provider)) {
+    return 'aliyun'
+  }
+  return 'custom'
+}
+
+function normalizeConfig(row: any) {
+  return {
+    ...row,
+    provider: normalizeProvider(row.provider, row.configType),
+  }
 }
 
 function maskKey(key: string): string {
@@ -344,17 +378,17 @@ function maskKey(key: string): string {
 function openDialog(row?: any) {
   editing.value = !!row
   if (row) {
-    form.value = { ...row }
+    form.value = { ...normalizeConfig(row) }
     isDefault.value = row.isDefault === 1
   } else {
     const defaultProvider = activeTab.value === 'text' ? 'deepseek' :
-      activeTab.value === 'image' ? 'wanx' :
-      activeTab.value === 'video' ? 'seedance' : 'cosyvoice'
+      activeTab.value === 'image' ? 'aliyun' :
+      activeTab.value === 'video' ? 'aliyun' : 'aliyun'
     form.value = {
       id: null,
       configType: activeTab.value,
       provider: defaultProvider,
-      baseUrl: providerBaseUrls[defaultProvider] || '',
+      baseUrl: resolveProviderDefaultUrl(defaultProvider, activeTab.value),
       apiKey: '',
       model: providerModels[defaultProvider]?.[activeTab.value] || '',
     }
@@ -366,15 +400,15 @@ function openDialog(row?: any) {
 function onTypeChange() {
   const type = form.value.configType
   const defaultProvider = type === 'text' ? 'deepseek' :
-    type === 'image' ? 'wanx' :
-    type === 'video' ? 'seedance' : 'cosyvoice'
+    type === 'image' ? 'aliyun' :
+    type === 'video' ? 'aliyun' : 'aliyun'
   form.value.provider = defaultProvider
   void onProviderChange(defaultProvider)
 }
 
 async function onProviderChange(val: string) {
   // Show local defaults immediately for better UX, then sync with backend defaults.
-  form.value.baseUrl = providerBaseUrls[val] || ''
+  form.value.baseUrl = resolveProviderDefaultUrl(val, form.value.configType)
   form.value.model = providerModels[val]?.[form.value.configType] || ''
 
   try {
@@ -392,7 +426,7 @@ async function onProviderChange(val: string) {
 }
 
 function resetBaseUrl() {
-  form.value.baseUrl = providerBaseUrls[form.value.provider] || ''
+  form.value.baseUrl = resolveProviderDefaultUrl(form.value.provider, form.value.configType)
 }
 
 function resetModel() {
@@ -401,7 +435,7 @@ function resetModel() {
 
 async function load() {
   const res = await aiConfigApi.list()
-  configs.value = res.data.data || []
+  configs.value = (res.data.data || []).map((row: any) => normalizeConfig(row))
 }
 
 async function handleSave() {
@@ -455,6 +489,13 @@ onMounted(load)
   font-size: 13px;
   color: var(--text-muted);
   margin: 0;
+}
+
+.model-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
 }
 
 /* Tabs */

@@ -26,4 +26,15 @@ public interface ImageAiProvider {
     default String generateImage(String prompt, String size, String style, List<String> referenceImageUrls) {
         return generateImage(prompt, size, style);
     }
+
+    /**
+     * Generate an image with optional reference images and provider-specific negative prompt.
+     */
+    default String generateImage(String prompt,
+                                 String size,
+                                 String style,
+                                 List<String> referenceImageUrls,
+                                 String negativePrompt) {
+        return generateImage(prompt, size, style, referenceImageUrls);
+    }
 }

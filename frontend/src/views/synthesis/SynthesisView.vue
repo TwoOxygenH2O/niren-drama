@@ -77,11 +77,11 @@
           <div class="step-num">2</div>
           <div class="step-info">
             <div class="step-name">生成动态镜头</div>
-            <div class="step-desc">只为你勾选的镜头生成动态片段</div>
+            <div class="step-desc">按镜头提示词调用视频接口生成动态片段</div>
             <div class="step-tip">{{ overview.dynamicReady }} / {{ overview.dynamicSelected }} 已生成</div>
           </div>
           <el-button type="primary" :loading="dynamicLoading" @click="openDialog('dynamic')"
-                     :disabled="overview.dynamicSelected === 0 || overview.imagesReady === 0">
+                     :disabled="overview.dynamicSelected === 0">
             {{ overview.dynamicReady === overview.dynamicSelected && overview.dynamicSelected > 0 ? '重新生成' : '开始生成' }}
           </el-button>
         </div>
@@ -128,6 +128,49 @@
         :stroke-width="10"
       />
       <div class="task-message">{{ currentTask.message }}</div>
+      <div v-if="taskTrace" class="task-trace-panel">
+        <div class="task-trace-header">
+          <div>
+            <div class="task-trace-title">外部接口调用明细</div>
+            <div class="task-trace-summary">
+              已记录 {{ taskTrace.storedCalls || 0 }} 次调用
+              <span v-if="taskTrace.omittedCalls">，另有 {{ taskTrace.omittedCalls }} 次未展示</span>
+            </div>
+          </div>
+        </div>
+        <div v-if="taskTrace.calls?.length" class="task-trace-list">
+          <div v-for="(call, index) in taskTrace.calls" :key="`${index}-${call.url}`" class="task-trace-item">
+            <div class="task-trace-item-head">
+              <span class="task-trace-index">#{{ Number(index) + 1 }}</span>
+              <span v-if="call.shotNo" class="task-trace-shot">镜头 {{ call.shotNo }}</span>
+              <span class="task-trace-method">{{ call.method }}</span>
+              <span class="task-trace-url">{{ call.url }}</span>
+              <span :class="['task-trace-status', call.success ? 'is-success' : 'is-failed']">
+                {{ call.statusCode || '-' }}
+              </span>
+            </div>
+            <div class="task-trace-meta">
+              <span>动作：{{ call.action || '-' }}</span>
+              <span v-if="call.provider">服务商：{{ call.provider }}</span>
+              <span v-if="call.responseBytes">响应大小：{{ call.responseBytes }} bytes</span>
+              <span v-if="call.outputUrl">输出：{{ call.outputUrl }}</span>
+            </div>
+            <div v-if="call.requestHeaders" class="task-trace-block">
+              <div class="trace-label">请求头</div>
+              <pre>{{ formatTraceBody(call.requestHeaders) }}</pre>
+            </div>
+            <div v-if="call.requestBody" class="task-trace-block">
+              <div class="trace-label">请求参数</div>
+              <pre>{{ formatTraceBody(call.requestBody) }}</pre>
+            </div>
+            <div v-if="call.responseBody" class="task-trace-block">
+              <div class="trace-label">响应内容</div>
+              <pre>{{ formatTraceBody(call.responseBody) }}</pre>
+            </div>
+            <div v-if="call.error" class="task-trace-error">{{ call.error }}</div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Video preview -->
@@ -255,6 +298,8 @@ const dialogType = ref<DialogType>('images')
 const selectedShotIds = ref<Array<number | string>>([])
 const submitLoading = ref(false)
 
+const taskTrace = computed(() => parseTaskTrace(currentTask.value?.result))
+
 const dialogTitle = computed(() => {
   switch(dialogType.value) {
     case 'images': return '选择需要生成图片的分镜'
@@ -267,7 +312,7 @@ const dialogTitle = computed(() => {
 
 const dialogShots = computed(() => {
   if (dialogType.value === 'dynamic') {
-    return shots.value.filter((shot) => !!shot.imageUrl)
+    return shots.value.filter((shot) => !!shot.videoPrompt || !!shot.description)
   }
   if (dialogType.value === 'compose') {
     return shots.value.filter((shot) => !!shot.imageUrl || !!shot.videoUrl)
@@ -276,7 +321,7 @@ const dialogShots = computed(() => {
 })
 
 const selectableMethod = (row: any) => {
-  if (dialogType.value === 'dynamic') return !!row.imageUrl
+  if (dialogType.value === 'dynamic') return !!row.videoPrompt || !!row.description
   if (dialogType.value === 'compose') return !!row.imageUrl || !!row.videoUrl
   return true
 }
@@ -442,12 +487,37 @@ const shotStatusLabel = (s: string) => ({
   image_generated: '图片就绪',
   video_generated: '动态片段就绪',
   audio_generated: '配音就绪',
+  image_failed: '图片失败',
+  video_failed: '动态失败',
+  audio_failed: '配音失败',
   completed: '已完成',
 }[s] || s)
 
 function truncate(str: string, len: number) {
   if (!str) return ''
   return str.length > len ? str.substring(0, len) + '...' : str
+}
+
+function parseTaskTrace(raw: any) {
+  if (!raw || typeof raw !== 'string') return null
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed?.calls) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function formatTraceBody(value: any) {
+  if (!value) return ''
+  if (typeof value === 'string') {
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2)
+    } catch {
+      return value
+    }
+  }
+  return JSON.stringify(value, null, 2)
 }
 
 onMounted(async () => {
@@ -616,6 +686,103 @@ onUnmounted(() => {
   font-size: 13px;
   color: var(--text-secondary);
 }
+.task-trace-panel {
+  margin-top: 16px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 16px;
+}
+.task-trace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.task-trace-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.task-trace-summary {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.task-trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.task-trace-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fafafa;
+}
+.task-trace-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.task-trace-index,
+.task-trace-shot,
+.task-trace-method,
+.task-trace-status {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.task-trace-index { background: #e5e7eb; color: #374151; }
+.task-trace-shot { background: #dbeafe; color: #1d4ed8; }
+.task-trace-method { background: #ede9fe; color: #6d28d9; }
+.task-trace-url {
+  flex: 1;
+  min-width: 280px;
+  font-size: 12px;
+  color: #111827;
+  word-break: break-all;
+}
+.task-trace-status.is-success { background: #d1fae5; color: #065f46; }
+.task-trace-status.is-failed { background: #fee2e2; color: #991b1b; }
+.task-trace-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.task-trace-block {
+  margin-top: 10px;
+}
+.trace-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.task-trace-block pre {
+  margin: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #111827;
+  color: #e5e7eb;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.task-trace-error {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
 
 /* Video section */
 .video-section {
@@ -710,6 +877,9 @@ onUnmounted(() => {
 .shot-status.status-image_generated { background: #dbeafe; color: #1e40af; }
 .shot-status.status-video_generated { background: #ede9fe; color: #6d28d9; }
 .shot-status.status-audio_generated { background: #fef3c7; color: #92400e; }
+.shot-status.status-image_failed { background: #fee2e2; color: #991b1b; }
+.shot-status.status-video_failed { background: #fee2e2; color: #991b1b; }
+.shot-status.status-audio_failed { background: #fee2e2; color: #991b1b; }
 .shot-status.status-completed { background: #d1fae5; color: #065f46; }
 
 .shot-image {
