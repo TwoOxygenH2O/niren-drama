@@ -33,7 +33,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ScriptController {
 
-    private static final long SSE_TIMEOUT_MILLIS = 1_800_000L;
+    private static final long SSE_TIMEOUT_MILLIS = 3_600_000L;
 
     private final ScriptService scriptService;
     private final CurrentUserHelper currentUserHelper;

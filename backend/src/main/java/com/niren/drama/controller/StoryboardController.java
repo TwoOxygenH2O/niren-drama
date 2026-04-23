@@ -32,7 +32,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class StoryboardController {
 
-    private static final long SSE_TIMEOUT_MILLIS = 1_800_000L;
+    private static final long SSE_TIMEOUT_MILLIS = 3_600_000L;
 
     private final StoryboardService storyboardService;
     private final CurrentUserHelper currentUserHelper;
