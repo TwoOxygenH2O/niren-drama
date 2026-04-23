@@ -259,24 +259,88 @@
       :close-on-click-modal="false"
       @closed="resetDialogSelection"
     >
-      <el-table 
-        :key="dialogType"
-        :data="dialogShots"
-        @selection-change="handleSelectionChange" 
-        height="500px"
-        empty-text="当前没有可选分镜"
-      >
-        <el-table-column type="selection" width="55" :selectable="selectableMethod" />
-        <el-table-column prop="shotNo" label="镜头号" width="80" />
-        <el-table-column prop="description" label="画面描述" min-width="200" show-overflow-tooltip />
-        <el-table-column label="状态 (图/音/动)" width="150" align="center">
-          <template #default="{ row }">
-            <span v-if="row.imageUrl" title="图片就绪">🖼️ </span>
-            <span v-if="row.audioUrl" title="配音就绪">🎵 </span>
-            <span v-if="row.videoUrl" title="动态就绪">🎬 </span>
-          </template>
-        </el-table-column>
-      </el-table>
+      <div v-if="dialogType === 'compose'">
+        <el-table
+          ref="composeTableRef"
+          :key="dialogType"
+          :data="dialogShots"
+          @selection-change="handleComposeSelectionChange"
+          height="500px"
+          empty-text="当前没有可选分镜"
+        >
+          <el-table-column type="selection" width="55" :selectable="selectableMethod" />
+          <el-table-column prop="shotNo" label="镜头号" width="80" />
+          <el-table-column prop="description" label="画面描述" min-width="200" show-overflow-tooltip />
+          <el-table-column label="状态 (图/音/动)" width="150" align="center">
+            <template #default="{ row }">
+              <span v-if="row.imageUrl" title="图片就绪">🖼️ </span>
+              <span v-if="row.audioUrl" title="配音就绪">🎵 </span>
+              <span v-if="row.videoUrl" title="动态就绪">🎬 </span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <div v-else class="selection-groups">
+        <div class="selection-tip">已生成内容默认折叠，展开后才可重新勾选；全选只作用于当前展开分组。</div>
+        <el-collapse v-model="expandedDialogGroups" @change="handleDialogGroupChange">
+          <el-collapse-item name="pending">
+            <template #title>
+              <div class="selection-group-title">
+                <span>{{ pendingGroupTitle }}</span>
+                <span class="selection-group-count">{{ pendingDialogShots.length }}</span>
+              </div>
+            </template>
+            <el-table
+              ref="pendingTableRef"
+              :key="`${dialogType}-pending`"
+              :data="pendingDialogShots"
+              @selection-change="handlePendingSelectionChange"
+              height="240px"
+              empty-text="当前没有待生成分镜"
+            >
+              <el-table-column type="selection" width="55" :selectable="selectableMethod" />
+              <el-table-column prop="shotNo" label="镜头号" width="80" />
+              <el-table-column prop="description" label="画面描述" min-width="200" show-overflow-tooltip />
+              <el-table-column label="状态 (图/音/动)" width="150" align="center">
+                <template #default="{ row }">
+                  <span v-if="row.imageUrl" title="图片就绪">🖼️ </span>
+                  <span v-if="row.audioUrl" title="配音就绪">🎵 </span>
+                  <span v-if="row.videoUrl" title="动态就绪">🎬 </span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-collapse-item>
+
+          <el-collapse-item name="generated" :disabled="generatedDialogShots.length === 0">
+            <template #title>
+              <div class="selection-group-title">
+                <span>{{ generatedGroupTitle }}</span>
+                <span class="selection-group-count">{{ generatedDialogShots.length }}</span>
+              </div>
+            </template>
+            <div class="selection-group-hint">展开后可重新勾选，并在任务成功后覆盖当前已保存结果。</div>
+            <el-table
+              ref="generatedTableRef"
+              :key="`${dialogType}-generated`"
+              :data="generatedDialogShots"
+              @selection-change="handleGeneratedSelectionChange"
+              height="240px"
+              empty-text="当前没有已生成分镜"
+            >
+              <el-table-column type="selection" width="55" :selectable="selectableMethod" />
+              <el-table-column prop="shotNo" label="镜头号" width="80" />
+              <el-table-column prop="description" label="画面描述" min-width="200" show-overflow-tooltip />
+              <el-table-column label="状态 (图/音/动)" width="150" align="center">
+                <template #default="{ row }">
+                  <span v-if="row.imageUrl" title="图片就绪">🖼️ </span>
+                  <span v-if="row.audioUrl" title="配音就绪">🎵 </span>
+                  <span v-if="row.videoUrl" title="动态就绪">🎬 </span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="showSelectDialog = false">取消</el-button>
@@ -290,7 +354,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Download, InfoFilled } from '@element-plus/icons-vue'
@@ -318,11 +382,25 @@ const composeLoading = ref(false)
 const downloadLoading = ref(false)
 
 type DialogType = 'images' | 'dynamic' | 'audio' | 'compose'
+type DialogGroup = 'pending' | 'generated'
 
 const showSelectDialog = ref(false)
 const dialogType = ref<DialogType>('images')
-const selectedShotIds = ref<Array<number | string>>([])
+const expandedDialogGroups = ref<DialogGroup[]>(['pending'])
+const pendingSelectedIds = ref<Array<number | string>>([])
+const generatedSelectedIds = ref<Array<number | string>>([])
+const composeSelectedIds = ref<Array<number | string>>([])
+const pendingTableRef = ref<any>(null)
+const generatedTableRef = ref<any>(null)
+const composeTableRef = ref<any>(null)
 const submitLoading = ref(false)
+
+const selectedShotIds = computed(() => {
+  if (dialogType.value === 'compose') {
+    return composeSelectedIds.value
+  }
+  return Array.from(new Set([...pendingSelectedIds.value, ...generatedSelectedIds.value]))
+})
 
 const taskTrace = computed(() => parseTaskTrace(currentTask.value?.result))
 const asyncTaskDetails = computed(() => {
@@ -340,9 +418,34 @@ const dialogTitle = computed(() => {
   }
 })
 
+const pendingGroupTitle = computed(() => {
+  switch (dialogType.value) {
+    case 'images': return '待生成图片'
+    case 'dynamic': return '待生成动态视频'
+    case 'audio': return '待生成配音'
+    default: return '待处理分镜'
+  }
+})
+
+const generatedGroupTitle = computed(() => {
+  switch (dialogType.value) {
+    case 'images': return '已生成图片'
+    case 'dynamic': return '已生成动态视频'
+    case 'audio': return '已生成配音'
+    default: return '已生成内容'
+  }
+})
+
 const isImageEligibleShot = (shot: any) => !shot?.dynamicSelected
 
 const isDynamicEligibleShot = (shot: any) => !!shot?.dynamicSelected
+
+const isGeneratedShotForDialog = (shot: any) => {
+  if (dialogType.value === 'images') return !!shot?.imageUrl
+  if (dialogType.value === 'dynamic') return !!shot?.videoUrl
+  if (dialogType.value === 'audio') return !!shot?.audioUrl
+  return false
+}
 
 const imageEligibleShots = computed(() => shots.value.filter((shot) => isImageEligibleShot(shot)))
 
@@ -361,6 +464,10 @@ const dialogShots = computed(() => {
   return shots.value
 })
 
+const pendingDialogShots = computed(() => dialogShots.value.filter((shot) => !isGeneratedShotForDialog(shot)))
+
+const generatedDialogShots = computed(() => dialogShots.value.filter((shot) => isGeneratedShotForDialog(shot)))
+
 const selectableMethod = (row: any) => {
   if (dialogType.value === 'images') return isImageEligibleShot(row)
   if (dialogType.value === 'dynamic') return isDynamicEligibleShot(row) && (!!row.videoPrompt || !!row.description)
@@ -368,12 +475,40 @@ const selectableMethod = (row: any) => {
   return true
 }
 
-const handleSelectionChange = (rows: any[]) => {
-  selectedShotIds.value = rows.map((row) => row.id)
+const handlePendingSelectionChange = (rows: any[]) => {
+  pendingSelectedIds.value = rows.map((row) => row.id)
+}
+
+const handleGeneratedSelectionChange = (rows: any[]) => {
+  generatedSelectedIds.value = rows.map((row) => row.id)
+}
+
+const handleComposeSelectionChange = (rows: any[]) => {
+  composeSelectedIds.value = rows.map((row) => row.id)
+}
+
+function handleDialogGroupChange(activeNames: string | string[]) {
+  const groups = Array.isArray(activeNames) ? activeNames : activeNames ? [activeNames] : []
+  expandedDialogGroups.value = groups as DialogGroup[]
+
+  if (!groups.includes('pending')) {
+    pendingSelectedIds.value = []
+    nextTick(() => pendingTableRef.value?.clearSelection?.())
+  }
+  if (!groups.includes('generated')) {
+    generatedSelectedIds.value = []
+    nextTick(() => generatedTableRef.value?.clearSelection?.())
+  }
 }
 
 const resetDialogSelection = () => {
-  selectedShotIds.value = []
+  expandedDialogGroups.value = pendingDialogShots.value.length > 0 ? ['pending'] : []
+  pendingSelectedIds.value = []
+  generatedSelectedIds.value = []
+  composeSelectedIds.value = []
+  pendingTableRef.value?.clearSelection?.()
+  generatedTableRef.value?.clearSelection?.()
+  composeTableRef.value?.clearSelection?.()
 }
 
 const openDialog = (type: DialogType) => {
@@ -1012,6 +1147,46 @@ onUnmounted(() => {
 .dynamic-selected { color: #7c3aed; }
 .audio-ready { color: var(--color-success); }
 .audio-pending { color: var(--text-muted); }
+
+.selection-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.selection-tip {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.selection-group-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.selection-group-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.selection-group-hint {
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
 
 /* Status badge */
 .status-badge {

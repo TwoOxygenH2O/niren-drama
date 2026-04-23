@@ -774,7 +774,7 @@ if (isStream) {
             Project project = resolveProjectById(projectId);
             int total = shots.size();
             int completed = 0;
-            int alreadyReady = 0;
+            int replacedExisting = 0;
             int generated = 0;
             int reused = 0;
             int failed = 0;
@@ -783,20 +783,13 @@ if (isStream) {
             log.debug("Start storyboard image generation: taskId={}, userId={}, projectId={}, shotCount={}, reuseEnabled={}",
                     taskId, userId, projectId, total, imageReuseEnabled);
 
-            // Build image reuse cache: scene+character+angle → imageUrl
+            // Build image reuse cache for this batch only. Do not pre-populate it
+            // from the selected shots, otherwise a "re-generate" request could
+            // immediately reuse the old stored image instead of producing a new one.
             Map<String, String> imageCache = new HashMap<>();
-            if (imageReuseEnabled) {
-                buildImageCache(imageCache, shots);
-            }
 
             for (Storyboard shot : shots) {
-                if (shot.getImageUrl() != null && !shot.getImageUrl().isBlank()) {
-                    log.debug("Skip storyboard image generation because image already exists: taskId={}, shotId={}, shotNo={}, imageUrl={}",
-                            taskId, shot.getId(), shot.getShotNo(), shot.getImageUrl());
-                    alreadyReady++;
-                    completed++;
-                    continue;
-                }
+                boolean hadExistingImage = hasText(shot.getImageUrl());
 
                 String prompt = shot.getImagePrompt();
                 Character character = resolveShotCharacter(shot);
@@ -826,9 +819,13 @@ if (isStream) {
                         shot.setImageUrl(imageCache.get(cacheKey));
                         shot.setStatus("image_generated");
                         storyboardMapper.updateById(shot);
-                        reused++;
-                        log.debug("Storyboard image reused from cache: taskId={}, shotId={}, shotNo={}, cacheKey={}, imageUrl={}",
-                                taskId, shot.getId(), shot.getShotNo(), cacheKey, shot.getImageUrl());
+                        if (hadExistingImage) {
+                            replacedExisting++;
+                        } else {
+                            reused++;
+                        }
+                        log.debug("Storyboard image resolved from batch cache: taskId={}, shotId={}, shotNo={}, cacheKey={}, replacedExisting={}, imageUrl={}",
+                                taskId, shot.getId(), shot.getShotNo(), cacheKey, hadExistingImage, shot.getImageUrl());
                     } else {
                         // Use smart resolution based on camera angle
                         String imageSize = costEstimationService.getOptimalImageSize(shot.getCameraAngle());
@@ -845,9 +842,13 @@ if (isStream) {
                         shot.setImageUrl(imageUrl);
                         shot.setStatus("image_generated");
                         storyboardMapper.updateById(shot);
-                        generated++;
-                        log.debug("Storyboard image generated: taskId={}, shotId={}, shotNo={}, imageSize={}, imageUrl={}",
-                                taskId, shot.getId(), shot.getShotNo(), imageSize, imageUrl);
+                        if (hadExistingImage) {
+                            replacedExisting++;
+                        } else {
+                            generated++;
+                        }
+                        log.debug("Storyboard image generated: taskId={}, shotId={}, shotNo={}, imageSize={}, replacedExisting={}, imageUrl={}",
+                                taskId, shot.getId(), shot.getShotNo(), imageSize, hadExistingImage, imageUrl);
 
                         // Cache this image for reuse
                         if (imageReuseEnabled && cacheKey != null) {
@@ -870,16 +871,16 @@ if (isStream) {
             }
 
             task.setProgress(100);
-            int readyCount = alreadyReady + reused + generated;
+            int readyCount = replacedExisting + reused + generated;
             if (readyCount == 0 && failed > 0) {
                 task.setStatus("FAILED");
                 task.setMessage(String.format("分镜图片生成失败，所选%d个镜头均未生成成功。%s", total, buildFailureReasonSummary(failedDetails, 3)));
             } else {
                 task.setStatus("SUCCESS");
                 if (failed > 0) {
-                    task.setMessage(String.format("分镜图片生成完成：成功%d个，复用%d个，已存在%d个，失败%d个。%s", generated, reused, alreadyReady, failed, buildFailureReasonSummary(failedDetails, 3)));
+                    task.setMessage(String.format("分镜图片生成完成：新增%d个，复用%d个，覆盖%d个，失败%d个。%s", generated, reused, replacedExisting, failed, buildFailureReasonSummary(failedDetails, 3)));
                 } else {
-                    task.setMessage(String.format("分镜图片生成完成，共处理%d个镜头，新增%d张，复用%d张，已存在%d张", total, generated, reused, alreadyReady));
+                    task.setMessage(String.format("分镜图片生成完成，共处理%d个镜头，新增%d张，复用%d张，覆盖%d张", total, generated, reused, replacedExisting));
                 }
             }
             task.setResult(buildTaskTraceResult("image", projectId, traceCalls, omittedTraceCalls,
@@ -887,11 +888,11 @@ if (isStream) {
                             "total", total,
                             "generated", generated,
                             "reused", reused,
-                            "alreadyReady", alreadyReady,
+                            "replacedExisting", replacedExisting,
                             "failed", failed)));
             taskRecordMapper.updateById(task);
-                log.debug("Storyboard image generation complete: taskId={}, projectId={}, total={}, generated={}, reused={}, alreadyReady={}, failed={}",
-                    taskId, projectId, total, generated, reused, alreadyReady, failed);
+                log.debug("Storyboard image generation complete: taskId={}, projectId={}, total={}, generated={}, reused={}, replacedExisting={}, failed={}",
+                    taskId, projectId, total, generated, reused, replacedExisting, failed);
 
         } catch (Exception e) {
             log.error("Storyboard image generation failed for task {}", taskId, e);
@@ -1024,7 +1025,7 @@ if (isStream) {
             List<VoiceInfo> availableVoices = safeListVoices(ttsProvider);
             int total = shots.size();
             int completed = 0;
-            int alreadyReady = 0;
+            int replacedExisting = 0;
             int generated = 0;
             int skippedNoText = 0;
             int failed = 0;
@@ -1043,14 +1044,7 @@ if (isStream) {
                     completed++;
                     continue;
                 }
-
-                if (shot.getAudioUrl() != null && !shot.getAudioUrl().isBlank()) {
-                    log.debug("Skip storyboard audio generation because audio already exists: taskId={}, shotId={}, shotNo={}, audioUrl={}",
-                            taskId, shot.getId(), shot.getShotNo(), shot.getAudioUrl());
-                    alreadyReady++;
-                    completed++;
-                    continue;
-                }
+                boolean hadExistingAudio = hasText(shot.getAudioUrl());
 
                 updateTask(task, "RUNNING",
                         10 + (80 * completed / total),
@@ -1084,9 +1078,13 @@ if (isStream) {
                     shot.setAudioUrl(storedAudio.publicUrl());
                     shot.setStatus("audio_generated");
                     storyboardMapper.updateById(shot);
-                    generated++;
-                    log.debug("Storyboard audio generated: taskId={}, shotId={}, shotNo={}, audioUrl={}, audioSize={}",
-                            taskId, shot.getId(), shot.getShotNo(), shot.getAudioUrl(), audioData.length);
+                    if (hadExistingAudio) {
+                        replacedExisting++;
+                    } else {
+                        generated++;
+                    }
+                    log.debug("Storyboard audio generated: taskId={}, shotId={}, shotNo={}, replacedExisting={}, audioUrl={}, audioSize={}",
+                            taskId, shot.getId(), shot.getShotNo(), hadExistingAudio, shot.getAudioUrl(), audioData.length);
                 } catch (Exception e) {
                     failed++;
                     shot.setStatus("audio_failed");
@@ -1102,28 +1100,28 @@ if (isStream) {
             }
 
             task.setProgress(100);
-            int readyCount = alreadyReady + generated;
+            int readyCount = replacedExisting + generated;
             if (readyCount == 0 && failed > 0) {
                 task.setStatus("FAILED");
                 task.setMessage(String.format("分镜配音生成失败，所选%d个镜头均未生成成功。%s", total, buildFailureReasonSummary(failedDetails, 3)));
             } else {
                 task.setStatus("SUCCESS");
-                if (failed > 0 || skippedNoText > 0) {
-                    task.setMessage(String.format("分镜配音处理完成：新增%d个，已存在%d个，无文本%d个，失败%d个。%s", generated, alreadyReady, skippedNoText, failed, buildFailureReasonSummary(failedDetails, 3)));
+                if (failed > 0) {
+                    task.setMessage(String.format("分镜配音处理完成：新增%d个，覆盖%d个，无文本%d个，失败%d个。%s", generated, replacedExisting, skippedNoText, failed, buildFailureReasonSummary(failedDetails, 3)));
                 } else {
-                    task.setMessage(String.format("分镜配音生成完成，共处理%d个镜头", total));
+                    task.setMessage(String.format("分镜配音处理完成：新增%d个，覆盖%d个，无文本%d个", generated, replacedExisting, skippedNoText));
                 }
             }
-            task.setResult(buildTaskTraceResult("tts", projectId, traceCalls, omittedTraceCalls,
+            task.setResult(buildTaskTraceResult("audio", projectId, traceCalls, omittedTraceCalls,
                     Map.of(
                             "total", total,
                             "generated", generated,
-                            "alreadyReady", alreadyReady,
+                            "replacedExisting", replacedExisting,
                             "skippedNoText", skippedNoText,
                             "failed", failed)));
             taskRecordMapper.updateById(task);
-                log.debug("Storyboard audio generation complete: taskId={}, projectId={}, total={}, generated={}, alreadyReady={}, skippedNoText={}, failed={}",
-                    taskId, projectId, total, generated, alreadyReady, skippedNoText, failed);
+            log.debug("Storyboard audio generation complete: taskId={}, projectId={}, total={}, generated={}, replacedExisting={}, skippedNoText={}, failed={}",
+                    taskId, projectId, total, generated, replacedExisting, skippedNoText, failed);
 
         } catch (Exception e) {
             log.error("Storyboard audio generation failed for task {}", taskId, e);
@@ -1243,9 +1241,6 @@ if (isStream) {
             if (preferredGender != null) {
                 score += 4;
             }
-            if (chineseOnly) {
-                score += 2;
-            }
             if (bestVoice == null || score > bestScore) {
                 bestVoice = voice;
                 bestScore = score;
@@ -1255,9 +1250,8 @@ if (isStream) {
     }
 
     private int scoreVoiceForProject(VoiceInfo voice, Project project) {
-        String descriptor = lower((voice.getVoiceId() == null ? "" : voice.getVoiceId()) + " "
-                + (voice.getName() == null ? "" : voice.getName()) + " "
-                + (voice.getDescription() == null ? "" : voice.getDescription()));
+        String descriptor = ((voice.getName() == null ? "" : voice.getName()) + " "
+                + (voice.getDescription() == null ? "" : voice.getDescription())).trim();
         int score = 0;
         if (ProjectStyleSupport.isComicProjectType(project != null ? project.getProjectType() : null)) {
             if (containsKeyword(descriptor, new String[] {"元气", "活泼", "灵动", "热血", "动漫", "漫画", "少女", "少年", "俏皮"})) {

@@ -16,13 +16,16 @@ import java.io.InputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -51,19 +54,13 @@ public class PublicAssetStorageService {
         if (isCosEnabled()) {
             try (InputStream inputStream = file.getInputStream()) {
                 return uploadToCos(inputStream, file.getSize(), subDir, fileName, contentType, originalName);
+            } catch (Exception e) {
+                StoredAsset localAsset = saveMultipartToLocal(file, subDir, fileName, contentType, originalName);
+                logCosFallback("multipart", originalName, subDir, e, localAsset);
+                return localAsset;
             }
         }
-        Path dir = Paths.get(uploadPath, trimSlashes(subDir));
-        Files.createDirectories(dir);
-        Path targetFile = dir.resolve(fileName);
-        file.transferTo(targetFile.toFile());
-        return new StoredAsset(
-                trimTrailingSlash(localBaseUrl) + "/" + trimSlashes(subDir) + "/" + fileName,
-                targetFile.toString(),
-                trimSlashes(subDir) + "/" + fileName,
-                file.getSize(),
-                contentType,
-                originalName);
+        return saveMultipartToLocal(file, subDir, fileName, contentType, originalName);
     }
 
     public StoredAsset storeBytes(byte[] bytes,
@@ -76,7 +73,13 @@ public class PublicAssetStorageService {
         }
         String fileName = buildFileName(originalName, contentType, fallbackExtension);
         if (isCosEnabled()) {
-            return uploadToCos(bytes, subDir, fileName, contentType, originalName);
+            try {
+                return uploadToCos(bytes, subDir, fileName, contentType, originalName);
+            } catch (Exception e) {
+                StoredAsset localAsset = saveToLocal(bytes, subDir, fileName, contentType, originalName);
+                logCosFallback("bytes", originalName, subDir, e, localAsset);
+                return localAsset;
+            }
         }
         return saveToLocal(bytes, subDir, fileName, contentType, originalName);
     }
@@ -89,21 +92,27 @@ public class PublicAssetStorageService {
         if (isCosEnabled()) {
             try (InputStream inputStream = Files.newInputStream(sourceFile)) {
                 return uploadToCos(inputStream, Files.size(sourceFile), subDir, fileName, contentType, originalName);
+            } catch (Exception e) {
+                StoredAsset localAsset = copyLocalFile(sourceFile, subDir, fileName, contentType, originalName);
+                logCosFallback("file", sourceFile.toString(), subDir, e, localAsset);
+                return localAsset;
             }
         }
+        return copyLocalFile(sourceFile, subDir, fileName, contentType, originalName);
+    }
+
+    private StoredAsset copyLocalFile(Path sourceFile,
+                                      String subDir,
+                                      String fileName,
+                                      String contentType,
+                                      String originalName) throws IOException {
         Path dir = Paths.get(uploadPath, trimSlashes(subDir));
         Files.createDirectories(dir);
         Path targetFile = dir.resolve(fileName);
         if (!targetFile.equals(sourceFile)) {
             Files.copy(sourceFile, targetFile);
         }
-        return new StoredAsset(
-                trimTrailingSlash(localBaseUrl) + "/" + trimSlashes(subDir) + "/" + fileName,
-                targetFile.toString(),
-                trimSlashes(subDir) + "/" + fileName,
-                Files.size(targetFile),
-                contentType,
-                originalName);
+        return buildLocalStoredAsset(targetFile, subDir, fileName, Files.size(targetFile), contentType, originalName);
     }
 
     public String ensurePublicUrl(String source,
@@ -116,6 +125,9 @@ public class PublicAssetStorageService {
             return source;
         }
         try {
+            if (isDataUrl(source)) {
+                return storeDataUrl(source, subDir, fallbackExtension).publicUrl();
+            }
             Path localPath = resolveLocalPath(source);
             if (localPath != null && Files.exists(localPath)) {
                 String contentType = Files.probeContentType(localPath);
@@ -144,7 +156,12 @@ public class PublicAssetStorageService {
                 return storeLocalFile(sourcePath, subDir, sourcePath.getFileName().toString(), contentType).publicUrl();
             }
         } catch (Exception e) {
-            log.warn("Failed to convert asset to public URL {}, keep original: {}", source, e.getMessage());
+            log.warn("Failed to convert asset to public URL, keep original: sourcePreview={}, subDir={}, fallbackExtension={}, reason={}",
+                    summarizeSource(source), subDir, fallbackExtension, buildFailureReason(e));
+        }
+        if (isCosEnabled()) {
+            log.warn("COS is enabled but asset source is not convertible, keep original source: sourcePreview={}, subDir={}, fallbackExtension={}",
+                    summarizeSource(source), subDir, fallbackExtension);
         }
         return source;
     }
@@ -224,14 +241,35 @@ public class PublicAssetStorageService {
         Files.createDirectories(dir);
         Path targetFile = dir.resolve(fileName);
         Files.write(targetFile, bytes);
-        return new StoredAsset(
-                trimTrailingSlash(localBaseUrl) + "/" + trimSlashes(subDir) + "/" + fileName,
-                targetFile.toString(),
-                trimSlashes(subDir) + "/" + fileName,
-                bytes.length,
-                contentType,
-                originalName);
+        return buildLocalStoredAsset(targetFile, subDir, fileName, bytes.length, contentType, originalName);
     }
+
+        private StoredAsset saveMultipartToLocal(MultipartFile file,
+                             String subDir,
+                             String fileName,
+                             String contentType,
+                             String originalName) throws IOException {
+        Path dir = Paths.get(uploadPath, trimSlashes(subDir));
+        Files.createDirectories(dir);
+        Path targetFile = dir.resolve(fileName);
+        file.transferTo(targetFile.toFile());
+        return buildLocalStoredAsset(targetFile, subDir, fileName, file.getSize(), contentType, originalName);
+        }
+
+        private StoredAsset buildLocalStoredAsset(Path targetFile,
+                              String subDir,
+                              String fileName,
+                              long fileSize,
+                              String contentType,
+                              String originalName) {
+        return new StoredAsset(
+            trimTrailingSlash(localBaseUrl) + "/" + trimSlashes(subDir) + "/" + fileName,
+            targetFile.toString(),
+            trimSlashes(subDir) + "/" + fileName,
+            fileSize,
+            contentType,
+            originalName);
+        }
 
     private Path resolveLocalPath(String filePathOrUrl) {
         if (!hasText(filePathOrUrl)) {
@@ -254,11 +292,36 @@ public class PublicAssetStorageService {
         }
     }
 
+    private StoredAsset storeDataUrl(String source, String subDir, String fallbackExtension) throws IOException {
+        int commaIndex = source.indexOf(',');
+        if (commaIndex < 0) {
+            throw new IOException("data URL 缺少有效内容");
+        }
+        String metadata = source.substring(5, commaIndex);
+        String payload = source.substring(commaIndex + 1);
+        boolean base64Encoded = metadata.contains(";base64");
+        String contentType = null;
+        int semicolonIndex = metadata.indexOf(';');
+        if (semicolonIndex >= 0) {
+            contentType = metadata.substring(0, semicolonIndex);
+        } else if (hasText(metadata)) {
+            contentType = metadata;
+        }
+        byte[] bytes = base64Encoded
+                ? Base64.getDecoder().decode(payload)
+                : URLDecoder.decode(payload, StandardCharsets.UTF_8).getBytes(StandardCharsets.UTF_8);
+        return storeBytes(bytes, subDir, null, contentType, fallbackExtension);
+    }
+
     private boolean isCosEnabled() {
         return cosProperties.isEnabled()
                 && hasText(cosProperties.getSecretId())
                 && hasText(cosProperties.getSecretKey())
                 && hasText(cosProperties.getBucket());
+    }
+
+    private boolean isDataUrl(String value) {
+        return hasText(value) && value.startsWith("data:");
     }
 
     private boolean isCosPublicUrl(String value) {
@@ -379,5 +442,42 @@ public class PublicAssetStorageService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private void logCosFallback(String assetType,
+                                String source,
+                                String subDir,
+                                Exception error,
+                                StoredAsset localAsset) {
+        log.warn("COS upload failed, asset stored locally instead: type={}, sourcePreview={}, subDir={}, reason={}, localUrl={}, localPath={}",
+                assetType,
+                summarizeSource(source),
+                subDir,
+                buildFailureReason(error),
+                localAsset != null ? localAsset.publicUrl() : null,
+                localAsset != null ? localAsset.filePath() : null);
+    }
+
+    private String buildFailureReason(Throwable error) {
+        if (error == null) {
+            return "unknown";
+        }
+        Throwable current = error;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        return hasText(message) ? message : current.getClass().getSimpleName();
+    }
+
+    private String summarizeSource(String source) {
+        if (!hasText(source)) {
+            return source;
+        }
+        if (source.startsWith("data:")) {
+            int commaIndex = source.indexOf(',');
+            return commaIndex > 0 ? source.substring(0, Math.min(commaIndex, 80)) + "..." : "data:...";
+        }
+        return source.length() > 160 ? source.substring(0, 160) + "..." : source;
     }
 }
