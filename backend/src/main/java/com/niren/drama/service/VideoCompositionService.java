@@ -510,6 +510,12 @@ public class VideoCompositionService {
             cmd.add("-i"); cmd.add(audioPath.toAbsolutePath().toString());
         }
 
+        // Audio input (if missing, synthesize silent input).
+        if (audioPath == null || !Files.exists(audioPath)) {
+            cmd.add("-f"); cmd.add("lavfi");
+            cmd.add("-i"); cmd.add("anullsrc=r=44100:cl=stereo");
+        }
+
         // Video filter: scale to 1080x1920 (9:16) with slow zoom (Ken Burns effect)
         String videoFilter = buildVideoFilter(duration);
         cmd.add("-vf");
@@ -525,14 +531,11 @@ public class VideoCompositionService {
         if (audioPath != null && Files.exists(audioPath)) {
             cmd.add("-c:a"); cmd.add("aac");
             cmd.add("-b:a"); cmd.add("128k");
-            cmd.add("-shortest");
         } else {
-            // Generate silent audio
-            cmd.add("-f"); cmd.add("lavfi");
-            cmd.add("-i"); cmd.add("anullsrc=r=44100:cl=stereo");
             cmd.add("-c:a"); cmd.add("aac");
-            cmd.add("-shortest");
         }
+
+        cmd.add("-shortest");
 
         cmd.add("-t"); cmd.add(String.valueOf(duration));
         cmd.add(outputPath.toAbsolutePath().toString());
