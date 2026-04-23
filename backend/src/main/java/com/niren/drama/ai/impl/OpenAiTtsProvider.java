@@ -47,6 +47,13 @@ public class OpenAiTtsProvider implements TtsProvider {
     @Override
     public byte[] synthesize(String text, String voiceId, float speed, float pitch) {
         String endpoint = normalizeBaseUrl(baseUrl) + "/audio/speech";
+        log.debug("Start OpenAI-compatible TTS synthesize: provider={}, model={}, voiceId={}, textLength={}, speed={}, pitch={}",
+            providerName,
+            model,
+            voiceId != null && !voiceId.isBlank() ? voiceId : "alloy",
+            text != null ? text.length() : 0,
+            speed,
+            pitch);
         String requestBody = null;
         HttpResponse<byte[]> response = null;
         byte[] responseBytes = null;
@@ -83,7 +90,8 @@ public class OpenAiTtsProvider implements TtsProvider {
                 throw new RuntimeException(error);
             }
 
-            log.info("TTS synthesize success: voice={}, textLength={}, audioSize={} bytes",
+                log.debug("OpenAI-compatible TTS synthesize success: provider={}, voice={}, textLength={}, audioSize={} bytes",
+                    providerName,
                     voice, text.length(), responseBytes.length);
             return responseBytes;
         } catch (Exception e) {
@@ -122,7 +130,7 @@ public class OpenAiTtsProvider implements TtsProvider {
     public List<VoiceInfo> listVoices() {
         // Standard OpenAI voices (available on all OpenAI-compatible APIs)
         // Chinese-specific voices (zh_*) are available on some providers like Volcengine/MiniMax
-        return List.of(
+        List<VoiceInfo> voices = List.of(
                 new VoiceInfo("alloy", "Alloy", "neutral", "en", "中性平稳的声音（通用）"),
                 new VoiceInfo("echo", "Echo", "male", "en", "深沉有力的男声（通用）"),
                 new VoiceInfo("fable", "Fable", "neutral", "en", "温暖叙事风格（通用）"),
@@ -134,5 +142,7 @@ public class OpenAiTtsProvider implements TtsProvider {
                 new VoiceInfo("zh_female_tianmei", "甜美女声", "female", "zh-CN", "甜美可爱的女声（火山引擎/MiniMax）"),
                 new VoiceInfo("zh_male_mochen", "磁性男声", "male", "zh-CN", "磁性深沉的男声（火山引擎/MiniMax）")
         );
+        log.debug("OpenAI-compatible TTS voices loaded: provider={}, count={}", providerName, voices.size());
+        return voices;
     }
 }

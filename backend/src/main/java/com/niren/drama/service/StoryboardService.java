@@ -5,6 +5,7 @@ import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.ImageAiProvider;
 import com.niren.drama.ai.TextAiProvider;
 import com.niren.drama.ai.TtsProvider;
+import com.niren.drama.ai.VoiceInfo;
 import com.niren.drama.ai.trace.AiCallTrace;
 import com.niren.drama.ai.trace.AiTraceContext;
 import com.niren.drama.dto.storyboard.StoryboardGenerateRequest;
@@ -106,6 +107,8 @@ public class StoryboardService {
     private String baseUrl;
 
     public TaskRecord startGenerateStoryboard(Long userId, StoryboardGenerateRequest request) {
+        log.debug("Creating storyboard task: userId={}, projectId={}, scriptId={}",
+            userId, request.getProjectId(), request.getScriptId());
         TaskRecord task = new TaskRecord();
         task.setProjectId(request.getProjectId());
         task.setUserId(userId);
@@ -120,6 +123,8 @@ public class StoryboardService {
     }
 
     public void streamGenerateStoryboard(Long userId, StoryboardGenerateRequest request, java.util.function.Consumer<String> chunkConsumer, java.util.function.Consumer<String> progressConsumer) {
+        log.debug("Start storyboard preview streaming: userId={}, projectId={}, scriptId={}",
+            userId, request.getProjectId(), request.getScriptId());
         projectService.getProject(userId, request.getProjectId());
         Script script = requireScript(request.getScriptId(), request.getProjectId());
         TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
@@ -139,6 +144,8 @@ public class StoryboardService {
         }
 
         boolean isStream = chunkConsumer != null;
+        log.debug("Storyboard preview scene split complete: projectId={}, scriptId={}, sceneCount={}, streaming={}",
+            request.getProjectId(), request.getScriptId(), scenes.size(), isStream);
         if (isStream) {
             chunkConsumer.accept("{\n  \"shots\": [\n");
         }
@@ -158,6 +165,8 @@ public class StoryboardService {
             java.time.LocalDateTime scriptUpdate = script.getUpdateTime();
             java.time.LocalDateTime previewTime = savedShots.get(0).getCreateTime();
             if (scriptUpdate != null && scriptUpdate.isAfter(previewTime)) {
+                log.debug("Storyboard preview draft invalidated because script changed: projectId={}, scriptId={}, savedShots={}",
+                        request.getProjectId(), request.getScriptId(), savedShots.size());
                 storyboardMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Storyboard>()
                         .eq(Storyboard::getProjectId, request.getProjectId())
                         .eq(Storyboard::getScriptId, request.getScriptId())
@@ -181,11 +190,15 @@ public class StoryboardService {
                         } catch (Exception ignored) {}
                     }
                 }
+                log.debug("Storyboard preview resumed from saved draft: projectId={}, scriptId={}, resumedShots={}, nextShotNo={}, startSceneIndex={}",
+                        request.getProjectId(), request.getScriptId(), savedShots.size(), nextShotNo, startSceneIndex);
                 startSceneIndex = (int) maxSceneId + 1;
             }
         }
 
         for (int sceneIndex = startSceneIndex; sceneIndex < scenes.size(); sceneIndex++) {
+            log.debug("Generating storyboard scene: projectId={}, scriptId={}, sceneIndex={}, sceneLabel={}",
+                    request.getProjectId(), request.getScriptId(), sceneIndex, scenes.get(sceneIndex).displayName());
             ArrayNode sceneShots = generateSceneShotsWithFallback(
                     textProvider,
                     systemPrompt,
@@ -629,7 +642,11 @@ if (isStream) {
 
     private record SceneBatch(int batchIndex, int totalBatches, String content) {}
 
+    private record VoiceSelection(Character character, String voiceId, String voiceName, boolean autoAssigned) {}
+
     public List<Storyboard> saveStoryboardPreview(Long userId, StoryboardPreviewSaveRequest request) {
+        log.debug("Saving storyboard preview: userId={}, projectId={}, scriptId={}, contentLength={}",
+                userId, request.getProjectId(), request.getScriptId(), request.getContent() != null ? request.getContent().length() : 0);
         projectService.getProject(userId, request.getProjectId());
         Script script = requireScript(request.getScriptId(), request.getProjectId());
 
@@ -638,6 +655,8 @@ if (isStream) {
         generateRequest.setScriptId(request.getScriptId());
 
         List<Storyboard> shots = parseStoryboardJson(request.getContent(), generateRequest, true);
+    log.debug("Storyboard preview parsed: projectId={}, scriptId={}, shotCount={}",
+        request.getProjectId(), request.getScriptId(), shots.size());
         storyboardMapper.delete(new LambdaQueryWrapper<Storyboard>()
                 .eq(Storyboard::getProjectId, request.getProjectId())
                 .eq(Storyboard::getScriptId, request.getScriptId()));
@@ -655,6 +674,8 @@ if (isStream) {
         TaskRecord task = taskRecordMapper.selectById(taskId);
         if (task == null) return;
         try {
+            log.debug("Async storyboard generation start: taskId={}, userId={}, projectId={}, scriptId={}",
+                    taskId, userId, request.getProjectId(), request.getScriptId());
             updateTask(task, "RUNNING", 10, "读取剧本内容...");
             Script script = requireScript(request.getScriptId(), request.getProjectId());
 
@@ -679,6 +700,8 @@ if (isStream) {
             task.setProgress(100);
             task.setMessage(String.format("分镜生成完成，共%d个镜头", shotCount));
             taskRecordMapper.updateById(task);
+            log.debug("Async storyboard generation complete: taskId={}, projectId={}, scriptId={}, shotCount={}",
+                    taskId, request.getProjectId(), request.getScriptId(), shotCount);
 
         } catch (Exception e) {
             log.error("Storyboard generation failed for task {}", taskId, e);
@@ -697,6 +720,16 @@ if (isStream) {
             shots = shots.stream().filter(s -> shotIds.contains(s.getId())).toList();
         }
         if (shots.isEmpty()) throw new BusinessException("项目下没有分镜数据，请先生成分镜");
+
+        shots = shots.stream()
+                .filter(shot -> !Boolean.TRUE.equals(shot.getDynamicSelected()))
+                .toList();
+        if (shots.isEmpty()) {
+            throw new BusinessException("当前选择的镜头均已勾选动态生成，请在动态镜头生成中处理");
+        }
+
+        log.debug("Creating storyboard image task: userId={}, projectId={}, shotCount={}, filteredByIds={}",
+                userId, projectId, shots.size(), shotIds != null && !shotIds.isEmpty());
 
         TaskRecord task = new TaskRecord();
         task.setProjectId(projectId);
@@ -726,6 +759,9 @@ if (isStream) {
             int failed = 0;
             List<String> failedDetails = new ArrayList<>();
 
+            log.debug("Start storyboard image generation: taskId={}, userId={}, projectId={}, shotCount={}, reuseEnabled={}",
+                    taskId, userId, projectId, total, imageReuseEnabled);
+
             // Build image reuse cache: scene+character+angle → imageUrl
             Map<String, String> imageCache = new HashMap<>();
             if (imageReuseEnabled) {
@@ -734,6 +770,8 @@ if (isStream) {
 
             for (Storyboard shot : shots) {
                 if (shot.getImageUrl() != null && !shot.getImageUrl().isBlank()) {
+                    log.debug("Skip storyboard image generation because image already exists: taskId={}, shotId={}, shotNo={}, imageUrl={}",
+                            taskId, shot.getId(), shot.getShotNo(), shot.getImageUrl());
                     alreadyReady++;
                     completed++;
                     continue;
@@ -747,6 +785,14 @@ if (isStream) {
                 List<String> referenceImageUrls = collectReferenceImageUrls(shot, character);
                 String generationPrompt = buildImageGenerationPrompt(prompt, character, referenceImageUrls);
                 String negativePrompt = buildImageNegativePrompt(character);
+                log.debug("Storyboard image request prepared: taskId={}, shotId={}, shotNo={}, characterId={}, promptLength={}, referenceCount={}, negativePromptLength={}",
+                    taskId,
+                    shot.getId(),
+                    shot.getShotNo(),
+                    shot.getCharacterId(),
+                    generationPrompt.length(),
+                    referenceImageUrls.size(),
+                    negativePrompt != null ? negativePrompt.length() : 0);
 
                 updateTask(task, "RUNNING",
                         10 + (80 * completed / total),
@@ -760,7 +806,8 @@ if (isStream) {
                         shot.setStatus("image_generated");
                         storyboardMapper.updateById(shot);
                         reused++;
-                        log.info("Reused cached image for shot {} (cacheKey={})", shot.getShotNo(), cacheKey);
+                        log.debug("Storyboard image reused from cache: taskId={}, shotId={}, shotNo={}, cacheKey={}, imageUrl={}",
+                                taskId, shot.getId(), shot.getShotNo(), cacheKey, shot.getImageUrl());
                     } else {
                         // Use smart resolution based on camera angle
                         String imageSize = costEstimationService.getOptimalImageSize(shot.getCameraAngle());
@@ -777,12 +824,15 @@ if (isStream) {
                         shot.setStatus("image_generated");
                         storyboardMapper.updateById(shot);
                         generated++;
+                        log.debug("Storyboard image generated: taskId={}, shotId={}, shotNo={}, imageSize={}, imageUrl={}",
+                                taskId, shot.getId(), shot.getShotNo(), imageSize, imageUrl);
 
                         // Cache this image for reuse
                         if (imageReuseEnabled && cacheKey != null) {
                             imageCache.put(cacheKey, imageUrl);
                         }
                     }
+                    backfillCharacterImage(character, shot);
                 } catch (Exception e) {
                     failed++;
                     shot.setStatus("image_failed");
@@ -818,6 +868,8 @@ if (isStream) {
                             "alreadyReady", alreadyReady,
                             "failed", failed)));
             taskRecordMapper.updateById(task);
+                log.debug("Storyboard image generation complete: taskId={}, projectId={}, total={}, generated={}, reused={}, alreadyReady={}, failed={}",
+                    taskId, projectId, total, generated, reused, alreadyReady, failed);
 
         } catch (Exception e) {
             log.error("Storyboard image generation failed for task {}", taskId, e);
@@ -881,6 +933,16 @@ if (isStream) {
         return new ArrayList<>(referenceImageUrls);
     }
 
+    private void backfillCharacterImage(Character character, Storyboard shot) {
+        if (character == null || hasText(character.getImageUrl()) || shot == null || !hasText(shot.getImageUrl())) {
+            return;
+        }
+        character.setImageUrl(shot.getImageUrl());
+        characterMapper.updateById(character);
+        log.debug("Character image backfilled from storyboard shot: projectId={}, characterId={}, characterName={}, shotNo={}, imageUrl={}",
+                character.getProjectId(), character.getId(), character.getName(), shot.getShotNo(), shot.getImageUrl());
+    }
+
     private void addReferenceImageUrl(Set<String> referenceImageUrls, String imageUrl) {
         if (hasText(imageUrl)
                 && (imageUrl.startsWith("http://") || imageUrl.startsWith("https://"))) {
@@ -900,7 +962,7 @@ if (isStream) {
                 }
             }
         }
-        log.info("Image cache initialized with {} entries", cache.size());
+        log.debug("Storyboard image cache initialized with {} entries", cache.size());
     }
 
     /**
@@ -912,6 +974,9 @@ if (isStream) {
             shots = shots.stream().filter(s -> shotIds.contains(s.getId())).toList();
         }
         if (shots.isEmpty()) throw new BusinessException("项目下没有分镜数据，请先生成分镜");
+
+        log.debug("Creating storyboard audio task: userId={}, projectId={}, shotCount={}, filteredByIds={}",
+                userId, projectId, shots.size(), shotIds != null && !shotIds.isEmpty());
 
         TaskRecord task = new TaskRecord();
         task.setProjectId(projectId);
@@ -933,6 +998,7 @@ if (isStream) {
         int omittedTraceCalls = 0;
         try {
             TtsProvider ttsProvider = aiProviderFactory.getTtsProvider(userId);
+            List<VoiceInfo> availableVoices = safeListVoices(ttsProvider);
             int total = shots.size();
             int completed = 0;
             int alreadyReady = 0;
@@ -941,6 +1007,9 @@ if (isStream) {
             int failed = 0;
             List<String> failedDetails = new ArrayList<>();
 
+            log.debug("Start storyboard audio generation: taskId={}, userId={}, projectId={}, shotCount={}, availableVoices={}",
+                    taskId, userId, projectId, total, availableVoices.size());
+
             Path audioDir = Paths.get(uploadPath, "audios");
             Files.createDirectories(audioDir);
 
@@ -948,12 +1017,16 @@ if (isStream) {
                 // Build text to synthesize: combine dialogue and narration
                 String text = buildTtsText(shot);
                 if (text.isBlank()) {
+                    log.debug("Skip storyboard audio generation because text is blank: taskId={}, shotId={}, shotNo={}",
+                            taskId, shot.getId(), shot.getShotNo());
                     skippedNoText++;
                     completed++;
                     continue;
                 }
 
                 if (shot.getAudioUrl() != null && !shot.getAudioUrl().isBlank()) {
+                    log.debug("Skip storyboard audio generation because audio already exists: taskId={}, shotId={}, shotNo={}, audioUrl={}",
+                            taskId, shot.getId(), shot.getShotNo(), shot.getAudioUrl());
                     alreadyReady++;
                     completed++;
                     continue;
@@ -964,8 +1037,17 @@ if (isStream) {
                         String.format("正在生成第%d/%d个分镜配音...", completed + 1, total));
 
                 try {
-                    String voiceId = resolveVoiceId(userId, shot);
-                    byte[] audioData = ttsProvider.synthesize(text, voiceId, 1.0f, 1.0f);
+                    VoiceSelection voiceSelection = resolveVoiceSelection(userId, shot, availableVoices);
+                    log.debug("Storyboard audio request prepared: taskId={}, shotId={}, shotNo={}, characterId={}, voiceId={}, voiceName={}, textLength={}, autoAssigned={}",
+                            taskId,
+                            shot.getId(),
+                            shot.getShotNo(),
+                            shot.getCharacterId(),
+                            voiceSelection.voiceId(),
+                            voiceSelection.voiceName(),
+                            text.length(),
+                            voiceSelection.autoAssigned());
+                    byte[] audioData = ttsProvider.synthesize(text, voiceSelection.voiceId(), 1.0f, 1.0f);
                     if (audioData == null || audioData.length <= 100) {
                         throw new BusinessException("配音接口未返回有效音频数据");
                     }
@@ -977,6 +1059,8 @@ if (isStream) {
                     shot.setStatus("audio_generated");
                     storyboardMapper.updateById(shot);
                     generated++;
+                    log.debug("Storyboard audio generated: taskId={}, shotId={}, shotNo={}, audioUrl={}, audioSize={}",
+                            taskId, shot.getId(), shot.getShotNo(), shot.getAudioUrl(), audioData.length);
                 } catch (Exception e) {
                     failed++;
                     shot.setStatus("audio_failed");
@@ -1012,6 +1096,8 @@ if (isStream) {
                             "skippedNoText", skippedNoText,
                             "failed", failed)));
             taskRecordMapper.updateById(task);
+                log.debug("Storyboard audio generation complete: taskId={}, projectId={}, total={}, generated={}, alreadyReady={}, skippedNoText={}, failed={}",
+                    taskId, projectId, total, generated, alreadyReady, skippedNoText, failed);
 
         } catch (Exception e) {
             log.error("Storyboard audio generation failed for task {}", taskId, e);
@@ -1023,16 +1109,44 @@ if (isStream) {
         }
     }
 
-    private String resolveVoiceId(Long userId, Storyboard shot) {
+    private VoiceSelection resolveVoiceSelection(Long userId, Storyboard shot, List<VoiceInfo> availableVoices) {
         String defaultVoiceId = resolveDefaultVoiceId(userId);
+        VoiceInfo defaultVoice = findVoiceInfo(defaultVoiceId, availableVoices);
         if (shot.getCharacterId() == null) {
-            return defaultVoiceId;
+            return new VoiceSelection(null, defaultVoiceId, resolveVoiceName(defaultVoiceId, defaultVoice), false);
         }
         Character character = characterMapper.selectById(shot.getCharacterId());
-        if (character == null || !hasText(character.getVoiceId())) {
-            return defaultVoiceId;
+        if (character == null) {
+            return new VoiceSelection(null, defaultVoiceId, resolveVoiceName(defaultVoiceId, defaultVoice), false);
         }
-        return character.getVoiceId();
+
+        if (hasText(character.getVoiceId())) {
+            VoiceInfo existingVoice = findVoiceInfo(character.getVoiceId(), availableVoices);
+            String voiceName = hasText(character.getVoiceName())
+                    ? character.getVoiceName().trim()
+                    : resolveVoiceName(character.getVoiceId(), existingVoice);
+            if (!hasText(character.getVoiceName()) && hasText(voiceName)) {
+                character.setVoiceName(voiceName);
+                characterMapper.updateById(character);
+                log.debug("Character voice name backfilled from provider voices: projectId={}, characterId={}, characterName={}, voiceId={}, voiceName={}",
+                        character.getProjectId(), character.getId(), character.getName(), character.getVoiceId(), voiceName);
+            }
+            return new VoiceSelection(character, character.getVoiceId(), voiceName, false);
+        }
+
+        VoiceInfo selectedVoice = selectVoiceForCharacter(character, availableVoices, defaultVoiceId);
+        String selectedVoiceId = selectedVoice != null && hasText(selectedVoice.getVoiceId())
+                ? selectedVoice.getVoiceId()
+                : defaultVoiceId;
+        String selectedVoiceName = resolveVoiceName(selectedVoiceId, selectedVoice != null ? selectedVoice : defaultVoice);
+        if (hasText(selectedVoiceId)) {
+            character.setVoiceId(selectedVoiceId);
+            character.setVoiceName(selectedVoiceName);
+            characterMapper.updateById(character);
+            log.debug("Character voice auto-assigned from TTS provider: projectId={}, characterId={}, characterName={}, voiceId={}, voiceName={}",
+                    character.getProjectId(), character.getId(), character.getName(), selectedVoiceId, selectedVoiceName);
+        }
+        return new VoiceSelection(character, selectedVoiceId, selectedVoiceName, true);
     }
 
     private String resolveDefaultVoiceId(Long userId) {
@@ -1049,6 +1163,96 @@ if (isStream) {
         } catch (Exception ignored) {
         }
         return "alloy";
+    }
+
+    private List<VoiceInfo> safeListVoices(TtsProvider ttsProvider) {
+        try {
+            List<VoiceInfo> voices = ttsProvider.listVoices();
+            return voices != null ? voices : List.of();
+        } catch (Exception e) {
+            log.warn("Failed to load provider voice list, fallback to default voice id only: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private VoiceInfo selectVoiceForCharacter(Character character, List<VoiceInfo> voices, String defaultVoiceId) {
+        if (voices == null || voices.isEmpty()) {
+            return null;
+        }
+
+        String preferredGender = normalizeVoiceGender(character != null ? character.getGender() : null);
+        VoiceInfo preferredChinese = findFirstVoice(voices, preferredGender, true);
+        if (preferredChinese != null) {
+            return preferredChinese;
+        }
+
+        VoiceInfo preferredAnyLanguage = findFirstVoice(voices, preferredGender, false);
+        if (preferredAnyLanguage != null) {
+            return preferredAnyLanguage;
+        }
+
+        VoiceInfo defaultVoice = findVoiceInfo(defaultVoiceId, voices);
+        if (defaultVoice != null) {
+            return defaultVoice;
+        }
+
+        VoiceInfo chineseVoice = findFirstVoice(voices, null, true);
+        return chineseVoice != null ? chineseVoice : voices.get(0);
+    }
+
+    private VoiceInfo findFirstVoice(List<VoiceInfo> voices, String preferredGender, boolean chineseOnly) {
+        for (VoiceInfo voice : voices) {
+            if (voice == null || !hasText(voice.getVoiceId())) {
+                continue;
+            }
+            if (chineseOnly && !isChineseVoice(voice)) {
+                continue;
+            }
+            if (preferredGender != null && !preferredGender.equals(normalizeVoiceGender(voice.getGender()))) {
+                continue;
+            }
+            return voice;
+        }
+        return null;
+    }
+
+    private VoiceInfo findVoiceInfo(String voiceId, List<VoiceInfo> voices) {
+        if (!hasText(voiceId) || voices == null || voices.isEmpty()) {
+            return null;
+        }
+        for (VoiceInfo voice : voices) {
+            if (voice != null && hasText(voice.getVoiceId()) && voiceId.equalsIgnoreCase(voice.getVoiceId())) {
+                return voice;
+            }
+        }
+        return null;
+    }
+
+    private String resolveVoiceName(String voiceId, VoiceInfo voiceInfo) {
+        if (voiceInfo != null && hasText(voiceInfo.getName())) {
+            return voiceInfo.getName();
+        }
+        return hasText(voiceId) ? voiceId : "default";
+    }
+
+    private String normalizeVoiceGender(String value) {
+        String normalized = lower(value);
+        if (!hasText(normalized)) {
+            return null;
+        }
+        if (normalized.contains("female") || normalized.contains("女")) {
+            return "female";
+        }
+        if (normalized.contains("male") || normalized.contains("男")) {
+            return "male";
+        }
+        return "neutral";
+    }
+
+    private boolean isChineseVoice(VoiceInfo voiceInfo) {
+        return voiceInfo != null
+                && hasText(voiceInfo.getLanguage())
+                && voiceInfo.getLanguage().toLowerCase(Locale.ROOT).startsWith("zh");
     }
 
     private String buildTtsText(Storyboard shot) {
@@ -1102,6 +1306,8 @@ if (isStream) {
     }
 
     private void updateTask(TaskRecord task, String status, int progress, String message) {
+        log.debug("Task update: taskId={}, taskType={}, status={}, progress={}, message={}",
+            task.getId(), task.getTaskType(), status, progress, message);
         task.setStatus(status);
         task.setProgress(progress);
         task.setMessage(message);
@@ -1278,6 +1484,11 @@ if (isStream) {
                 Character resolvedCharacter = resolveCharacterByName(request.getProjectId(), characterName);
                 if (resolvedCharacter != null) {
                     shot.setCharacterId(resolvedCharacter.getId());
+                    log.debug("Storyboard shot character resolved: projectId={}, scriptId={}, shotNo={}, characterName={}, characterId={}",
+                            request.getProjectId(), request.getScriptId(), shot.getShotNo(), characterName, resolvedCharacter.getId());
+                } else if (hasText(characterName)) {
+                    log.debug("Storyboard shot character unresolved: projectId={}, scriptId={}, shotNo={}, characterName={}",
+                            request.getProjectId(), request.getScriptId(), shot.getShotNo(), characterName);
                 }
                 shot.setImagePrompt(textOrNull(shotNode, "imagePrompt"));
                 if (!hasText(shot.getImagePrompt())) {

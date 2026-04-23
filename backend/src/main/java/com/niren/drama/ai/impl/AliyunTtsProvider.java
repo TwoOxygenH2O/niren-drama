@@ -41,6 +41,13 @@ public class AliyunTtsProvider implements TtsProvider {
     @Override
     public byte[] synthesize(String text, String voiceId, float speed, float pitch) {
         String endpoint = apiBaseUrl + "/services/aigc/multimodal-conversation/generation";
+        log.debug("Start aliyun TTS synthesize: provider={}, model={}, voiceId={}, textLength={}, speed={}, pitch={}",
+            providerName,
+            model,
+            voiceId != null && !voiceId.isBlank() ? voiceId : "Cherry",
+            text != null ? text.length() : 0,
+            speed,
+            pitch);
         String requestBody = null;
         HttpResponse<String> generationResponse = null;
         String generationResponseBody = null;
@@ -135,6 +142,11 @@ public class AliyunTtsProvider implements TtsProvider {
                     audioResponse.body() != null && audioResponse.body().length > 0,
                     audioUrl,
                     null);
+                    log.debug("Aliyun TTS synthesize success: provider={}, voiceId={}, audioUrl={}, audioSize={}",
+                        providerName,
+                        voiceId != null && !voiceId.isBlank() ? voiceId : "Cherry",
+                        audioUrl,
+                        audioResponse.body() != null ? audioResponse.body().length : 0);
             return audioResponse.body();
         } catch (Exception e) {
             if (error == null || error.isBlank()) {
@@ -162,7 +174,9 @@ public class AliyunTtsProvider implements TtsProvider {
 
     @Override
     public List<VoiceInfo> listVoices() {
-        return List.of(new VoiceInfo("Cherry", "Cherry", "female", "zh-CN", "阿里云 Qwen TTS 官方示例音色"));
+        List<VoiceInfo> voices = List.of(new VoiceInfo("Cherry", "Cherry", "female", "zh-CN", "阿里云 Qwen TTS 官方示例音色"));
+        log.debug("Aliyun TTS voices loaded: provider={}, count={}", providerName, voices.size());
+        return voices;
     }
 
     private String buildInstructions(float speed, float pitch) {

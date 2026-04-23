@@ -68,7 +68,7 @@
             <div class="step-tip">{{ overview.imagesReady }} / {{ overview.totalShots }} 已就绪</div>
           </div>
           <el-button type="primary" :loading="imageLoading" @click="openDialog('images')"
-                     :disabled="overview.totalShots === 0">
+                     :disabled="imageEligibleShots.length === 0">
             {{ overview.imagesReady === overview.totalShots && overview.totalShots > 0 ? '重新生成' : '开始生成' }}
           </el-button>
         </div>
@@ -81,7 +81,7 @@
             <div class="step-tip">{{ overview.dynamicReady }} / {{ overview.dynamicSelected }} 已生成</div>
           </div>
           <el-button type="primary" :loading="dynamicLoading" @click="openDialog('dynamic')"
-                     :disabled="overview.dynamicSelected === 0">
+                     :disabled="dynamicEligibleShots.length === 0">
             {{ overview.dynamicReady === overview.dynamicSelected && overview.dynamicSelected > 0 ? '重新生成' : '开始生成' }}
           </el-button>
         </div>
@@ -310,9 +310,20 @@ const dialogTitle = computed(() => {
   }
 })
 
+const isImageEligibleShot = (shot: any) => !shot?.dynamicSelected
+
+const isDynamicEligibleShot = (shot: any) => !!shot?.dynamicSelected
+
+const imageEligibleShots = computed(() => shots.value.filter((shot) => isImageEligibleShot(shot)))
+
+const dynamicEligibleShots = computed(() => shots.value.filter((shot) => isDynamicEligibleShot(shot)))
+
 const dialogShots = computed(() => {
+  if (dialogType.value === 'images') {
+    return imageEligibleShots.value
+  }
   if (dialogType.value === 'dynamic') {
-    return shots.value.filter((shot) => !!shot.videoPrompt || !!shot.description)
+    return dynamicEligibleShots.value.filter((shot) => !!shot.videoPrompt || !!shot.description)
   }
   if (dialogType.value === 'compose') {
     return shots.value.filter((shot) => !!shot.imageUrl || !!shot.videoUrl)
@@ -321,7 +332,8 @@ const dialogShots = computed(() => {
 })
 
 const selectableMethod = (row: any) => {
-  if (dialogType.value === 'dynamic') return !!row.videoPrompt || !!row.description
+  if (dialogType.value === 'images') return isImageEligibleShot(row)
+  if (dialogType.value === 'dynamic') return isDynamicEligibleShot(row) && (!!row.videoPrompt || !!row.description)
   if (dialogType.value === 'compose') return !!row.imageUrl || !!row.videoUrl
   return true
 }

@@ -36,6 +36,13 @@ public class AiVideoGenerationService {
 
     public String generateVideo(Long userId, Storyboard shot) {
         AiResolvedConfig config = aiProviderFactory.resolveConfig(userId, "video");
+        log.debug("Resolve video provider for shot: userId={}, shotId={}, shotNo={}, provider={}, model={}, hasImageUrl={}",
+                userId,
+                shot.getId(),
+                shot.getShotNo(),
+                config.provider(),
+                config.model(),
+                hasText(shot.getImageUrl()));
         if (isAliyunProvider(config.provider())) {
             return generateAliyunVideo(config, shot);
         }
@@ -52,6 +59,8 @@ public class AiVideoGenerationService {
         }
 
         String endpoint = resolveAliyunVideoEndpoint(config.baseUrl());
+        log.debug("Start aliyun video generation: shotId={}, shotNo={}, endpoint={}, model={}, promptLength={}",
+            shot.getId(), shot.getShotNo(), endpoint, config.model(), prompt.length());
         String requestBody = null;
         HttpResponse<String> response = null;
         String responseBody = null;
@@ -96,6 +105,8 @@ public class AiVideoGenerationService {
             JsonNode root = objectMapper.readTree(responseBody);
             videoUrl = extractVideoUrl(root);
             if (hasText(videoUrl)) {
+                log.debug("Aliyun video generation returned direct url: shotId={}, shotNo={}, videoUrl={}",
+                        shot.getId(), shot.getShotNo(), videoUrl);
                 return videoUrl;
             }
 
@@ -107,12 +118,17 @@ public class AiVideoGenerationService {
                 }
             }
 
+            log.debug("Aliyun video generation switched to polling: shotId={}, shotNo={}, statusUrl={}",
+                    shot.getId(), shot.getShotNo(), statusUrl);
+
             if (!hasText(statusUrl)) {
                 error = "视频接口未返回可用视频地址，也未提供任务查询地址: " + responseBody;
                 throw new RuntimeException(error);
             }
 
             videoUrl = pollVideoResult(config.provider(), config.apiKey(), statusUrl);
+            log.debug("Aliyun video polling complete: shotId={}, shotNo={}, videoUrl={}",
+                    shot.getId(), shot.getShotNo(), videoUrl);
             return videoUrl;
         } catch (Exception e) {
             if (!hasText(error)) {
@@ -149,6 +165,8 @@ public class AiVideoGenerationService {
         }
 
         String endpoint = resolveCustomVideoEndpoint(config.baseUrl());
+        log.debug("Start custom video generation: shotId={}, shotNo={}, endpoint={}, model={}, promptLength={}, hasImage={}",
+            shot.getId(), shot.getShotNo(), endpoint, config.model(), prompt.length(), hasText(shot.getImageUrl()));
         String requestBody = null;
         HttpResponse<String> response = null;
         String responseBody = null;
@@ -187,6 +205,8 @@ public class AiVideoGenerationService {
             JsonNode root = objectMapper.readTree(responseBody);
             videoUrl = extractVideoUrl(root);
             if (hasText(videoUrl)) {
+                log.debug("Custom video generation returned direct url: shotId={}, shotNo={}, videoUrl={}",
+                        shot.getId(), shot.getShotNo(), videoUrl);
                 return videoUrl;
             }
 
@@ -198,12 +218,17 @@ public class AiVideoGenerationService {
                 }
             }
 
+            log.debug("Custom video generation switched to polling: shotId={}, shotNo={}, statusUrl={}",
+                    shot.getId(), shot.getShotNo(), statusUrl);
+
             if (!hasText(statusUrl)) {
                 error = "视频接口未返回可用视频地址，也未提供任务查询地址: " + responseBody;
                 throw new RuntimeException(error);
             }
 
             videoUrl = pollVideoResult(config.provider(), config.apiKey(), statusUrl);
+            log.debug("Custom video polling complete: shotId={}, shotNo={}, videoUrl={}",
+                    shot.getId(), shot.getShotNo(), videoUrl);
             return videoUrl;
         } catch (Exception e) {
             if (!hasText(error)) {
@@ -245,6 +270,8 @@ public class AiVideoGenerationService {
             JsonNode root = objectMapper.readTree(responseBody);
             String videoUrl = extractVideoUrl(root);
             String status = normalizeStatus(extractStatus(root));
+                log.debug("Video polling attempt: provider={}, statusUrl={}, attempt={}, status={}, hasVideoUrl={}",
+                    provider, statusUrl, attempt + 1, status, hasText(videoUrl));
 
             AiTraceSupport.record(
                     "video",

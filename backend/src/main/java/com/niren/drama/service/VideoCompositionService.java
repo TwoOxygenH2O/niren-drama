@@ -80,6 +80,9 @@ public class VideoCompositionService {
             throw new BusinessException("分镜还没有生成图片，请先生成分镜图片");
         }
 
+        log.debug("Creating video compose task: userId={}, projectId={}, shotCount={}, filteredByIds={}",
+            userId, projectId, shots.size(), shotIds != null && !shotIds.isEmpty());
+
         TaskRecord task = new TaskRecord();
         task.setProjectId(projectId);
         task.setUserId(userId);
@@ -112,6 +115,9 @@ public class VideoCompositionService {
             throw new BusinessException("仍有已选动态镜头缺少视频提示词，请先完成分镜生成或补全镜头描述");
         }
 
+        log.debug("Creating dynamic video task: userId={}, projectId={}, selectedShots={}, filteredByIds={}",
+            userId, projectId, selectedShots.size(), shotIds != null && !shotIds.isEmpty());
+
         TaskRecord task = new TaskRecord();
         task.setProjectId(projectId);
         task.setUserId(userId);
@@ -132,6 +138,8 @@ public class VideoCompositionService {
 
         Path workDir = null;
         try {
+            log.debug("Video composition start: taskId={}, userId={}, projectId={}, shotCount={}",
+                    taskId, userId, projectId, shots.size());
             // Create working directory
             workDir = Paths.get(uploadPath, "compose", projectId.toString());
             Files.createDirectories(workDir);
@@ -152,6 +160,17 @@ public class VideoCompositionService {
                     log.warn("Shot {} has no image, skipping", shot.getShotNo());
                     continue;
                 }
+
+                log.debug("Composing shot video: taskId={}, projectId={}, shotId={}, shotNo={}, renderMode={}, hasImage={}, hasVideo={}, hasAudio={}, duration={}",
+                        taskId,
+                        projectId,
+                        shot.getId(),
+                        shot.getShotNo(),
+                        shot.getRenderMode(),
+                        hasText(shot.getImageUrl()),
+                        hasText(shot.getVideoUrl()),
+                        hasText(shot.getAudioUrl()),
+                        shot.getDuration());
 
                 updateTask(task, "RUNNING",
                         5 + (70 * index / total),
@@ -179,6 +198,8 @@ public class VideoCompositionService {
 
                 if (Files.exists(shotVideo) && Files.size(shotVideo) > 0) {
                     shotVideos.add(shotVideo);
+                    log.debug("Shot video composed successfully: taskId={}, projectId={}, shotNo={}, output={}",
+                            taskId, projectId, shot.getShotNo(), shotVideo);
                 }
             }
 
@@ -215,6 +236,8 @@ public class VideoCompositionService {
             task.setMessage("视频合成完成！");
             task.setResult(videoUrl);
             taskRecordMapper.updateById(task);
+            log.debug("Video composition complete: taskId={}, projectId={}, output={}, composedShots={}",
+                    taskId, projectId, videoUrl, shotVideos.size());
 
         } catch (Exception e) {
             log.error("Video composition failed for task {}", taskId, e);
@@ -248,6 +271,9 @@ public class VideoCompositionService {
             int failed = 0;
             List<String> failedDetails = new ArrayList<>();
 
+            log.debug("Dynamic video generation start: taskId={}, userId={}, projectId={}, shotCount={}",
+                    taskId, userId, projectId, total);
+
             for (Storyboard shot : shots) {
                 completed++;
                 if (!hasText(shot.getVideoPrompt()) && !hasText(shot.getDescription())) {
@@ -260,6 +286,13 @@ public class VideoCompositionService {
                         String.format("正在生成第%d/%d个动态镜头...", completed, total));
 
                 try {
+                    log.debug("Dynamic video request prepared: taskId={}, projectId={}, shotId={}, shotNo={}, promptLength={}, hasImage={}",
+                            taskId,
+                            projectId,
+                            shot.getId(),
+                            shot.getShotNo(),
+                            hasText(shot.getVideoPrompt()) ? shot.getVideoPrompt().length() : (hasText(shot.getDescription()) ? shot.getDescription().length() : 0),
+                            hasText(shot.getImageUrl()));
                     String videoUrl = aiVideoGenerationService.generateVideo(userId, shot);
                     if (!hasText(videoUrl)) {
                         throw new BusinessException("视频接口未返回有效视频地址");
@@ -269,6 +302,8 @@ public class VideoCompositionService {
                     shot.setStatus("video_generated");
                     storyboardMapper.updateById(shot);
                     generated++;
+                    log.debug("Dynamic video generated: taskId={}, projectId={}, shotId={}, shotNo={}, videoUrl={}",
+                            taskId, projectId, shot.getId(), shot.getShotNo(), videoUrl);
                 } catch (Exception e) {
                     failed++;
                     shot.setStatus("video_failed");
@@ -299,6 +334,8 @@ public class VideoCompositionService {
                             "generated", generated,
                             "failed", failed)));
             taskRecordMapper.updateById(task);
+                log.debug("Dynamic video generation complete: taskId={}, projectId={}, total={}, generated={}, failed={}",
+                    taskId, projectId, total, generated, failed);
         } catch (Exception e) {
             log.error("Dynamic video generation failed for task {}", taskId, e);
             task.setStatus("FAILED");
@@ -573,6 +610,8 @@ public class VideoCompositionService {
     }
 
     private void updateTask(TaskRecord task, String status, int progress, String message) {
+        log.debug("Task update: taskId={}, taskType={}, status={}, progress={}, message={}",
+                task.getId(), task.getTaskType(), status, progress, message);
         task.setStatus(status);
         task.setProgress(progress);
         task.setMessage(message);

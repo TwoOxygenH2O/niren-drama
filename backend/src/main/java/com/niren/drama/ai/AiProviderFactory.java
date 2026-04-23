@@ -71,6 +71,12 @@ public class AiProviderFactory {
     @Value("${niren.ai.tts.model:qwen3-tts-instruct-flash}")
     private String defaultTtsModel;
 
+    @Value("${niren.upload.path:./uploads}")
+    private String uploadPath;
+
+    @Value("${niren.upload.base-url:http://localhost:8080/api/files}")
+    private String uploadBaseUrl;
+
     public TextAiProvider getTextProvider(Long userId) {
         AiResolvedConfig resolved = resolveConfig(userId, "text");
 
@@ -90,7 +96,7 @@ public class AiProviderFactory {
         }
 
         if ("custom".equalsIgnoreCase(provider) || "external".equalsIgnoreCase(provider)) {
-            return new ExternalImageProvider(baseUrl, apiKey, model, provider);
+            return new ExternalImageProvider(baseUrl, apiKey, model, provider, uploadPath, uploadBaseUrl);
         }
 
         return new OpenAiImageProvider(baseUrl, apiKey, model);

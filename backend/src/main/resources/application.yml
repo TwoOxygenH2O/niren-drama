@@ -39,6 +39,7 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
     cache-enabled: false
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
 
 jwt:
   secret: ${JWT_SECRET:niren-drama-jwt-secret-key-2024-very-long-and-secure-string}
@@ -86,6 +87,14 @@ knife4j:
     language: zh_cn
 
 logging:
+  file:
+    name: ${LOG_FILE:${user.dir}/log/niren-drama.log}
   level:
+    root: debug
     com.niren.drama: debug
+    com.niren.drama.mapper: debug
+    org.mybatis: debug
+    com.baomidou.mybatisplus: debug
     org.springframework.security: debug
+  pattern:
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
