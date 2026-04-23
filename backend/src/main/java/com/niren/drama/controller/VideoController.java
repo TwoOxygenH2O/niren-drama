@@ -3,9 +3,12 @@ package com.niren.drama.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.niren.drama.common.CurrentUserHelper;
 import com.niren.drama.common.Result;
+import com.niren.drama.dto.video.ReferenceVideoTaskResponse;
+import com.niren.drama.dto.video.ReferenceVideoTaskStatusResponse;
 import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.exception.BusinessException;
+import com.niren.drama.service.ReferenceVideoService;
 import com.niren.drama.service.StoryboardService;
 import com.niren.drama.service.VideoCompositionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.io.InputStream;
@@ -34,6 +38,7 @@ public class VideoController {
 
     private final StoryboardService storyboardService;
     private final VideoCompositionService videoCompositionService;
+    private final ReferenceVideoService referenceVideoService;
     private final CurrentUserHelper currentUserHelper;
 
     private List<Long> parseShotIds(JsonNode body) {
@@ -108,6 +113,27 @@ public class VideoController {
         return Result.success(videoCompositionService.startCompose(userId, projectId, shotIds));
     }
 
+    @Operation(summary = "参考图生成视频（先上传到 COS，再提交万相 2.7 i2v）")
+    @PostMapping(value = "/reference/generate", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<ReferenceVideoTaskResponse> generateReferenceVideo(@RequestParam String prompt,
+                                                                     @RequestParam(required = false) MultipartFile file,
+                                                                     @RequestParam(required = false) String referenceImageUrl,
+                                                                     @RequestParam(required = false) Integer duration,
+                                                                     @RequestParam(required = false) Long projectId,
+                                                                     @AuthenticationPrincipal UserDetails userDetails) throws Exception {
+        Long userId = currentUserHelper.getUserId(userDetails);
+        return Result.success(referenceVideoService.submit(userId, projectId, file, referenceImageUrl, prompt, duration));
+    }
+
+    @Operation(summary = "查询参考图视频任务状态")
+    @GetMapping("/reference/query")
+    public Result<ReferenceVideoTaskStatusResponse> queryReferenceVideo(@RequestParam String taskId,
+                                                                        @RequestParam(required = false) String statusUrl,
+                                                                        @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = currentUserHelper.getUserId(userDetails);
+        return Result.success(referenceVideoService.query(userId, taskId, statusUrl));
+    }
+
     @Operation(summary = "获取项目视频合成状态")
     @GetMapping("/status/{projectId}")
     public Result<TaskRecord> getStatus(@PathVariable Long projectId) {
@@ -130,6 +156,11 @@ public class VideoController {
         }
 
         Path videoPath = videoCompositionService.getVideoFilePath(task.getResult());
+        if (videoPath == null && task.getResult().startsWith("http")) {
+            return ResponseEntity.status(302)
+                    .header(HttpHeaders.LOCATION, task.getResult())
+                    .build();
+        }
         if (videoPath == null || !Files.exists(videoPath)) {
             return ResponseEntity.notFound().build();
         }

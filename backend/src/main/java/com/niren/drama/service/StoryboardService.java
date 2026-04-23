@@ -34,6 +34,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.niren.drama.service.storage.StoredAsset;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
@@ -67,6 +68,7 @@ public class StoryboardService {
     private final AiProviderFactory aiProviderFactory;
     private final ProjectService projectService;
     private final CostEstimationService costEstimationService;
+    private final PublicAssetStorageService publicAssetStorageService;
     private final ObjectMapper objectMapper;
     private final ObjectProvider<StoryboardService> selfProvider;
 
@@ -101,12 +103,6 @@ public class StoryboardService {
     /** Enable image reuse for same scene+character+angle combinations */
     @Value("${niren.cost.image-reuse-enabled:true}")
     private boolean imageReuseEnabled;
-
-    @Value("${niren.upload.path:./uploads}")
-    private String uploadPath;
-
-    @Value("${niren.upload.base-url:http://localhost:8080/api/files}")
-    private String baseUrl;
 
     public TaskRecord startGenerateStoryboard(Long userId, StoryboardGenerateRequest request) {
         log.debug("Creating storyboard task: userId={}, projectId={}, scriptId={}",
@@ -845,6 +841,7 @@ if (isStream) {
                         if (imageUrl == null || imageUrl.isBlank()) {
                             throw new BusinessException("图片接口未返回有效图片地址");
                         }
+                        imageUrl = publicAssetStorageService.ensurePublicUrl(imageUrl, "generated-images", "png");
                         shot.setImageUrl(imageUrl);
                         shot.setStatus("image_generated");
                         storyboardMapper.updateById(shot);
@@ -1036,9 +1033,6 @@ if (isStream) {
             log.debug("Start storyboard audio generation: taskId={}, userId={}, projectId={}, shotCount={}, availableVoices={}",
                     taskId, userId, projectId, total, availableVoices.size());
 
-            Path audioDir = Paths.get(uploadPath, "audios");
-            Files.createDirectories(audioDir);
-
             for (Storyboard shot : shots) {
                 // Build text to synthesize: combine dialogue and narration
                 String text = buildTtsText(shot);
@@ -1080,11 +1074,14 @@ if (isStream) {
                     if (audioData == null || audioData.length <= 100) {
                         throw new BusinessException("配音接口未返回有效音频数据");
                     }
-                    String filename = UUID.randomUUID().toString().replace("-", "") + ".mp3";
-                    Path audioFile = audioDir.resolve(filename);
-                    Files.write(audioFile, audioData);
+                    StoredAsset storedAudio = publicAssetStorageService.storeBytes(
+                            audioData,
+                            "audios",
+                            UUID.randomUUID().toString().replace("-", "") + ".mp3",
+                            "audio/mpeg",
+                            "mp3");
 
-                    shot.setAudioUrl(baseUrl + "/audios/" + filename);
+                    shot.setAudioUrl(storedAudio.publicUrl());
                     shot.setStatus("audio_generated");
                     storyboardMapper.updateById(shot);
                     generated++;

@@ -119,6 +119,13 @@
             <version>2.15.1</version>
         </dependency>
 
+        <!-- Tencent Cloud COS -->
+        <dependency>
+            <groupId>com.qcloud</groupId>
+            <artifactId>cos_api</artifactId>
+            <version>5.6.227</version>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

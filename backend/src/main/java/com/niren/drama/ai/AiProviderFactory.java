@@ -56,7 +56,7 @@ public class AiProviderFactory {
     @Value("${niren.ai.video.api-key:}")
     private String defaultVideoApiKey;
 
-    @Value("${niren.ai.video.model:wan2.6-t2v}")
+    @Value("${niren.ai.video.model:wan2.7-i2v}")
     private String defaultVideoModel;
 
     @Value("${niren.ai.tts.provider:aliyun}")
@@ -260,7 +260,7 @@ public class AiProviderFactory {
             case "aliyun", "qianwen", "dashscope", "wanx", "cosyvoice" -> switch (configType) {
                 case "text" -> "qwen-plus";
                 case "image" -> "qwen-image-2.0-pro";
-                case "video" -> "wan2.6-t2v";
+                case "video" -> "wan2.7-i2v";
                 case "tts" -> "qwen3-tts-flash";
                 default -> "qwen-plus";
             };

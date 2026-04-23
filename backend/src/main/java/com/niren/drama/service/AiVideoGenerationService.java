@@ -1,19 +1,21 @@
 package com.niren.drama.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.AiResolvedConfig;
-import com.niren.drama.ai.RemoteAssetStorage;
 import com.niren.drama.ai.trace.AiTraceSupport;
 import com.niren.drama.common.ProjectStyleSupport;
+import com.niren.drama.entity.Character;
 import com.niren.drama.entity.Project;
 import com.niren.drama.entity.Storyboard;
 import com.niren.drama.exception.BusinessException;
+import com.niren.drama.mapper.CharacterMapper;
+import com.niren.drama.mapper.StoryboardMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -34,13 +36,10 @@ public class AiVideoGenerationService {
 
     private final AiProviderFactory aiProviderFactory;
     private final ProjectService projectService;
+    private final CharacterMapper characterMapper;
+    private final StoryboardMapper storyboardMapper;
+    private final PublicAssetStorageService publicAssetStorageService;
     private final ObjectMapper objectMapper;
-
-    @Value("${niren.upload.path:./uploads}")
-    private String uploadPath;
-
-    @Value("${niren.upload.base-url:http://localhost:8080/api/files}")
-    private String uploadBaseUrl;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(30))
@@ -101,6 +100,44 @@ public class AiVideoGenerationService {
         }
     }
 
+    public VideoTaskSubmission submitReferenceVideoTask(Long userId,
+                                                        String prompt,
+                                                        String referenceImageUrl,
+                                                        Integer duration) {
+        AiResolvedConfig config = aiProviderFactory.resolveConfig(userId, "video");
+        String effectivePrompt = hasText(prompt) ? prompt.trim() : null;
+        String effectiveReferenceImageUrl = publicAssetStorageService.ensurePublicUrl(referenceImageUrl, "reference-images", "png");
+        if (!hasText(effectivePrompt)) {
+            throw new BusinessException("视频 prompt 不能为空");
+        }
+        if (!hasText(effectiveReferenceImageUrl)) {
+            throw new BusinessException("参考图不能为空，请先上传到 COS 或提供可访问图片链接");
+        }
+        int effectiveDuration = duration != null && duration > 0 ? duration : 5;
+        if (isAliyunProvider(config.provider())) {
+            return submitAliyunVideoTask(config, effectivePrompt, effectiveReferenceImageUrl, effectiveDuration, null);
+        }
+        return submitCustomVideoTask(config, effectivePrompt, effectiveReferenceImageUrl, effectiveDuration, null);
+    }
+
+    public VideoTaskQueryResult queryReferenceVideoTask(Long userId, String taskId, String statusUrl) {
+        AiResolvedConfig config = aiProviderFactory.resolveConfig(userId, "video");
+        if (!hasText(config.apiKey())) {
+            throw new BusinessException("未配置视频生成 API Key，请先在 AI 配置中设置视频服务");
+        }
+        String resolvedStatusUrl = resolveSubmittedTaskStatusUrl(config.provider(), config.baseUrl(), statusUrl, taskId);
+        if (!hasText(resolvedStatusUrl)) {
+            throw new BusinessException("缺少 taskId 或 statusUrl，无法查询视频任务");
+        }
+        try {
+            return queryVideoTask(config.provider(), config.apiKey(), resolvedStatusUrl);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("视频任务查询失败: " + e.getMessage(), e);
+        }
+    }
+
     private String generateAliyunVideo(AiResolvedConfig config, Storyboard shot) {
         VideoTaskSubmission submission = submitAliyunVideoTask(config, shot);
         if (hasText(submission.videoUrl())) {
@@ -118,17 +155,37 @@ public class AiVideoGenerationService {
     }
 
     private VideoTaskSubmission submitAliyunVideoTask(AiResolvedConfig config, Storyboard shot) {
+        String prompt = resolvePrompt(shot);
+        String referenceImageUrl = resolveReferenceImageUrl(shot);
+        return submitAliyunVideoTask(config, prompt, referenceImageUrl, resolveDuration(shot), shot);
+    }
+
+    private VideoTaskSubmission submitAliyunVideoTask(AiResolvedConfig config,
+                                                      String prompt,
+                                                      String referenceImageUrl,
+                                                      int duration,
+                                                      Storyboard shot) {
         if (!hasText(config.apiKey())) {
             throw new BusinessException("未配置视频生成 API Key，请先在 AI 配置中设置视频服务");
         }
-        String prompt = resolvePrompt(shot);
         if (!hasText(prompt)) {
             throw new BusinessException("动态镜头缺少视频提示词，无法发起阿里云视频接口");
         }
 
+        String effectiveReferenceImageUrl = publicAssetStorageService.ensurePublicUrl(referenceImageUrl, "reference-images", "png");
+        if (!hasText(effectiveReferenceImageUrl)) {
+            throw new BusinessException("阿里云万相 2.7 图生视频缺少可访问参考图，请先生成分镜图或角色图并上传 COS");
+        }
+
+        String resolvedModel = resolveAliyunVideoModel(config.model(), effectiveReferenceImageUrl);
+
         String endpoint = resolveAliyunVideoEndpoint(config.baseUrl());
         log.debug("Start aliyun video generation: shotId={}, shotNo={}, endpoint={}, model={}, promptLength={}",
-                shot.getId(), shot.getShotNo(), endpoint, config.model(), prompt.length());
+                shot != null ? shot.getId() : null,
+                shot != null ? shot.getShotNo() : null,
+                endpoint,
+                resolvedModel,
+                prompt.length());
         String requestBody = null;
         HttpResponse<String> response = null;
         String responseBody = null;
@@ -143,17 +200,18 @@ public class AiVideoGenerationService {
 
         try {
             ObjectNode body = objectMapper.createObjectNode();
-            body.put("model", config.model());
+            body.put("model", resolvedModel);
 
             ObjectNode input = body.putObject("input");
             input.put("prompt", prompt);
+            input.put("img_url", effectiveReferenceImageUrl);
 
             ObjectNode parameters = body.putObject("parameters");
             parameters.put("resolution", "720P");
             parameters.put("ratio", "9:16");
             parameters.put("prompt_extend", true);
             parameters.put("watermark", true);
-            parameters.put("duration", resolveDuration(shot));
+            parameters.put("duration", duration > 0 ? duration : 5);
 
             requestBody = objectMapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder()
@@ -177,7 +235,9 @@ public class AiVideoGenerationService {
             if (hasText(videoUrl)) {
                 videoUrl = persistVideoUrl(videoUrl);
                 log.debug("Aliyun video generation returned direct url: shotId={}, shotNo={}, videoUrl={}",
-                        shot.getId(), shot.getShotNo(), videoUrl);
+                        shot != null ? shot.getId() : null,
+                        shot != null ? shot.getShotNo() : null,
+                        videoUrl);
                 return new VideoTaskSubmission(config.provider(), null, null, videoUrl);
             }
 
@@ -188,7 +248,10 @@ public class AiVideoGenerationService {
             }
 
             log.debug("Aliyun video generation accepted async task: shotId={}, shotNo={}, taskId={}, statusUrl={}",
-                    shot.getId(), shot.getShotNo(), taskId, statusUrl);
+            shot != null ? shot.getId() : null,
+            shot != null ? shot.getShotNo() : null,
+            taskId,
+            statusUrl);
 
             if (!hasText(statusUrl) && !hasText(taskId)) {
                 error = "视频接口未返回可用视频地址，也未提供任务查询地址: " + responseBody;
@@ -199,7 +262,7 @@ public class AiVideoGenerationService {
             if (!hasText(error)) {
                 error = e.getMessage();
             }
-            log.error("Video generation failed for shot {}", shot.getShotNo(), e);
+            log.error("Video generation failed for shot {}", shot != null ? shot.getShotNo() : null, e);
             throw new RuntimeException("视频生成失败: " + error, e);
         } finally {
             AiTraceSupport.record(
@@ -215,7 +278,7 @@ public class AiVideoGenerationService {
                     responseBody,
                     responseBody != null ? responseBody.length() : null,
                     response != null && response.statusCode() < 400 && (hasText(videoUrl) || hasText(taskId) || hasText(statusUrl)),
-                    hasText(videoUrl) ? videoUrl : statusUrl,
+                    hasText(videoUrl) ? videoUrl : effectiveReferenceImageUrl,
                     error);
         }
     }
@@ -237,17 +300,32 @@ public class AiVideoGenerationService {
     }
 
     private VideoTaskSubmission submitCustomVideoTask(AiResolvedConfig config, Storyboard shot) {
+        String prompt = resolvePrompt(shot);
+        String referenceImageUrl = resolveReferenceImageUrl(shot);
+        return submitCustomVideoTask(config, prompt, referenceImageUrl, resolveDuration(shot), shot);
+    }
+
+    private VideoTaskSubmission submitCustomVideoTask(AiResolvedConfig config,
+                                                      String prompt,
+                                                      String referenceImageUrl,
+                                                      int duration,
+                                                      Storyboard shot) {
         if (!hasText(config.apiKey())) {
             throw new BusinessException("未配置自定义视频接口 API Key");
         }
-        String prompt = resolvePrompt(shot);
         if (!hasText(prompt)) {
             throw new BusinessException("动态镜头缺少视频提示词，无法发起自定义视频接口");
         }
+        String effectiveReferenceImageUrl = publicAssetStorageService.ensurePublicUrl(referenceImageUrl, "reference-images", "png");
 
         String endpoint = resolveCustomVideoEndpoint(config.baseUrl());
         log.debug("Start custom video generation: shotId={}, shotNo={}, endpoint={}, model={}, promptLength={}, hasImage={}",
-            shot.getId(), shot.getShotNo(), endpoint, config.model(), prompt.length(), hasText(shot.getImageUrl()));
+            shot != null ? shot.getId() : null,
+            shot != null ? shot.getShotNo() : null,
+            endpoint,
+            config.model(),
+            prompt.length(),
+            hasText(effectiveReferenceImageUrl));
         String requestBody = null;
         HttpResponse<String> response = null;
         String responseBody = null;
@@ -261,10 +339,10 @@ public class AiVideoGenerationService {
             ObjectNode body = objectMapper.createObjectNode();
             body.put("model", config.model());
             body.put("prompt", prompt);
-            if (hasText(shot.getImageUrl())) {
-                body.put("image_url", shot.getImageUrl());
+            if (hasText(effectiveReferenceImageUrl)) {
+                body.put("image_url", effectiveReferenceImageUrl);
             }
-            body.put("duration", resolveDuration(shot));
+            body.put("duration", duration > 0 ? duration : 5);
             body.put("size", "1080x1920");
             body.put("quality", "standard");
             body.put("with_sound", false);
@@ -290,7 +368,9 @@ public class AiVideoGenerationService {
             if (hasText(videoUrl)) {
                 videoUrl = persistVideoUrl(videoUrl);
                 log.debug("Custom video generation returned direct url: shotId={}, shotNo={}, videoUrl={}",
-                        shot.getId(), shot.getShotNo(), videoUrl);
+                        shot != null ? shot.getId() : null,
+                        shot != null ? shot.getShotNo() : null,
+                        videoUrl);
                 return new VideoTaskSubmission(config.provider(), null, null, videoUrl);
             }
 
@@ -301,7 +381,10 @@ public class AiVideoGenerationService {
             }
 
             log.debug("Custom video generation accepted async task: shotId={}, shotNo={}, taskId={}, statusUrl={}",
-                    shot.getId(), shot.getShotNo(), taskId, statusUrl);
+            shot != null ? shot.getId() : null,
+            shot != null ? shot.getShotNo() : null,
+            taskId,
+            statusUrl);
 
             if (!hasText(statusUrl) && !hasText(taskId)) {
                 error = "视频接口未返回可用视频地址，也未提供任务查询地址: " + responseBody;
@@ -327,7 +410,7 @@ public class AiVideoGenerationService {
                     responseBody,
                     responseBody != null ? responseBody.length() : null,
                     response != null && response.statusCode() < 400 && (hasText(videoUrl) || hasText(taskId) || hasText(statusUrl)),
-                    hasText(videoUrl) ? videoUrl : statusUrl,
+                    hasText(videoUrl) ? videoUrl : effectiveReferenceImageUrl,
                     error);
         }
     }
@@ -619,6 +702,60 @@ public class AiVideoGenerationService {
                 || "wanx".equals(normalized);
     }
 
+    private String resolveReferenceImageUrl(Storyboard shot) {
+        if (shot == null) {
+            return null;
+        }
+        if (hasText(shot.getImageUrl())) {
+            return publicAssetStorageService.ensurePublicUrl(shot.getImageUrl(), "reference-images", "png");
+        }
+        if (shot.getCharacterId() != null) {
+            Character character = characterMapper.selectById(shot.getCharacterId());
+            if (character != null && hasText(character.getImageUrl())) {
+                return publicAssetStorageService.ensurePublicUrl(character.getImageUrl(), "reference-images", "png");
+            }
+        }
+        if (shot.getProjectId() == null || shot.getShotNo() == null) {
+            return null;
+        }
+
+        Storyboard previousWithSameCharacter = null;
+        if (shot.getCharacterId() != null) {
+            previousWithSameCharacter = storyboardMapper.selectOne(
+                    new LambdaQueryWrapper<Storyboard>()
+                            .eq(Storyboard::getProjectId, shot.getProjectId())
+                            .eq(Storyboard::getCharacterId, shot.getCharacterId())
+                            .lt(Storyboard::getShotNo, shot.getShotNo())
+                            .isNotNull(Storyboard::getImageUrl)
+                            .orderByDesc(Storyboard::getShotNo)
+                            .last("LIMIT 1"));
+        }
+        if (previousWithSameCharacter != null && hasText(previousWithSameCharacter.getImageUrl())) {
+            return publicAssetStorageService.ensurePublicUrl(previousWithSameCharacter.getImageUrl(), "reference-images", "png");
+        }
+
+        Storyboard previousAnyShot = storyboardMapper.selectOne(
+                new LambdaQueryWrapper<Storyboard>()
+                        .eq(Storyboard::getProjectId, shot.getProjectId())
+                        .lt(Storyboard::getShotNo, shot.getShotNo())
+                        .isNotNull(Storyboard::getImageUrl)
+                        .orderByDesc(Storyboard::getShotNo)
+                        .last("LIMIT 1"));
+        if (previousAnyShot != null && hasText(previousAnyShot.getImageUrl())) {
+            return publicAssetStorageService.ensurePublicUrl(previousAnyShot.getImageUrl(), "reference-images", "png");
+        }
+        return null;
+    }
+
+    private String resolveAliyunVideoModel(String configuredModel, String referenceImageUrl) {
+        if (hasText(referenceImageUrl)) {
+            if (!hasText(configuredModel) || "wan2.6-t2v".equalsIgnoreCase(configuredModel.trim())) {
+                return "wan2.7-i2v";
+            }
+        }
+        return hasText(configuredModel) ? configuredModel : "wan2.7-i2v";
+    }
+
     private String resolveAliyunVideoEndpoint(String baseUrl) {
         return normalizeAliyunApiBase(baseUrl) + "/services/aigc/video-generation/video-synthesis";
     }
@@ -652,6 +789,6 @@ public class AiVideoGenerationService {
     }
 
     private String persistVideoUrl(String videoUrl) {
-        return RemoteAssetStorage.persistHttpUrl(videoUrl, uploadPath, uploadBaseUrl, "videos", httpClient, "mp4");
+        return publicAssetStorageService.ensurePublicUrl(videoUrl, "videos", "mp4");
     }
 }

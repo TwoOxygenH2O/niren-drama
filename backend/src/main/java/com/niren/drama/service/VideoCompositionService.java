@@ -59,6 +59,7 @@ public class VideoCompositionService {
     private final ProjectMapper projectMapper;
     private final TaskRecordMapper taskRecordMapper;
     private final AiVideoGenerationService aiVideoGenerationService;
+    private final PublicAssetStorageService publicAssetStorageService;
     private final ObjectMapper objectMapper;
     private final ObjectProvider<VideoCompositionService> selfProvider;
     private final TaskScheduler aiPollScheduler;
@@ -253,7 +254,10 @@ public class VideoCompositionService {
             }
 
             // Update project status
-            String videoUrl = baseUrl + "/videos/" + outputFilename;
+            String videoUrl = publicAssetStorageService.storeLocalFile(finalVideo, "videos", outputFilename, "video/mp4").publicUrl();
+            if (videoUrl != null && !videoUrl.isBlank() && !videoUrl.startsWith(baseUrl)) {
+                Files.deleteIfExists(finalVideo);
+            }
             Project project = projectMapper.selectById(projectId);
             if (project != null) {
                 project.setStatus("completed");
@@ -1057,7 +1061,7 @@ public class VideoCompositionService {
      * Get the physical path of the video file for download.
      */
     public Path getVideoFilePath(String videoUrl) {
-        if (videoUrl == null) return null;
+        if (videoUrl == null || !videoUrl.startsWith(baseUrl)) return null;
         String relativePath = videoUrl.substring(baseUrl.length());
         if (relativePath.startsWith("/")) relativePath = relativePath.substring(1);
         return Paths.get(uploadPath, relativePath);
@@ -1071,7 +1075,9 @@ public class VideoCompositionService {
     public boolean deleteVideoAndClearResult(Long taskId, Path videoPath) {
         boolean deleted = false;
         try {
-            deleted = Files.deleteIfExists(videoPath);
+            if (videoPath != null) {
+                deleted = Files.deleteIfExists(videoPath);
+            }
             if (deleted) {
                 log.info("Deleted exported video file: {}", videoPath);
             }

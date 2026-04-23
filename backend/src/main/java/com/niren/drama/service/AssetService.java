@@ -4,21 +4,14 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.niren.drama.common.PageQuery;
 import com.niren.drama.entity.Asset;
-import com.niren.drama.exception.BusinessException;
 import com.niren.drama.mapper.AssetMapper;
+import com.niren.drama.service.storage.StoredAsset;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.List;
-import java.util.UUID;
 
 @Slf4j
 @Service
@@ -26,36 +19,23 @@ import java.util.UUID;
 public class AssetService {
 
     private final AssetMapper assetMapper;
-
-    @Value("${niren.upload.path:./uploads}")
-    private String uploadPath;
-
-    @Value("${niren.upload.base-url:http://localhost:8080/api/files}")
-    private String baseUrl;
+    private final PublicAssetStorageService publicAssetStorageService;
 
     public Asset uploadFile(Long userId, Long projectId, MultipartFile file,
                             String refType, Long refId) throws IOException {
         String originalName = file.getOriginalFilename();
-        String ext = originalName != null && originalName.contains(".")
-                ? originalName.substring(originalName.lastIndexOf("."))
-                : "";
-        String filename = UUID.randomUUID().toString().replace("-", "") + ext;
-
         String subDir = determineSubDir(file.getContentType());
-        Path dir = Paths.get(uploadPath, subDir);
-        Files.createDirectories(dir);
-        Path filePath = dir.resolve(filename);
-        file.transferTo(filePath.toFile());
+        StoredAsset storedAsset = publicAssetStorageService.storeMultipartFile(file, subDir);
 
         Asset asset = new Asset();
         asset.setUserId(userId);
         asset.setProjectId(projectId);
         asset.setName(originalName);
         asset.setType(determineType(file.getContentType()));
-        asset.setFilePath(filePath.toString());
-        asset.setUrl(baseUrl + "/" + subDir + "/" + filename);
-        asset.setFileSize(file.getSize());
-        asset.setMimeType(file.getContentType());
+        asset.setFilePath(storedAsset.filePath());
+        asset.setUrl(storedAsset.publicUrl());
+        asset.setFileSize(storedAsset.fileSize());
+        asset.setMimeType(storedAsset.contentType());
         asset.setRefType(refType);
         asset.setRefId(refId);
         assetMapper.insert(asset);
@@ -74,14 +54,7 @@ public class AssetService {
     public void deleteAsset(Long id) {
         Asset asset = assetMapper.selectById(id);
         if (asset != null) {
-            // Delete physical file
-            if (asset.getFilePath() != null) {
-                try {
-                    Files.deleteIfExists(Paths.get(asset.getFilePath()));
-                } catch (IOException e) {
-                    log.warn("Failed to delete file: {}", asset.getFilePath());
-                }
-            }
+            publicAssetStorageService.deleteStoredAsset(asset.getFilePath(), asset.getUrl());
             assetMapper.deleteById(id);
         }
     }

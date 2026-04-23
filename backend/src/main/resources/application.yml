@@ -65,7 +65,7 @@ niren:
       provider: ${AI_VIDEO_PROVIDER:aliyun}
       base-url: ${AI_VIDEO_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
       api-key: ${AI_VIDEO_API_KEY:}
-      model: ${AI_VIDEO_MODEL:wan2.6-t2v}
+      model: ${AI_VIDEO_MODEL:wan2.7-i2v}
     tts:
       provider: ${AI_TTS_PROVIDER:aliyun}
       base-url: ${AI_TTS_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
@@ -80,6 +80,15 @@ niren:
     preview-resolution: ${COST_PREVIEW_RESOLUTION:512x512}
   ffmpeg:
     path: ${FFMPEG_PATH:ffmpeg}
+  storage:
+    cos:
+      enabled: ${NIREN_COS_ENABLED:true}
+      secret-id: ${NIREN_COS_SECRET_ID:AKIDMwLYxHYkkgkiWAct1ykLm26yfikhfhaH}
+      secret-key: ${NIREN_COS_SECRET_KEY:ax9GLH3hP1a4PYffV8rOiplV7Yo2CXjr}
+      region: ${NIREN_COS_REGION:ap-beijing}
+      bucket: ${NIREN_COS_BUCKET:niren-1310485284}
+      public-base-url: ${NIREN_COS_PUBLIC_BASE_URL:https://niren-1310485284.cos.ap-beijing.myqcloud.com}
+      base-path: ${NIREN_COS_BASE_PATH:niren-drama}
 
 knife4j:
   enable: true
