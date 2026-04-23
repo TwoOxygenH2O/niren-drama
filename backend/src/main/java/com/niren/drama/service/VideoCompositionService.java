@@ -39,6 +39,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -72,6 +73,8 @@ public class VideoCompositionService {
 
     @Value("${niren.ffmpeg.path:ffmpeg}")
     private String ffmpegPath;
+
+    private volatile String resolvedFfmpegExecutable;
 
     private static final String SHOT_VIDEO_DIR = "shot-videos";
 
@@ -673,24 +676,146 @@ public class VideoCompositionService {
     }
 
     private void executeFFmpeg(List<String> cmd) throws IOException, InterruptedException {
+        String executable = resolveFfmpegExecutable();
+        cmd.set(0, executable);
         log.debug("FFmpeg command: {}", String.join(" ", cmd));
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
-        Process process = pb.start();
+        Process process;
+        try {
+            process = pb.start();
+        } catch (IOException e) {
+            throw new IOException(buildFfmpegStartFailureMessage(executable), e);
+        }
 
         // Read output to prevent blocking
+        List<String> outputLines = new ArrayList<>();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 log.trace("FFmpeg: {}", line);
+                if (outputLines.size() >= 40) {
+                    outputLines.remove(0);
+                }
+                outputLines.add(line);
             }
         }
 
         int exitCode = process.waitFor();
         if (exitCode != 0) {
-            throw new RuntimeException("FFmpeg exited with code " + exitCode);
+            String tail = outputLines.isEmpty()
+                    ? "<no ffmpeg output captured>"
+                    : String.join(" | ", outputLines);
+            throw new RuntimeException("FFmpeg exited with code " + exitCode
+                    + ", command=" + String.join(" ", cmd)
+                    + ", outputTail=" + tail);
         }
+    }
+
+    private String resolveFfmpegExecutable() {
+        if (hasText(resolvedFfmpegExecutable)) {
+            return resolvedFfmpegExecutable;
+        }
+
+        String configured = normalizeExecutableConfig(ffmpegPath);
+        Path configuredPath = toPath(configured);
+        if (configuredPath != null && Files.exists(configuredPath)) {
+            resolvedFfmpegExecutable = configuredPath.toAbsolutePath().toString();
+            log.info("FFmpeg executable resolved from configured path: {}", resolvedFfmpegExecutable);
+            return resolvedFfmpegExecutable;
+        }
+
+        if (isWindows() && !configured.toLowerCase(Locale.ROOT).endsWith(".exe")) {
+            Path configuredExePath = toPath(configured + ".exe");
+            if (configuredExePath != null && Files.exists(configuredExePath)) {
+                resolvedFfmpegExecutable = configuredExePath.toAbsolutePath().toString();
+                log.info("FFmpeg executable resolved from configured path with .exe: {}", resolvedFfmpegExecutable);
+                return resolvedFfmpegExecutable;
+            }
+        }
+
+        String foundOnPath = findOnSystemPath(configured);
+        if (hasText(foundOnPath)) {
+            resolvedFfmpegExecutable = foundOnPath;
+            log.info("FFmpeg executable resolved from PATH: {}", resolvedFfmpegExecutable);
+            return resolvedFfmpegExecutable;
+        }
+
+        if (isWindows()) {
+            String foundExeOnPath = findOnSystemPath(configured + ".exe");
+            if (hasText(foundExeOnPath)) {
+                resolvedFfmpegExecutable = foundExeOnPath;
+                log.info("FFmpeg executable resolved from PATH with .exe: {}", resolvedFfmpegExecutable);
+                return resolvedFfmpegExecutable;
+            }
+        }
+
+        // Fallback to configured value; startup error will include detailed diagnostics.
+        resolvedFfmpegExecutable = configured;
+        return resolvedFfmpegExecutable;
+    }
+
+    private String findOnSystemPath(String executableName) {
+        String pathEnv = System.getenv("PATH");
+        if (!hasText(pathEnv)) {
+            return null;
+        }
+        String[] entries = pathEnv.split(isWindows() ? ";" : ":");
+        for (String entry : entries) {
+            if (!hasText(entry)) {
+                continue;
+            }
+            try {
+                Path candidate = Paths.get(entry.trim(), executableName);
+                if (Files.exists(candidate) && Files.isRegularFile(candidate)) {
+                    return candidate.toAbsolutePath().toString();
+                }
+            } catch (Exception ignored) {
+                // Skip invalid PATH entries or executable names and continue scanning.
+            }
+        }
+        return null;
+    }
+
+    private String normalizeExecutableConfig(String configuredValue) {
+        String value = hasText(configuredValue) ? configuredValue.trim() : "ffmpeg";
+        while ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.substring(1, value.length() - 1).trim();
+        }
+        // Handle malformed values such as "\ffmpeg or quoted strings copied from shell commands.
+        value = value.replace("\"", "").trim();
+        if (isWindows() && value.startsWith("\\") && !value.startsWith("\\\\") && !value.contains(":")) {
+            value = value.substring(1);
+        }
+        return hasText(value) ? value : "ffmpeg";
+    }
+
+    private Path toPath(String value) {
+        if (!hasText(value)) {
+            return null;
+        }
+        try {
+            return Paths.get(value);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String buildFfmpegStartFailureMessage(String executable) {
+        String pathEnv = System.getenv("PATH");
+        int pathLength = pathEnv == null ? 0 : pathEnv.length();
+        return "无法启动 FFmpeg，可执行文件未找到或不可执行。"
+                + " configured='" + ffmpegPath + "'"
+                + ", resolved='" + executable + "'"
+                + ", os='" + System.getProperty("os.name") + "'"
+                + ", PATH.length=" + pathLength
+                + "。请在配置 niren.ffmpeg.path 中填写 ffmpeg.exe 绝对路径，或重启启动后端进程使最新 PATH 生效。";
+    }
+
+    private boolean isWindows() {
+        String os = System.getProperty("os.name");
+        return os != null && os.toLowerCase(Locale.ROOT).contains("win");
     }
 
     private void downloadFile(String url, Path target) throws IOException {

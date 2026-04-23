@@ -204,7 +204,14 @@ public class AiVideoGenerationService {
 
             ObjectNode input = body.putObject("input");
             input.put("prompt", prompt);
-            input.put("img_url", effectiveReferenceImageUrl);
+            if (requiresInputMediaField(resolvedModel)) {
+                ObjectNode mediaItem = objectMapper.createObjectNode();
+                mediaItem.put("type", "first_frame");
+                mediaItem.put("url", effectiveReferenceImageUrl);
+                input.putArray("media").add(mediaItem);
+            } else {
+                input.put("img_url", effectiveReferenceImageUrl);
+            }
 
             ObjectNode parameters = body.putObject("parameters");
             parameters.put("resolution", "720P");
@@ -758,6 +765,14 @@ public class AiVideoGenerationService {
 
     private String resolveAliyunVideoEndpoint(String baseUrl) {
         return normalizeAliyunApiBase(baseUrl) + "/services/aigc/video-generation/video-synthesis";
+    }
+
+    private boolean requiresInputMediaField(String model) {
+        if (!hasText(model)) {
+            return false;
+        }
+        String normalized = model.trim().toLowerCase(Locale.ROOT);
+        return normalized.startsWith("wan2.7-i2v");
     }
 
     private String normalizeAliyunApiBase(String value) {

@@ -79,7 +79,7 @@ niren:
     video-ai-shot-ratio: ${COST_VIDEO_AI_RATIO:0.3}
     preview-resolution: ${COST_PREVIEW_RESOLUTION:512x512}
   ffmpeg:
-    path: ${FFMPEG_PATH:ffmpeg}
+    path: ${FFMPEG_PATH:D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffmpeg.exe}
   storage:
     cos:
       enabled: ${NIREN_COS_ENABLED:true}
