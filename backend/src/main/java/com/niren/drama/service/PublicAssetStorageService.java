@@ -52,6 +52,8 @@ public class PublicAssetStorageService {
         String contentType = file.getContentType();
         String fileName = buildFileName(originalName, contentType, null);
         if (isCosEnabled()) {
+            log.info("Attempting COS upload for multipart file: sourceName={}, subDir={}, generatedFileName={}, size={}, contentType={}",
+                    originalName, subDir, fileName, file.getSize(), contentType);
             try (InputStream inputStream = file.getInputStream()) {
                 return uploadToCos(inputStream, file.getSize(), subDir, fileName, contentType, originalName);
             } catch (Exception e) {
@@ -60,6 +62,8 @@ public class PublicAssetStorageService {
                 return localAsset;
             }
         }
+        log.info("COS disabled or not fully configured, store multipart file locally: sourceName={}, subDir={}, generatedFileName={}",
+                originalName, subDir, fileName);
         return saveMultipartToLocal(file, subDir, fileName, contentType, originalName);
     }
 
@@ -73,6 +77,8 @@ public class PublicAssetStorageService {
         }
         String fileName = buildFileName(originalName, contentType, fallbackExtension);
         if (isCosEnabled()) {
+            log.info("Attempting COS upload for byte content: sourceName={}, subDir={}, generatedFileName={}, size={}, contentType={}",
+                    originalName, subDir, fileName, bytes.length, contentType);
             try {
                 return uploadToCos(bytes, subDir, fileName, contentType, originalName);
             } catch (Exception e) {
@@ -81,6 +87,8 @@ public class PublicAssetStorageService {
                 return localAsset;
             }
         }
+        log.info("COS disabled or not fully configured, store bytes locally: sourceName={}, subDir={}, generatedFileName={}",
+                originalName, subDir, fileName);
         return saveToLocal(bytes, subDir, fileName, contentType, originalName);
     }
 
@@ -90,6 +98,8 @@ public class PublicAssetStorageService {
                                       String contentType) throws IOException {
         String fileName = buildFileName(originalName, contentType, extensionFromName(sourceFile.getFileName().toString()));
         if (isCosEnabled()) {
+            log.info("Attempting COS upload for local file: sourcePath={}, subDir={}, generatedFileName={}, contentType={}",
+                    sourceFile, subDir, fileName, contentType);
             try (InputStream inputStream = Files.newInputStream(sourceFile)) {
                 return uploadToCos(inputStream, Files.size(sourceFile), subDir, fileName, contentType, originalName);
             } catch (Exception e) {
@@ -98,6 +108,8 @@ public class PublicAssetStorageService {
                 return localAsset;
             }
         }
+        log.info("COS disabled or not fully configured, store local file by copy: sourcePath={}, subDir={}, generatedFileName={}",
+                sourceFile, subDir, fileName);
         return copyLocalFile(sourceFile, subDir, fileName, contentType, originalName);
     }
 
@@ -172,7 +184,9 @@ public class PublicAssetStorageService {
                 String objectKey = filePath.substring(("cos://" + cosProperties.getBucket() + "/").length());
                 COSClient cosClient = cosClientProvider.getIfAvailable();
                 if (cosClient != null) {
+                    log.info("Deleting COS object: bucket={}, objectKey={}", cosProperties.getBucket(), objectKey);
                     cosClient.deleteObject(cosProperties.getBucket(), objectKey);
+                    log.info("Deleted COS object successfully: bucket={}, objectKey={}", cosProperties.getBucket(), objectKey);
                 }
                 return;
             }
@@ -212,6 +226,8 @@ public class PublicAssetStorageService {
             throw new IllegalStateException("COS 已启用，但 COSClient 未初始化");
         }
         String objectKey = buildObjectKey(subDir, fileName);
+        log.info("Calling COS putObject: bucket={}, objectKey={}, size={}, contentType={}, sourceName={}",
+                cosProperties.getBucket(), objectKey, contentLength, contentType, originalName);
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(contentLength);
         if (hasText(contentType)) {
@@ -223,13 +239,16 @@ public class PublicAssetStorageService {
                 inputStream,
                 metadata);
         cosClient.putObject(request);
-        return new StoredAsset(
+            StoredAsset storedAsset = new StoredAsset(
                 buildCosPublicUrl(objectKey),
                 "cos://" + cosProperties.getBucket() + "/" + objectKey,
                 objectKey,
                 contentLength,
                 contentType,
                 originalName);
+            log.info("COS upload succeeded: bucket={}, objectKey={}, publicUrl={}, size={}",
+                cosProperties.getBucket(), objectKey, storedAsset.publicUrl(), contentLength);
+            return storedAsset;
     }
 
     private StoredAsset saveToLocal(byte[] bytes,
