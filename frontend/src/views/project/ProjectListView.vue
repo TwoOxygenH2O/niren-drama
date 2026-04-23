@@ -7,8 +7,11 @@
 
     <el-table :data="projects" v-loading="loading" stripe style="width: 100%">
       <el-table-column prop="name" label="项目名称" min-width="160" />
+      <el-table-column prop="projectType" label="类型" width="110">
+        <template #default="{ row }">{{ formatProjectTypeLabel(row.projectType) }}</template>
+      </el-table-column>
       <el-table-column prop="genre" label="题材" width="100">
-        <template #default="{ row }">{{ genreLabel(row.genre) }}</template>
+        <template #default="{ row }">{{ formatGenreLabel(row.genre) || '-' }}</template>
       </el-table-column>
       <el-table-column prop="episodes" label="集数" width="80" align="center" />
       <el-table-column prop="episodeDuration" label="单集时长" width="100" align="center">
@@ -51,14 +54,14 @@
         <el-form-item label="项目名称" prop="name">
           <el-input v-model="form.name" placeholder="如：都市爱情短剧第一季" />
         </el-form-item>
+        <el-form-item label="项目类型" prop="projectType">
+          <el-select v-model="form.projectType" placeholder="选择项目类型" style="width: 100%">
+            <el-option v-for="option in PROJECT_TYPE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="题材风格" prop="genre">
           <el-select v-model="form.genre" placeholder="选择题材" style="width: 100%">
-            <el-option label="都市言情" value="都市言情" />
-            <el-option label="玄幻奇幻" value="玄幻奇幻" />
-            <el-option label="悬疑惊悚" value="悬疑惊悚" />
-            <el-option label="都市职场" value="都市职场" />
-            <el-option label="古装历史" value="古装历史" />
-            <el-option label="喜剧搞笑" value="喜剧搞笑" />
+            <el-option v-for="option in GENRE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="剧集数量" prop="episodes">
@@ -84,6 +87,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { projectApi } from '@/api/project'
+import { DEFAULT_PROJECT_TYPE, GENRE_OPTIONS, PROJECT_TYPE_OPTIONS, formatGenreLabel, formatProjectTypeLabel } from '@/constants/project'
 
 const projects = ref<any[]>([])
 const loading = ref(false)
@@ -94,15 +98,15 @@ const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 
-const form = ref({ name: '', genre: '', episodes: 1, episodeDuration: 180, description: '' })
+const form = ref({ name: '', projectType: DEFAULT_PROJECT_TYPE, genre: '', episodes: 1, episodeDuration: 180, description: '' })
 const rules = {
   name: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
+  projectType: [{ required: true, message: '请选择项目类型', trigger: 'change' }],
   episodes: [{ required: true, message: '请填写集数', trigger: 'blur' }],
   episodeDuration: [{ required: true, message: '请填写时长', trigger: 'blur' }],
 }
 
 const statusLabel = (s: string) => ({ draft: '草稿', generating: '生成中', completed: '已完成', failed: '失败' }[s] || s)
-const genreLabel = (g: string) => ({ romance: '都市言情', fantasy: '玄幻奇幻', thriller: '悬疑惊悚', urban: '都市职场', historical: '古装历史', comedy: '喜剧搞笑' }[g] || g || '-')
 
 async function load() {
   loading.value = true
@@ -136,7 +140,7 @@ async function handleDelete(id: number) {
 }
 
 function resetForm() {
-  form.value = { name: '', genre: '', episodes: 1, episodeDuration: 180, description: '' }
+  form.value = { name: '', projectType: DEFAULT_PROJECT_TYPE, genre: '', episodes: 1, episodeDuration: 180, description: '' }
   formRef.value?.clearValidate()
 }
 

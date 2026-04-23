@@ -25,8 +25,12 @@
 
     <div class="project-info-cards" v-if="project">
       <div class="info-card">
+        <div class="info-label">类型</div>
+        <div class="info-value">{{ formatProjectTypeLabel(project.projectType) }}</div>
+      </div>
+      <div class="info-card">
         <div class="info-label">题材</div>
-        <div class="info-value">{{ genreLabel(project.genre) }}</div>
+        <div class="info-value">{{ formatGenreLabel(project.genre) || '未设置' }}</div>
       </div>
       <div class="info-card">
         <div class="info-label">集数</div>
@@ -58,6 +62,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { projectApi } from '@/api/project'
+import { formatGenreLabel, formatProjectTypeLabel } from '@/constants/project'
 
 const route = useRoute()
 const project = ref<any>(null)
@@ -72,7 +77,6 @@ const workflowSteps = [
 ]
 
 const statusLabel = (s: string) => ({ draft: '草稿', generating: '生成中', completed: '已完成', failed: '失败' }[s] || s)
-const genreLabel = (g: string) => ({ romance: '都市言情', fantasy: '玄幻奇幻', thriller: '悬疑惊悚', urban: '都市职场', historical: '古装历史', comedy: '喜剧搞笑' }[g] || g || '-')
 
 onMounted(async () => {
   try {

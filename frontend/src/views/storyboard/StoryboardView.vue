@@ -220,6 +220,8 @@ const storyboardRepairHint = computed(() => {
 const shotStatusLabel = (status: string) => ({
   draft: '草稿',
   image_generated: '图片已生成',
+  video_submitted: '视频任务已提交',
+  video_polling: '视频生成中',
   video_generated: '视频已生成',
   audio_generated: '音频已生成',
   completed: '已完成',

@@ -3,7 +3,9 @@ package com.niren.drama.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.ImageAiProvider;
+import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.dto.scene.SceneCreateRequest;
+import com.niren.drama.entity.Project;
 import com.niren.drama.entity.Scene;
 import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.exception.BusinessException;
@@ -25,6 +27,7 @@ public class SceneService {
     private final SceneMapper sceneMapper;
     private final TaskRecordMapper taskRecordMapper;
     private final AiProviderFactory aiProviderFactory;
+    private final ProjectService projectService;
     private final ObjectProvider<SceneService> selfProvider;
 
     public Scene createScene(SceneCreateRequest request) {
@@ -91,7 +94,8 @@ public class SceneService {
             taskRecordMapper.updateById(task);
 
             ImageAiProvider imageProvider = aiProviderFactory.getImageProvider(userId);
-            String prompt = buildSceneImagePrompt(scene);
+            Project project = projectService.getProject(scene.getProjectId());
+            String prompt = buildSceneImagePrompt(scene, project);
             String imageUrl = imageProvider.generateImage(prompt, "1024x1792", null);
 
             scene.setImageUrl(imageUrl);
@@ -111,7 +115,7 @@ public class SceneService {
         }
     }
 
-    private String buildSceneImagePrompt(Scene scene) {
+    private String buildSceneImagePrompt(Scene scene, Project project) {
         String timeOfDay = scene.getTimeOfDay() != null ? scene.getTimeOfDay() : "day";
         String location = scene.getLocation() != null ? scene.getLocation() : "outdoor";
         String timeLight = switch (timeOfDay) {
@@ -120,13 +124,18 @@ public class SceneService {
             case "morning", "dawn" -> "清晨柔和光线，薄雾氛围，暖白色调";
             default -> "日间自然光，明亮通透，光影层次分明";
         };
+        String projectType = ProjectStyleSupport.resolveProjectType(project != null ? project.getProjectType() : null);
+        String genre = ProjectStyleSupport.resolveGenre(project != null ? project.getGenre() : null);
         return String.format(
-                "竖版9:16构图，短剧场景背景图，%s，%s，%s，%s，"
+                "竖版9:16构图，短剧场景背景图，项目类型：%s，题材：%s，%s，%s，%s，%s，视觉约束：%s，"
                 + "无人物，电影级质感，高清4K，景深效果，丰富的环境细节，"
                 + "戏剧性光影，适合作为短剧分镜背景使用",
+                projectType,
+                genre,
                 scene.getName(),
                 scene.getDescription() != null ? scene.getDescription() : "",
                 location.equals("indoor") ? "室内场景" : "室外场景",
-                timeLight);
+                timeLight,
+                ProjectStyleSupport.buildVisualCreationRules(projectType, genre).replace("\n", " ").replace("- ", " "));
     }
 }

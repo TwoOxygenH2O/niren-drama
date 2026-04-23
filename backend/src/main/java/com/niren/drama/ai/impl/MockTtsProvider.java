@@ -21,6 +21,16 @@ public class MockTtsProvider implements TtsProvider {
     }
 
     @Override
+    public byte[] synthesize(String text,
+                             String voiceId,
+                             float speed,
+                             float pitch,
+                             String instruction,
+                             String languageType) {
+        return synthesize(text, voiceId, speed, pitch);
+    }
+
+    @Override
     public List<VoiceInfo> listVoices() {
         return List.of(
             new VoiceInfo("zh_female_qingxin", "清新女声", "female", "zh-CN", "清新自然的女声"),

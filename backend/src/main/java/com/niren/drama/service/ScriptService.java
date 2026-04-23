@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.TextAiProvider;
+import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.dto.script.BatchScriptPreviewSaveRequest;
 import com.niren.drama.dto.script.OutlinePreviewRepairRequest;
 import com.niren.drama.dto.script.OutlinePreviewSaveRequest;
@@ -131,7 +132,7 @@ public class ScriptService {
             userId, request.getProjectId(), totalEpisodes, episodeDuration);
 
         TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
-        String systemPrompt = buildOutlineSystemPrompt(resolveGenre(project, request), request.getStyle());
+        String systemPrompt = buildOutlineSystemPrompt(project, resolveGenre(project, request), request.getStyle());
 
         String commonInfo = generateProjectCommonInfoWithRetry(
             textProvider,
@@ -220,7 +221,7 @@ public class ScriptService {
         generateRequest.setIdea(request.getIdea());
 
         TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
-        String systemPrompt = buildOutlineSystemPrompt(resolveGenre(project, generateRequest), generateRequest.getStyle());
+        String systemPrompt = buildOutlineSystemPrompt(project, resolveGenre(project, generateRequest), generateRequest.getStyle());
         int episodeDuration = resolveEpisodeDuration(project);
         for (Integer episodeNo : missingEpisodes) {
             if (episodeNo == null || outlineMap.containsKey(episodeNo)) {
@@ -293,7 +294,7 @@ public class ScriptService {
 
             updateTask(task, "RUNNING", 10, "正在生成项目通用信息与人物小传...");
             TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
-            String systemPrompt = buildOutlineSystemPrompt(resolveGenre(project, request), request.getStyle());
+            String systemPrompt = buildOutlineSystemPrompt(project, resolveGenre(project, request), request.getStyle());
                 String commonInfo = generateProjectCommonInfoWithRetry(
                     textProvider,
                     systemPrompt,
@@ -366,7 +367,7 @@ public class ScriptService {
             updateTask(task, "RUNNING", 5,
                     String.format("开始批量生成第 %d-%d 集剧本...", startEpisode, endEpisode));
             TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
-            String systemPrompt = buildScriptSystemPrompt(resolveGenre(project, request), request.getStyle());
+            String systemPrompt = buildScriptSystemPrompt(project, resolveGenre(project, request), request.getStyle());
 
             // Generate and save each episode individually so that completed episodes are
             // persisted immediately. This avoids losing all progress when the AI returns
@@ -408,7 +409,7 @@ public class ScriptService {
             userId, request.getProjectId(), plan.startEpisode(), plan.endEpisode(), plan.totalEpisodes());
 
         TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
-        String systemPrompt = buildScriptSystemPrompt(resolveGenre(project, request), request.getStyle());
+        String systemPrompt = buildScriptSystemPrompt(project, resolveGenre(project, request), request.getStyle());
 
         if (plan.startEpisode() != plan.endEpisode()) {
             GenerationMaterials materials = loadGenerationMaterials(project, plan.startEpisode(), plan.endEpisode());
@@ -437,7 +438,7 @@ public class ScriptService {
             updateTask(task, "RUNNING", 10, "开始生成剧本...");
 
             TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
-            String systemPrompt = buildScriptSystemPrompt(resolveGenre(project, request), request.getStyle());
+            String systemPrompt = buildScriptSystemPrompt(project, resolveGenre(project, request), request.getStyle());
             String userPrompt = buildScriptUserPrompt(request, materials, episodeNo);
 
             updateTask(task, "RUNNING", 30, "AI正在生成剧本内容...");
@@ -622,6 +623,9 @@ public class ScriptService {
                                               int endEpisode,
                                               int totalEpisodes) {
         SceneBudget sceneBudget = resolveSceneBudget(materials.project());
+                String projectType = resolveProjectType(materials.project());
+                String genre = resolveGenre(materials.project(), request);
+                String styleGuide = ProjectStyleSupport.buildTextCreationRules(projectType, genre);
         StringBuilder outlines = new StringBuilder();
         for (int ep = startEpisode; ep <= endEpisode; ep++) {
             Script script = materials.scriptsByEpisode().get(ep);
@@ -634,8 +638,12 @@ public class ScriptService {
                 请根据项目通用信息和分集大纲，连续生成第 %d 到第 %d 集剧本（共 %d 集中的区间）。
 
                 项目名称：%s
+                项目类型：%s
                 题材：%s
                 单集时长：约 %d 秒
+
+                项目风格约束：
+                %s
 
                 项目通用信息（人物小传/世界观/关系线/长期伏笔）：
                 %s
@@ -666,8 +674,10 @@ public class ScriptService {
                 endEpisode,
                 totalEpisodes,
                 materials.project().getName(),
-                resolveGenre(materials.project(), request),
+                projectType,
+                genre,
                 resolveEpisodeDuration(materials.project()),
+                styleGuide,
                 materials.commonInfo(),
                 outlines,
                 formatOptionalAdjustment(request.getIdea()),
@@ -718,9 +728,11 @@ public class ScriptService {
         return scripts;
     }
 
-    private String buildOutlineSystemPrompt(String genre, String style) {
-        String genreText = genre != null ? genre : "都市言情";
+    private String buildOutlineSystemPrompt(Project project, String genre, String style) {
+        String projectType = resolveProjectType(project);
+        String genreText = ProjectStyleSupport.resolveGenre(genre);
         String styleText = style != null ? style : "";
+        String styleGuide = ProjectStyleSupport.buildTextCreationRules(projectType, genreText);
         return String.format("""
                 # 角色定位
                 你是一位负责短剧项目统筹策划的总编剧，要先搭建后续剧本、分镜、角色一致性都会复用的稳定设定。
@@ -736,14 +748,20 @@ public class ScriptService {
                 - 设定必须前后一致，不允许互相打架。
                 - 节奏必须符合短剧商业化表达和竖屏内容习惯。
 
-                # 题材风格
+                # 项目类型与题材
+                项目类型：%s
                 %s %s
-                """, genreText, styleText);
+
+                # 项目风格锚点
+                %s
+                """, projectType, genreText, styleText, styleGuide);
     }
 
-    private String buildScriptSystemPrompt(String genre, String style) {
-        String genreText = genre != null ? genre : "都市言情";
+    private String buildScriptSystemPrompt(Project project, String genre, String style) {
+        String projectType = resolveProjectType(project);
+        String genreText = ProjectStyleSupport.resolveGenre(genre);
         String styleText = style != null ? style : "";
+        String styleGuide = ProjectStyleSupport.buildTextCreationRules(projectType, genreText);
         return String.format("""
                 # 角色定位
                 你是一位拥有10年爆款短剧编剧经验的金牌编剧，专精红果短剧、抖音短剧平台。
@@ -792,9 +810,13 @@ public class ScriptService {
                 - 同一场景内多个镜头保持视觉连贯性
                 - 对话场景优先使用特写和中景镜头
                 
-                # 题材风格
+                # 项目类型与题材
+                项目类型：%s
                 %s %s
-                """, genreText, styleText);
+
+                # 项目风格锚点
+                %s
+                """, projectType, genreText, styleText, styleGuide);
     }
 
     private String generateProjectCommonInfoWithRetry(TextAiProvider textProvider,
@@ -864,13 +886,19 @@ public class ScriptService {
                                                                      ScriptGenerateRequest request,
                                                                      int totalEpisodes,
                                                                      int episodeDuration) {
+          String projectType = resolveProjectType(project);
+          String genre = resolveGenre(project, request);
+          String styleGuide = ProjectStyleSupport.buildTextCreationRules(projectType, genre);
           return String.format("""
                      请为以下短剧项目先生成后续整条生产链路都会用到的项目通用信息。
 
                      项目名称：%s
+                     项目类型：%s
                      题材：%s
                      总集数：%d
                      单集时长：约 %d 秒
+                     项目风格约束：
+                     %s
                      用户提供的故事创意/补充设定：
                      %s
 
@@ -891,9 +919,11 @@ public class ScriptService {
                      4) 所有信息要匹配总集数与单集时长，避免过度发散。
                      """,
                      project.getName(),
-                     resolveGenre(project, request),
+                     projectType,
+                     genre,
                      totalEpisodes,
                      episodeDuration,
+                     styleGuide,
                      resolveCreativeSeed(project, request, true));
      }
 
@@ -905,12 +935,20 @@ public class ScriptService {
                                                                  int totalEpisodes,
                                                                  int episodeDuration) {
           SceneBudget sceneBudget = resolveSceneBudget(project);
+          String projectType = resolveProjectType(project);
+          String genre = resolveGenre(project, request);
+          String styleGuide = ProjectStyleSupport.buildTextCreationRules(projectType, genre);
           return String.format("""
                      请基于以下项目通用信息，为第 %d 到第 %d 集生成分集大纲。
 
                      项目名称：%s
+                     项目类型：%s
+                     题材：%s
                      总集数：%d
                      单集时长：约 %d 秒
+
+                     项目风格约束：
+                     %s
 
                      项目通用信息：
                      %s
@@ -940,8 +978,11 @@ public class ScriptService {
                      startEpisode,
                      endEpisode,
                      project.getName(),
+                     projectType,
+                     genre,
                      totalEpisodes,
                      episodeDuration,
+                     styleGuide,
                      commonInfo,
                      startEpisode,
                      endEpisode,
@@ -1071,15 +1112,21 @@ public class ScriptService {
      private String buildScriptUserPrompt(ScriptGenerateRequest request, GenerationMaterials materials, int episodeNo) {
           int totalEpisodes = request.getTotalEpisodes() != null ? request.getTotalEpisodes() : 1;
           SceneBudget sceneBudget = resolveSceneBudget(materials.project());
+                    String projectType = resolveProjectType(materials.project());
+                    String genre = resolveGenre(materials.project(), request);
+                    String styleGuide = ProjectStyleSupport.buildTextCreationRules(projectType, genre);
           Script currentScript = materials.scriptsByEpisode().get(episodeNo);
         return String.format("""
                      请根据以下项目通用信息和分集大纲，生成第 %d 集完整剧本（共 %d 集中的当前集）。
                 
                      ## 项目基础信息
                      - 项目名称：%s
+                                         - 项目类型：%s
                      - 题材：%s
                      - 总集数：%d
                      - 单集时长：约 %d 秒
+                                         - 项目风格约束：
+                                         %s
                 
                      ## 项目通用信息
                      %s
@@ -1124,9 +1171,11 @@ public class ScriptService {
                 episodeNo,
                 totalEpisodes,
                 materials.project().getName(),
-                resolveGenre(materials.project(), request),
+                projectType,
+                genre,
                 totalEpisodes,
                 resolveEpisodeDuration(materials.project()),
+                styleGuide,
                 materials.commonInfo(),
                 StringUtils.defaultIfBlank(currentScript.getTitle(), "第" + episodeNo + "集"),
                 StringUtils.defaultString(currentScript.getSummary()).trim(),
@@ -1754,7 +1803,11 @@ public class ScriptService {
     }
 
     private String resolveGenre(Project project, ScriptGenerateRequest request) {
-        return StringUtils.defaultIfBlank(request.getGenre(), project.getGenre());
+        return ProjectStyleSupport.resolveGenre(StringUtils.defaultIfBlank(request.getGenre(), project.getGenre()));
+    }
+
+    private String resolveProjectType(Project project) {
+        return ProjectStyleSupport.resolveProjectType(project != null ? project.getProjectType() : null);
     }
 
     private String formatNeighborOutline(String label, Script script) {

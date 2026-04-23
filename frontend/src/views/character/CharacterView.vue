@@ -64,8 +64,22 @@
         </el-form-item>
         <el-form-item label="音色">
           <el-select v-model="form.voiceId" placeholder="选择TTS音色" style="width: 100%" @change="onVoiceChange">
-            <el-option v-for="v in voices" :key="v.voiceId" :label="v.name" :value="v.voiceId" />
+            <el-option
+              v-for="v in voices"
+              :key="v.voiceId"
+              :label="`${v.name}（${v.voiceId}）`"
+              :value="v.voiceId"
+            >
+              <div class="voice-option">
+                <div class="voice-option-head">
+                  <span class="voice-option-name">{{ v.name }}</span>
+                  <span class="voice-option-id">{{ v.voiceId }}</span>
+                </div>
+                <div v-if="v.description" class="voice-option-desc">{{ v.description }}</div>
+              </div>
+            </el-option>
           </el-select>
+          <div class="voice-tip">音色列表会跟随当前默认 TTS 模型变化。若要使用更细的语气描述，请在 AI 配置中心将 TTS 模型设为 qwen3-tts-instruct-flash。</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -84,11 +98,19 @@ import { Plus } from '@element-plus/icons-vue'
 import { characterApi } from '@/api/character'
 import { taskApi } from '@/api/task'
 
+interface VoiceOption {
+  voiceId: string
+  name: string
+  description?: string
+  gender?: string
+  language?: string
+}
+
 const route = useRoute()
 const projectId = route.params.id
 
 const characters = ref<any[]>([])
-const voices = ref<any[]>([])
+const voices = ref<VoiceOption[]>([])
 const showCreate = ref(false)
 const submitting = ref(false)
 const generatingId = ref<any>(null)
@@ -191,4 +213,10 @@ onMounted(async () => {
 .char-desc { font-size: 13px; color: #4a5568; margin-bottom: 8px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .char-voice { font-size: 12px; color: #6366f1; display: flex; align-items: center; gap: 4px; margin-bottom: 12px; }
 .char-actions { display: flex; gap: 8px; }
+.voice-tip { margin-top: 8px; font-size: 12px; line-height: 1.5; color: #64748b; }
+.voice-option { display: flex; flex-direction: column; gap: 4px; padding: 2px 0; }
+.voice-option-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.voice-option-name { font-weight: 600; color: #0f172a; }
+.voice-option-id { font-size: 12px; color: #64748b; }
+.voice-option-desc { font-size: 12px; line-height: 1.4; color: #475569; white-space: normal; }
 </style>

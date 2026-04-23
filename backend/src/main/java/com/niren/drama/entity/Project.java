@@ -13,6 +13,8 @@ public class Project extends BaseEntity {
     private String description;
     /** Shared series bible used by script/storyboard generation */
     private String commonInfo;
+    /** 真人短剧 | 漫画短剧 */
+    private String projectType;
     /** romance, fantasy, thriller, urban, historical, etc. */
     private String genre;
     private Integer episodes;

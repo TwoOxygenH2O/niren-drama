@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.niren.drama.ai.ImageAiProvider;
+import com.niren.drama.ai.RemoteAssetStorage;
 import com.niren.drama.ai.trace.AiTraceSupport;
 import lombok.extern.slf4j.Slf4j;
 
@@ -28,14 +29,27 @@ public class AliyunImageProvider implements ImageAiProvider {
     private final String apiBaseUrl;
     private final String apiKey;
     private final String model;
+    private final String uploadPath;
+    private final String publicBaseUrl;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
     public AliyunImageProvider(String baseUrl, String apiKey, String model, String providerName) {
+        this(baseUrl, apiKey, model, providerName, null, null);
+    }
+
+    public AliyunImageProvider(String baseUrl,
+                               String apiKey,
+                               String model,
+                               String providerName,
+                               String uploadPath,
+                               String publicBaseUrl) {
         this.providerName = hasText(providerName) ? providerName : "aliyun";
         this.apiBaseUrl = normalizeApiBaseUrl(baseUrl);
         this.apiKey = apiKey;
         this.model = hasText(model) ? model : "qwen-image-2.0-pro";
+        this.uploadPath = uploadPath;
+        this.publicBaseUrl = publicBaseUrl;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
                 .build();
@@ -87,6 +101,7 @@ public class AliyunImageProvider implements ImageAiProvider {
                 error = "阿里云生图接口未返回有效图片地址: " + responseBody;
                 throw new RuntimeException(error);
             }
+            imageUrl = persistImageUrl(imageUrl);
             return imageUrl;
         } catch (Exception e) {
             if (!hasText(error)) {
@@ -312,5 +327,9 @@ public class AliyunImageProvider implements ImageAiProvider {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String persistImageUrl(String imageUrl) {
+        return RemoteAssetStorage.persistHttpUrl(imageUrl, uploadPath, publicBaseUrl, "generated-images", httpClient, "png");
     }
 }

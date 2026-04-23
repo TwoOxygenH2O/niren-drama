@@ -3,8 +3,10 @@ package com.niren.drama.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.ImageAiProvider;
+import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.dto.character.CharacterCreateRequest;
 import com.niren.drama.entity.Character;
+import com.niren.drama.entity.Project;
 import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.exception.BusinessException;
 import com.niren.drama.mapper.CharacterMapper;
@@ -25,6 +27,7 @@ public class CharacterService {
     private final CharacterMapper characterMapper;
     private final TaskRecordMapper taskRecordMapper;
     private final AiProviderFactory aiProviderFactory;
+    private final ProjectService projectService;
     private final ObjectProvider<CharacterService> selfProvider;
 
     public Character createCharacter(CharacterCreateRequest request) {
@@ -99,7 +102,8 @@ public class CharacterService {
             taskRecordMapper.updateById(task);
 
             ImageAiProvider imageProvider = aiProviderFactory.getImageProvider(userId);
-            String prompt = buildCharacterImagePrompt(character);
+            Project project = projectService.getProject(character.getProjectId());
+            String prompt = buildCharacterImagePrompt(character, project);
             String imageUrl = imageProvider.generateImage(prompt, "1024x1024", "vivid");
 
             character.setImageUrl(imageUrl);
@@ -119,20 +123,23 @@ public class CharacterService {
         }
     }
 
-    private String buildCharacterImagePrompt(Character character) {
+    private String buildCharacterImagePrompt(Character character, Project project) {
         String gender = character.getGender() != null
                 ? (character.getGender().equals("female") ? "女性" : "男性")
                 : "";
         String age = character.getAge() != null ? character.getAge() : "25";
         String appearance = character.getAppearance() != null ? character.getAppearance() : "五官精致，气质出众";
         String personality = character.getPersonality() != null ? character.getPersonality() : "自信从容";
+        String projectType = ProjectStyleSupport.resolveProjectType(project != null ? project.getProjectType() : null);
+        String genre = ProjectStyleSupport.resolveGenre(project != null ? project.getGenre() : null);
         return String.format(
                 "竖版9:16构图，短剧角色肖像定妆照，%s，%s，%s岁，"
-                + "外貌特征：%s，气质：%s，"
+                + "项目类型：%s，题材：%s，外貌特征：%s，气质：%s，视觉约束：%s，"
                 + "半身正面照，眼神有戏，电影级质感，高清4K，"
                 + "柔和的伦勃朗光影，浅灰色干净背景，"
                 + "专业摄影，浅景深虚化，适合作为短剧角色定妆照",
                 character.getName(), gender, age,
-                appearance, personality);
+                projectType, genre, appearance, personality,
+                ProjectStyleSupport.buildVisualCreationRules(projectType, genre).replace("\n", " ").replace("- ", " "));
     }
 }

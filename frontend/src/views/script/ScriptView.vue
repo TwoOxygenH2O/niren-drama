@@ -22,7 +22,7 @@
             <el-input-number v-model="genForm.endEpisode" :min="1" :max="episodeUpperBound" style="width: 180px" />
           </div>
           <div class="form-tip">
-            项目题材：{{ projectGenreLabel }}。项目共 {{ projectInfo?.episodes || '—' }} 集，单集约 {{ projectInfo?.episodeDuration || '—' }} 秒。
+            项目类型：{{ projectTypeLabel }}，项目题材：{{ projectGenreLabel }}。项目共 {{ projectInfo?.episodes || '—' }} 集，单集约 {{ projectInfo?.episodeDuration || '—' }} 秒。
           </div>
           <div class="form-tip">
             所有文本 AI 结果都会先进入预览弹窗，可修改后再确认入库。
@@ -143,6 +143,7 @@
       @cancel="resetOutlinePreview"
     >
       <template #meta>
+        <span class="preview-chip">{{ projectTypeLabel }}</span>
         <span class="preview-chip">{{ projectGenreLabel }}</span>
         <span class="preview-chip">{{ projectInfo?.episodes || 0 }} 集</span>
       </template>
@@ -193,6 +194,7 @@
       @cancel="resetScriptPreview"
     >
       <template #meta>
+        <span class="preview-chip">{{ projectTypeLabel }}</span>
         <span class="preview-chip">{{ projectGenreLabel }}</span>
         <span class="preview-chip">{{ scriptPreviewRangeLabel }}</span>
       </template>
@@ -248,6 +250,7 @@ import { ElMessage } from 'element-plus'
 import AiPreviewDialog from '@/components/AiPreviewDialog.vue'
 import { projectApi } from '@/api/project'
 import { scriptApi } from '@/api/script'
+import { formatGenreLabel, formatProjectTypeLabel } from '@/constants/project'
 
 type OutlinePreviewErrorData = {
   type?: string
@@ -296,22 +299,14 @@ const scriptPreview = ref({
   content: '',
 })
 
-const genreLabelMap: Record<string, string> = {
-  romance: '都市言情',
-  fantasy: '玄幻奇幻',
-  thriller: '悬疑惊悚',
-  urban: '都市职场',
-  historical: '古装历史',
-  comedy: '喜剧搞笑',
-}
-
 const episodeUpperBound = computed(() => projectInfo.value?.episodes || 120)
 const hasEpisodeSelection = computed(() => genForm.value.startEpisode != null || genForm.value.endEpisode != null)
 const outlineSeed = computed(() => (genForm.value.idea || projectInfo.value?.description || '').trim())
 const hasGeneratedOutline = computed(() => Boolean(projectInfo.value?.commonInfo) || scripts.value.some((script) => !!script?.summary?.trim()))
 const canGenerateOutline = computed(() => Boolean(outlineSeed.value) && !hasGeneratedOutline.value && !outlinePreview.value.generating && !outlinePreview.value.saving)
 const canGenerateScript = computed(() => hasEpisodeSelection.value && hasGeneratedOutline.value && !scriptPreview.value.generating && !scriptPreview.value.saving)
-const projectGenreLabel = computed(() => normalizeGenreLabel(projectInfo.value?.genre) || '未设置')
+const projectTypeLabel = computed(() => formatProjectTypeLabel(projectInfo.value?.projectType))
+const projectGenreLabel = computed(() => formatGenreLabel(projectInfo.value?.genre) || '未设置')
 const canRepairOutlinePreview = computed(() => {
   const errorData = outlinePreview.value.errorData
   const hasLegacyParseError = outlinePreview.value.error.includes('大纲预览解析失败')
@@ -343,13 +338,6 @@ const scriptPreviewRangeLabel = computed(() => {
 })
 
 const scriptStatusLabel = (status: string) => ({ draft: '草稿', ai_generated: 'AI生成', reviewed: '已审核' }[status] || status)
-
-function normalizeGenreLabel(genre?: string) {
-  if (!genre) {
-    return ''
-  }
-  return genreLabelMap[genre] || genre
-}
 
 function findScriptByEpisode(episodeNo: number) {
   return scripts.value.find((script) => Number(script.episodeNo) === episodeNo)

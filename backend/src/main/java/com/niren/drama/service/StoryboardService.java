@@ -8,8 +8,10 @@ import com.niren.drama.ai.TtsProvider;
 import com.niren.drama.ai.VoiceInfo;
 import com.niren.drama.ai.trace.AiCallTrace;
 import com.niren.drama.ai.trace.AiTraceContext;
+import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.dto.storyboard.StoryboardGenerateRequest;
 import com.niren.drama.dto.storyboard.StoryboardPreviewSaveRequest;
+import com.niren.drama.entity.Project;
 import com.niren.drama.entity.Script;
 import com.niren.drama.entity.Character;
 import com.niren.drama.entity.Scene;
@@ -125,17 +127,18 @@ public class StoryboardService {
     public void streamGenerateStoryboard(Long userId, StoryboardGenerateRequest request, java.util.function.Consumer<String> chunkConsumer, java.util.function.Consumer<String> progressConsumer) {
         log.debug("Start storyboard preview streaming: userId={}, projectId={}, scriptId={}",
             userId, request.getProjectId(), request.getScriptId());
-        projectService.getProject(userId, request.getProjectId());
+        Project project = projectService.getProject(userId, request.getProjectId());
         Script script = requireScript(request.getScriptId(), request.getProjectId());
         TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
-        String systemPrompt = buildStoryboardSystemPrompt();
-        generateStoryboardPreviewByScenes(textProvider, systemPrompt, script, request, chunkConsumer, progressConsumer);
+        String systemPrompt = buildStoryboardSystemPrompt(project);
+        generateStoryboardPreviewByScenes(textProvider, systemPrompt, script, request, project, chunkConsumer, progressConsumer);
     }
 
     private void generateStoryboardPreviewByScenes(TextAiProvider textProvider,
                                                    String systemPrompt,
                                                    Script script,
                                                    StoryboardGenerateRequest request,
+                                                   Project project,
                                                    java.util.function.Consumer<String> chunkConsumer,
                                                    java.util.function.Consumer<String> progressConsumer) {
         List<ScriptScene> scenes = splitScriptScenes(script.getContent());
@@ -205,6 +208,7 @@ public class StoryboardService {
                     scenes,
                     sceneIndex,
                     request,
+                    project,
                     progressConsumer,
                     STORYBOARD_SCENE_BATCH_TARGET_CHARS);
 
@@ -249,6 +253,7 @@ if (isStream) {
                                                      List<ScriptScene> scenes,
                                                      int sceneIndex,
                                                      StoryboardGenerateRequest request,
+                                                     Project project,
                                                      java.util.function.Consumer<String> progressConsumer,
                                                      int batchMaxChars) {
         ScriptScene scene = scenes.get(sceneIndex);
@@ -261,7 +266,7 @@ if (isStream) {
                 if (progressConsumer != null) {
                     progressConsumer.accept(progressLabel);
                 }
-                String batchPrompt = buildStoryboardSceneBatchUserPrompt(scenes, sceneIndex, batch);
+                String batchPrompt = buildStoryboardSceneBatchUserPrompt(scenes, sceneIndex, batch, project);
                 String batchStoryboardJson = generateStoryboardPreviewContent(
                         textProvider,
                         systemPrompt,
@@ -290,6 +295,7 @@ if (isStream) {
                             scenes,
                             sceneIndex,
                             request,
+                            project,
                             progressConsumer,
                             smallerBatchChars);
                 }
@@ -594,13 +600,25 @@ if (isStream) {
                 batch.totalBatches());
     }
 
-    private String buildStoryboardSceneBatchUserPrompt(List<ScriptScene> scenes, int sceneIndex, SceneBatch batch) {
+    private String buildStoryboardSceneBatchUserPrompt(List<ScriptScene> scenes, int sceneIndex, SceneBatch batch, Project project) {
         ScriptScene scene = scenes.get(sceneIndex);
         String previousScene = sceneIndex > 0 ? scenes.get(sceneIndex - 1).displayName() : "无";
         String nextScene = sceneIndex + 1 < scenes.size() ? scenes.get(sceneIndex + 1).displayName() : "无";
         String sceneNameHint = hasText(scene.sceneLabel()) ? scene.sceneLabel() : scene.displayName();
+        String projectType = resolveProjectType(project);
+        String genre = resolveGenre(project);
         return String.format("""
                 请仅为当前场景的当前片段生成分镜 JSON，不要输出其他场景或本场其他片段内容。
+
+                项目信息：
+                - 项目类型：%s
+                - 题材：%s
+                - 文本风格约束：
+                %s
+                - 视觉风格约束：
+                %s
+                - 语音表现约束：
+                %s
 
                 场景拆分上下文：
                 - 本集共 %d 场，当前生成第 %d 场
@@ -621,6 +639,11 @@ if (isStream) {
                 6. 返回格式必须为 {"shots": [...]}。
                 7. 严禁Markdown格式文字。
                 """,
+                projectType,
+                genre,
+                ProjectStyleSupport.buildTextCreationRules(projectType, genre),
+                ProjectStyleSupport.buildVisualCreationRules(projectType, genre),
+                ProjectStyleSupport.buildAudioPerformanceRules(projectType, genre),
                 scenes.size(),
                 scene.sceneNo(),
                 batch.totalBatches(),
@@ -677,17 +700,18 @@ if (isStream) {
             log.debug("Async storyboard generation start: taskId={}, userId={}, projectId={}, scriptId={}",
                     taskId, userId, request.getProjectId(), request.getScriptId());
             updateTask(task, "RUNNING", 10, "读取剧本内容...");
+            Project project = projectService.getProject(userId, request.getProjectId());
             Script script = requireScript(request.getScriptId(), request.getProjectId());
 
             updateTask(task, "RUNNING", 20, "AI正在拆解分镜脚本...");
             TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
-            String systemPrompt = buildStoryboardSystemPrompt();
+            String systemPrompt = buildStoryboardSystemPrompt(project);
             // generateStoryboardPreviewByScenes saves each scene's shots to the database
             // incrementally (status=preview_draft), so partial progress is preserved even
             // if the task is interrupted. Pass null for chunkConsumer — we don't need to
             // stream JSON to anyone in the async path. Use the progressConsumer to keep
             // the task message up-to-date while scenes are being generated.
-            generateStoryboardPreviewByScenes(textProvider, systemPrompt, script, request, null,
+                generateStoryboardPreviewByScenes(textProvider, systemPrompt, script, request, project, null,
                     progressMsg -> updateTask(task, "RUNNING", task.getProgress(), progressMsg));
 
             long shotCount = storyboardMapper.selectCount(
@@ -751,6 +775,7 @@ if (isStream) {
         int omittedTraceCalls = 0;
         try {
             ImageAiProvider imageProvider = aiProviderFactory.getImageProvider(userId);
+            Project project = resolveProjectById(projectId);
             int total = shots.size();
             int completed = 0;
             int alreadyReady = 0;
@@ -780,11 +805,11 @@ if (isStream) {
                 String prompt = shot.getImagePrompt();
                 Character character = resolveShotCharacter(shot);
                 if (prompt == null || prompt.isBlank()) {
-                    prompt = buildImagePrompt(shot, character);
+                    prompt = buildImagePrompt(shot, character, project);
                 }
                 List<String> referenceImageUrls = collectReferenceImageUrls(shot, character);
-                String generationPrompt = buildImageGenerationPrompt(prompt, character, referenceImageUrls);
-                String negativePrompt = buildImageNegativePrompt(character);
+                String generationPrompt = buildImageGenerationPrompt(prompt, character, referenceImageUrls, project);
+                String negativePrompt = buildImageNegativePrompt(character, project);
                 log.debug("Storyboard image request prepared: taskId={}, shotId={}, shotNo={}, characterId={}, promptLength={}, referenceCount={}, negativePromptLength={}",
                     taskId,
                     shot.getId(),
@@ -998,6 +1023,7 @@ if (isStream) {
         int omittedTraceCalls = 0;
         try {
             TtsProvider ttsProvider = aiProviderFactory.getTtsProvider(userId);
+            Project project = resolveProjectById(projectId);
             List<VoiceInfo> availableVoices = safeListVoices(ttsProvider);
             int total = shots.size();
             int completed = 0;
@@ -1037,8 +1063,10 @@ if (isStream) {
                         String.format("正在生成第%d/%d个分镜配音...", completed + 1, total));
 
                 try {
-                    VoiceSelection voiceSelection = resolveVoiceSelection(userId, shot, availableVoices);
-                    log.debug("Storyboard audio request prepared: taskId={}, shotId={}, shotNo={}, characterId={}, voiceId={}, voiceName={}, textLength={}, autoAssigned={}",
+                        VoiceSelection voiceSelection = resolveVoiceSelection(userId, shot, availableVoices, project);
+                        VoiceInfo selectedVoiceInfo = findVoiceInfo(voiceSelection.voiceId(), availableVoices);
+                        String ttsInstruction = buildTtsInstruction(shot, voiceSelection.character(), selectedVoiceInfo, project);
+                        log.debug("Storyboard audio request prepared: taskId={}, shotId={}, shotNo={}, characterId={}, voiceId={}, voiceName={}, textLength={}, autoAssigned={}, instructionLength={}",
                             taskId,
                             shot.getId(),
                             shot.getShotNo(),
@@ -1046,8 +1074,9 @@ if (isStream) {
                             voiceSelection.voiceId(),
                             voiceSelection.voiceName(),
                             text.length(),
-                            voiceSelection.autoAssigned());
-                    byte[] audioData = ttsProvider.synthesize(text, voiceSelection.voiceId(), 1.0f, 1.0f);
+                                voiceSelection.autoAssigned(),
+                                ttsInstruction != null ? ttsInstruction.length() : 0);
+                            byte[] audioData = ttsProvider.synthesize(text, voiceSelection.voiceId(), 1.0f, 1.0f, ttsInstruction, "Chinese");
                     if (audioData == null || audioData.length <= 100) {
                         throw new BusinessException("配音接口未返回有效音频数据");
                     }
@@ -1109,7 +1138,7 @@ if (isStream) {
         }
     }
 
-    private VoiceSelection resolveVoiceSelection(Long userId, Storyboard shot, List<VoiceInfo> availableVoices) {
+    private VoiceSelection resolveVoiceSelection(Long userId, Storyboard shot, List<VoiceInfo> availableVoices, Project project) {
         String defaultVoiceId = resolveDefaultVoiceId(userId);
         VoiceInfo defaultVoice = findVoiceInfo(defaultVoiceId, availableVoices);
         if (shot.getCharacterId() == null) {
@@ -1134,7 +1163,7 @@ if (isStream) {
             return new VoiceSelection(character, character.getVoiceId(), voiceName, false);
         }
 
-        VoiceInfo selectedVoice = selectVoiceForCharacter(character, availableVoices, defaultVoiceId);
+        VoiceInfo selectedVoice = selectVoiceForCharacter(character, availableVoices, defaultVoiceId, project);
         String selectedVoiceId = selectedVoice != null && hasText(selectedVoice.getVoiceId())
                 ? selectedVoice.getVoiceId()
                 : defaultVoiceId;
@@ -1175,18 +1204,18 @@ if (isStream) {
         }
     }
 
-    private VoiceInfo selectVoiceForCharacter(Character character, List<VoiceInfo> voices, String defaultVoiceId) {
+    private VoiceInfo selectVoiceForCharacter(Character character, List<VoiceInfo> voices, String defaultVoiceId, Project project) {
         if (voices == null || voices.isEmpty()) {
             return null;
         }
 
         String preferredGender = normalizeVoiceGender(character != null ? character.getGender() : null);
-        VoiceInfo preferredChinese = findFirstVoice(voices, preferredGender, true);
+        VoiceInfo preferredChinese = findFirstVoice(voices, preferredGender, true, project);
         if (preferredChinese != null) {
             return preferredChinese;
         }
 
-        VoiceInfo preferredAnyLanguage = findFirstVoice(voices, preferredGender, false);
+        VoiceInfo preferredAnyLanguage = findFirstVoice(voices, preferredGender, false, project);
         if (preferredAnyLanguage != null) {
             return preferredAnyLanguage;
         }
@@ -1196,11 +1225,13 @@ if (isStream) {
             return defaultVoice;
         }
 
-        VoiceInfo chineseVoice = findFirstVoice(voices, null, true);
+        VoiceInfo chineseVoice = findFirstVoice(voices, null, true, project);
         return chineseVoice != null ? chineseVoice : voices.get(0);
     }
 
-    private VoiceInfo findFirstVoice(List<VoiceInfo> voices, String preferredGender, boolean chineseOnly) {
+    private VoiceInfo findFirstVoice(List<VoiceInfo> voices, String preferredGender, boolean chineseOnly, Project project) {
+        VoiceInfo bestVoice = null;
+        int bestScore = Integer.MIN_VALUE;
         for (VoiceInfo voice : voices) {
             if (voice == null || !hasText(voice.getVoiceId())) {
                 continue;
@@ -1211,9 +1242,56 @@ if (isStream) {
             if (preferredGender != null && !preferredGender.equals(normalizeVoiceGender(voice.getGender()))) {
                 continue;
             }
-            return voice;
+            int score = scoreVoiceForProject(voice, project);
+            if (preferredGender != null) {
+                score += 4;
+            }
+            if (chineseOnly) {
+                score += 2;
+            }
+            if (bestVoice == null || score > bestScore) {
+                bestVoice = voice;
+                bestScore = score;
+            }
         }
-        return null;
+        return bestVoice;
+    }
+
+    private int scoreVoiceForProject(VoiceInfo voice, Project project) {
+        String descriptor = lower((voice.getVoiceId() == null ? "" : voice.getVoiceId()) + " "
+                + (voice.getName() == null ? "" : voice.getName()) + " "
+                + (voice.getDescription() == null ? "" : voice.getDescription()));
+        int score = 0;
+        if (ProjectStyleSupport.isComicProjectType(project != null ? project.getProjectType() : null)) {
+            if (containsKeyword(descriptor, new String[] {"元气", "活泼", "灵动", "热血", "动漫", "漫画", "少女", "少年", "俏皮"})) {
+                score += 8;
+            }
+            if (containsKeyword(descriptor, new String[] {"纪录", "播音", "严肃", "新闻"})) {
+                score -= 2;
+            }
+        } else {
+            if (containsKeyword(descriptor, new String[] {"自然", "真实", "温润", "沉稳", "成熟", "影视", "叙事", "旁白", "温柔"})) {
+                score += 8;
+            }
+            if (containsKeyword(descriptor, new String[] {"动漫", "卡通", "夸张", "萝莉", "元气", "俏皮"})) {
+                score -= 4;
+            }
+        }
+
+        String genre = resolveGenre(project);
+        if (containsKeyword(genre, new String[] {"民国", "古装", "历史", "仙侠"})
+                && containsKeyword(descriptor, new String[] {"古风", "端庄", "书卷", "温婉", "低沉", "沉稳"})) {
+            score += 4;
+        }
+        if (containsKeyword(genre, new String[] {"悬疑", "惊悚", "刑侦", "犯罪"})
+                && containsKeyword(descriptor, new String[] {"冷静", "克制", "悬疑", "沉着", "旁白"})) {
+            score += 4;
+        }
+        if (containsKeyword(genre, new String[] {"校园", "青春", "喜剧"})
+                && containsKeyword(descriptor, new String[] {"年轻", "清亮", "轻快", "灵动"})) {
+            score += 3;
+        }
+        return score;
     }
 
     private VoiceInfo findVoiceInfo(String voiceId, List<VoiceInfo> voices) {
@@ -1265,6 +1343,73 @@ if (isStream) {
             sb.append(shot.getDialogue());
         }
         return sb.toString().trim();
+    }
+
+    private String buildTtsInstruction(Storyboard shot, Character character, VoiceInfo voiceInfo, Project project) {
+        List<String> directives = new ArrayList<>();
+        directives.add("全程使用中文表达，保持自然口语化和类人停连");
+        if (voiceInfo != null && hasText(voiceInfo.getDescription())) {
+            directives.add("音色基调：" + voiceInfo.getDescription());
+        }
+        if (character != null) {
+            if (hasText(character.getPersonality())) {
+                directives.add("角色性格：" + character.getPersonality().trim());
+            }
+            if (hasText(character.getDescription())) {
+                directives.add("人物设定：" + character.getDescription().trim());
+            }
+        } else {
+            directives.add("以旁白或叙事者口吻演绎，吐字清晰，层次稳定");
+        }
+
+        if (hasText(shot != null ? shot.getNarration() : null) && !hasText(shot != null ? shot.getDialogue() : null)) {
+            directives.add("整体偏旁白解说感，沉稳连贯，不要生硬播读");
+        } else if (hasText(shot != null ? shot.getDialogue() : null) && !hasText(shot != null ? shot.getNarration() : null)) {
+            directives.add("整体偏角色对白感，带交流对象感和现场感");
+        } else {
+            directives.add("兼顾旁白与对白的自然衔接，避免机械切换");
+        }
+
+        String emotionDirective = resolveShotEmotionDirective(shot, project);
+        if (hasText(emotionDirective)) {
+            directives.add(emotionDirective);
+        }
+
+        String projectAudioGuide = compactGuide(ProjectStyleSupport.buildAudioPerformanceRules(resolveProjectType(project), resolveGenre(project)));
+        if (hasText(projectAudioGuide)) {
+            directives.add("项目演绎约束：" + projectAudioGuide);
+        }
+        directives.add("避免机械朗读、避免夸张做作，保证情绪自然递进");
+
+        String instruction = String.join("；", directives);
+        if (instruction.length() > 280) {
+            return instruction.substring(0, 280);
+        }
+        return instruction;
+    }
+
+    private String resolveShotEmotionDirective(Storyboard shot, Project project) {
+        String combined = lower((shot != null ? shot.getDescription() : null) + " "
+                + (shot != null ? shot.getDialogue() : null) + " "
+                + (shot != null ? shot.getNarration() : null));
+        if (containsKeyword(combined, new String[] {"哭", "哽咽", "抽泣", "泪", "崩溃"})) {
+            return "情绪带轻微哭腔和紧张感，允许少量颤音，但仍需保证可懂度";
+        }
+        if (containsKeyword(combined, new String[] {"怒", "吼", "喊", "质问", "爆发", "冲", "快跑", "立刻", "马上", "！", "!"})) {
+            return "情绪更外露，语速偏快，爆发力更强，但避免失真和过度嘶喊";
+        }
+        if (containsKeyword(combined, new String[] {"悬疑", "惊悚", "秘密", "黑夜", "危险", "调查", "真相"})
+                || containsKeyword(resolveGenre(project), new String[] {"悬疑", "惊悚", "刑侦", "犯罪"})) {
+            return "语气克制偏低沉，留出悬念和压迫感，重音更集中";
+        }
+        if (containsKeyword(combined, new String[] {"温柔", "安慰", "拥抱", "喜欢", "爱", "陪你", "晚安"})
+                || containsKeyword(resolveGenre(project), new String[] {"言情", "治愈", "都市"})) {
+            return "语速偏慢，语气温柔，情绪细腻，像贴近耳边的真实交流";
+        }
+        if (containsKeyword(resolveGenre(project), new String[] {"喜剧", "校园", "青春"})) {
+            return "整体更轻快灵动，带一点少年少女感，节奏自然明亮";
+        }
+        return "语速中等，吐字清晰，情绪自然，保持真实人物说话状态";
     }
 
     public List<Storyboard> listByProject(Long projectId) {
@@ -1357,11 +1502,25 @@ if (isStream) {
         }
     }
 
-    private String buildStoryboardSystemPrompt() {
+    private String buildStoryboardSystemPrompt(Project project) {
+        String projectType = resolveProjectType(project);
+        String genre = resolveGenre(project);
         return """
                 # 角色定位
                 你是一位顶级短剧分镜导演，专精竖屏短剧（9:16）分镜脚本制作。
                 你的分镜脚本对标红果短剧、抖音短剧保底S+评级标准，需要做到：节奏精准、视觉冲击力强、爽点镜头密集。
+                
+                # 项目类型与题材
+                %s
+
+                # 文本风格锚点
+                %s
+
+                # 视觉风格锚点
+                %s
+
+                # 语音风格锚点
+                %s
                 
                 # 分镜拆解规范
                 请将剧本拆解为JSON格式的分镜列表，每个镜头包含以下字段：
@@ -1396,7 +1555,11 @@ if (isStream) {
                 "竖版9:16构图，[镜头类型]，[人物主体描述含外貌服装表情动作]，[场景环境描述]，[光影氛围]，电影级质感，高清4K，[风格关键词如：戏剧性光影/高饱和度/冷色调/暖色调]"
                 
                 返回格式：{"shots": [...]}
-                """;
+                """.formatted(
+                ProjectStyleSupport.buildProjectIdentity(projectType, genre),
+                ProjectStyleSupport.buildTextCreationRules(projectType, genre),
+                ProjectStyleSupport.buildVisualCreationRules(projectType, genre),
+                ProjectStyleSupport.buildAudioPerformanceRules(projectType, genre));
     }
 
     private String buildStoryboardUserPrompt(String scriptContent) {
@@ -1465,6 +1628,7 @@ if (isStream) {
             if (start >= 0 && end > start) {
                 cleanJson = json.substring(start, end + 1);
             }
+            Project project = resolveProjectById(request.getProjectId());
             JsonNode root = objectMapper.readTree(cleanJson);
             JsonNode shotsNode = root.path("shots");
             int shotNo = 1;
@@ -1492,10 +1656,10 @@ if (isStream) {
                 }
                 shot.setImagePrompt(textOrNull(shotNode, "imagePrompt"));
                 if (!hasText(shot.getImagePrompt())) {
-                    shot.setImagePrompt(buildImagePrompt(shot, resolvedCharacter));
+                    shot.setImagePrompt(buildImagePrompt(shot, resolvedCharacter, project));
                 }
                 shot.setVideoPrompt(textOrNull(shotNode, "videoPrompt"));
-                applyDynamicRecommendation(shot, shotNode);
+                applyDynamicRecommendation(shot, shotNode, project);
                 shots.add(shot);
             }
         } catch (Exception e) {
@@ -1511,8 +1675,9 @@ if (isStream) {
             placeholder.setShotNo(1);
             placeholder.setDescription("AI生成的分镜脚本（解析失败，请手动编辑）");
             placeholder.setDuration(5);
-            placeholder.setImagePrompt(buildImagePrompt(placeholder));
-            placeholder.setVideoPrompt(buildVideoPrompt(placeholder, "low"));
+            Project project = resolveProjectById(request.getProjectId());
+            placeholder.setImagePrompt(buildImagePrompt(placeholder, null, project));
+            placeholder.setVideoPrompt(buildVideoPrompt(placeholder, "low", project));
             placeholder.setMotionLevel("low");
             placeholder.setDynamicRecommended(false);
             placeholder.setDynamicSelected(false);
@@ -1537,21 +1702,27 @@ if (isStream) {
     }
 
     private String buildImagePrompt(Storyboard shot) {
-        return buildImagePrompt(shot, resolveShotCharacter(shot));
+        return buildImagePrompt(shot, resolveShotCharacter(shot), resolveProjectById(shot != null ? shot.getProjectId() : null));
     }
 
     private String buildImagePrompt(Storyboard shot, Character character) {
+        return buildImagePrompt(shot, character, resolveProjectById(shot != null ? shot.getProjectId() : null));
+    }
+
+    private String buildImagePrompt(Storyboard shot, Character character, Project project) {
         String cameraAngle = shot.getCameraAngle() != null ? shot.getCameraAngle() : "medium shot";
         String description = shot.getDescription() != null ? shot.getDescription() : "短剧场景画面";
         String characterAnchor = buildCharacterAnchor(character);
+        String projectVisualGuide = compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project)));
         return String.format(
-                "竖版9:16构图，%s镜头，%s%s，电影级质感，高清4K，戏剧性光影，高饱和度色彩，短剧封面级画质，景深效果，专业摄影",
+                "竖版9:16构图，%s镜头，%s%s，项目视觉约束：%s，电影级质感，高清4K，戏剧性光影，高饱和度色彩，短剧封面级画质，景深效果，专业摄影",
                 cameraAngle,
                 hasText(characterAnchor) ? characterAnchor + "，" : "",
-                description);
+                description,
+                projectVisualGuide);
     }
 
-    private void applyDynamicRecommendation(Storyboard shot, JsonNode shotNode) {
+    private void applyDynamicRecommendation(Storyboard shot, JsonNode shotNode, Project project) {
         boolean aiDynamic = shotNode.path("isDynamic").asBoolean(false);
         String aiReason = textOrNull(shotNode, "dynamicReason");
         String motionLevel = normalizeMotionLevel(textOrNull(shotNode, "motionLevel"));
@@ -1609,7 +1780,7 @@ if (isStream) {
         boolean recommended = score >= 55;
 
         if (!hasText(shot.getVideoPrompt())) {
-            shot.setVideoPrompt(buildVideoPrompt(shot, motionLevel));
+            shot.setVideoPrompt(buildVideoPrompt(shot, motionLevel, project));
         }
 
         shot.setMotionLevel(resolveMotionLevel(motionLevel, score));
@@ -1643,6 +1814,10 @@ if (isStream) {
     }
 
     private String buildVideoPrompt(Storyboard shot, String motionLevel) {
+        return buildVideoPrompt(shot, motionLevel, resolveProjectById(shot != null ? shot.getProjectId() : null));
+    }
+
+    private String buildVideoPrompt(Storyboard shot, String motionLevel, Project project) {
         String motionInstruction = switch (normalizeMotionLevel(motionLevel)) {
             case "high" -> "镜头快速推进，人物动作幅度大且连贯，情绪变化强烈，画面张力十足";
             case "medium" -> "镜头缓慢推进或平滑横移，人物有自然的肢体动作和表情变化，氛围渐进式增强";
@@ -1650,10 +1825,12 @@ if (isStream) {
         };
 
         String sceneContext = hasText(shot.getDescription()) ? shot.getDescription() : "保持剧情镜头连续性";
+        String projectVisualGuide = compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project)));
         return String.format(
-                "基于该关键帧生成%ds竖屏9:16动态镜头。%s。画面主体保持一致，避免角色面部和场景漂移变形。场景：%s。确保动态自然流畅，符合短剧叙事节奏。",
+                "基于该关键帧生成%ds竖屏9:16动态镜头。%s。项目视觉约束：%s。画面主体保持一致，避免角色面部和场景漂移变形。场景：%s。确保动态自然流畅，符合短剧叙事节奏。",
                 shot.getDuration() != null ? shot.getDuration() : 5,
                 motionInstruction,
+                projectVisualGuide,
                 sceneContext);
     }
 
@@ -1704,6 +1881,13 @@ if (isStream) {
         return characterMapper.selectById(shot.getCharacterId());
     }
 
+    private Project resolveProjectById(Long projectId) {
+        if (projectId == null) {
+            return null;
+        }
+        return projectService.getProject(projectId);
+    }
+
     private Character resolveCharacterByName(Long projectId, String characterName) {
         if (projectId == null || !hasText(characterName)) {
             return null;
@@ -1746,11 +1930,17 @@ if (isStream) {
         return normalized.toString();
     }
 
-    private String buildImageGenerationPrompt(String originalPrompt, Character character, List<String> referenceImageUrls) {
+    private String buildImageGenerationPrompt(String originalPrompt, Character character, List<String> referenceImageUrls, Project project) {
         if (character == null) {
-            return originalPrompt;
+            return "项目视觉约束："
+                    + compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project)))
+                    + "。当前镜头要求："
+                    + originalPrompt;
         }
         StringBuilder builder = new StringBuilder();
+        builder.append("项目视觉约束：")
+                .append(compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project))))
+                .append("。");
         builder.append("角色设定锚点：主体必须是角色“")
                 .append(character.getName())
                 .append("”");
@@ -1785,9 +1975,14 @@ if (isStream) {
                 && referenceImageUrls.contains(character.getImageUrl());
     }
 
-    private String buildImageNegativePrompt(Character character) {
+    private String buildImageNegativePrompt(Character character, Project project) {
         LinkedHashSet<String> negativeTerms = new LinkedHashSet<>();
         for (String term : DEFAULT_IMAGE_NEGATIVE_PROMPT.split("，")) {
+            if (hasText(term)) {
+                negativeTerms.add(term);
+            }
+        }
+        for (String term : ProjectStyleSupport.buildVisualNegativeTerms(resolveProjectType(project), resolveGenre(project)).split("，")) {
             if (hasText(term)) {
                 negativeTerms.add(term);
             }
@@ -1807,6 +2002,24 @@ if (isStream) {
             }
         }
         return String.join("，", negativeTerms);
+    }
+
+    private String resolveProjectType(Project project) {
+        return ProjectStyleSupport.resolveProjectType(project != null ? project.getProjectType() : null);
+    }
+
+    private String resolveGenre(Project project) {
+        return ProjectStyleSupport.resolveGenre(project != null ? project.getGenre() : null);
+    }
+
+    private String compactGuide(String text) {
+        if (!hasText(text)) {
+            return "";
+        }
+        return text.replace("\n", " ")
+                .replace("- ", "")
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     private boolean looksYoung(String age) {

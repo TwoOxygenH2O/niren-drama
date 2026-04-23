@@ -68,7 +68,7 @@ public class AiProviderFactory {
     @Value("${niren.ai.tts.api-key:}")
     private String defaultTtsApiKey;
 
-    @Value("${niren.ai.tts.model:qwen3-tts-instruct-flash}")
+    @Value("${niren.ai.tts.model:qwen3-tts-flash}")
     private String defaultTtsModel;
 
     @Value("${niren.upload.path:./uploads}")
@@ -92,14 +92,14 @@ public class AiProviderFactory {
         String model = resolved.model();
 
         if (isAliyunProvider(provider)) {
-            return new AliyunImageProvider(baseUrl, apiKey, model, provider);
+            return new AliyunImageProvider(baseUrl, apiKey, model, provider, uploadPath, uploadBaseUrl);
         }
 
         if ("custom".equalsIgnoreCase(provider) || "external".equalsIgnoreCase(provider)) {
             return new ExternalImageProvider(baseUrl, apiKey, model, provider, uploadPath, uploadBaseUrl);
         }
 
-        return new OpenAiImageProvider(baseUrl, apiKey, model);
+        return new OpenAiImageProvider(baseUrl, apiKey, model, uploadPath, uploadBaseUrl);
     }
 
     public TtsProvider getTtsProvider(Long userId) {
@@ -261,7 +261,7 @@ public class AiProviderFactory {
                 case "text" -> "qwen-plus";
                 case "image" -> "qwen-image-2.0-pro";
                 case "video" -> "wan2.6-t2v";
-                case "tts" -> "qwen3-tts-instruct-flash";
+                case "tts" -> "qwen3-tts-flash";
                 default -> "qwen-plus";
             };
             case "xunfei" -> "x1";

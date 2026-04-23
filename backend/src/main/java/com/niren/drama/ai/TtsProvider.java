@@ -10,6 +10,18 @@ public interface TtsProvider {
     byte[] synthesize(String text, String voiceId, float speed, float pitch);
 
     /**
+     * Synthesize speech with optional provider-specific instruction and language hints.
+     */
+    default byte[] synthesize(String text,
+                              String voiceId,
+                              float speed,
+                              float pitch,
+                              String instruction,
+                              String languageType) {
+        return synthesize(text, voiceId, speed, pitch);
+    }
+
+    /**
      * List available voices.
      */
     List<VoiceInfo> listVoices();

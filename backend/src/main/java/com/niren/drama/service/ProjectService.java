@@ -3,6 +3,7 @@ package com.niren.drama.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.niren.drama.common.PageQuery;
+import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.dto.project.ProjectCreateRequest;
 import com.niren.drama.entity.Project;
 import com.niren.drama.exception.BusinessException;
@@ -22,7 +23,8 @@ public class ProjectService {
         project.setUserId(userId);
         project.setName(request.getName());
         project.setDescription(request.getDescription());
-        project.setGenre(request.getGenre());
+        project.setProjectType(ProjectStyleSupport.resolveProjectType(request.getProjectType()));
+        project.setGenre(StringUtils.trimToNull(request.getGenre()));
         project.setEpisodes(request.getEpisodes());
         project.setEpisodeDuration(request.getEpisodeDuration());
         project.setStatus("draft");
@@ -64,7 +66,8 @@ public class ProjectService {
         Project project = getProject(id);
         project.setName(request.getName());
         project.setDescription(request.getDescription());
-        project.setGenre(request.getGenre());
+        project.setProjectType(ProjectStyleSupport.resolveProjectType(request.getProjectType()));
+        project.setGenre(StringUtils.trimToNull(request.getGenre()));
         if (request.getEpisodes() != null) project.setEpisodes(request.getEpisodes());
         if (request.getEpisodeDuration() != null) project.setEpisodeDuration(request.getEpisodeDuration());
         projectMapper.updateById(project);

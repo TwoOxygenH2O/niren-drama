@@ -27,6 +27,16 @@ public class Storyboard extends BaseEntity {
     private Integer duration;
     private String imageUrl;
     private String videoUrl;
+    /** Vendor async video task id */
+    private String videoTaskId;
+    /** Vendor async video task status url */
+    private String videoTaskStatusUrl;
+    /** Video provider that accepted the async task */
+    private String videoTaskProvider;
+    /** submitted | running | success | failed */
+    private String videoTaskStatus;
+    /** Internal dynamic video batch task id */
+    private Long videoTaskRecordId;
     private String audioUrl;
     /** Image generation prompt */
     private String imagePrompt;

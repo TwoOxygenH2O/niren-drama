@@ -237,7 +237,7 @@ const allProviders = [
 const providerHints: Record<string, string> = {
   'image:aliyun': '阿里云千问生图使用 DashScope 原生 multimodal-generation 接口，模型仅支持 qwen-image-2.0 与 qwen-image-2.0-pro。',
   'video:aliyun': '阿里云万相视频使用 DashScope 原生 video-synthesis 接口，当前仅保留 wan2.6-t2v。',
-  'tts:aliyun': '阿里云 Qwen TTS 使用 DashScope 原生 multimodal-conversation 接口，当前默认模型为 qwen3-tts-instruct-flash。',
+  'tts:aliyun': '阿里云 Qwen TTS 使用 DashScope 原生 multimodal-generation 接口；默认推荐 qwen3-tts-instruct-flash 以支持更细致的声音描述，也可切换到 qwen3-tts-flash 或 qwen-tts 系列获取不同音色覆盖。',
   'image:custom': '自定义图片接口请填写你的真实图片生成端点，系统不会再自动按 OpenAI 方式混用阿里云接口。',
   'video:custom': '自定义视频接口请填写你的真实视频生成端点；若为异步任务，请确保返回任务查询地址或 taskId。',
   'tts:custom': '自定义 TTS 当前按 OpenAI 兼容 speech 接口调用，请填写真实兼容端点。',
@@ -313,7 +313,7 @@ const commonModelOptions: Record<string, string[]> = {
   text: ['gpt-4o', 'gpt-4.1', 'deepseek-chat', 'qwen-plus', 'glm-4'],
   image: ['qwen-image-2.0', 'qwen-image-2.0-pro'],
   video: ['wan2.6-t2v'],
-  tts: ['qwen3-tts-instruct-flash'],
+  tts: ['qwen3-tts-instruct-flash', 'qwen3-tts-flash', 'qwen-tts-latest', 'qwen-tts'],
 }
 
 const currentTabLabel = computed(() => tabs.find(t => t.type === activeTab.value)?.label || '')

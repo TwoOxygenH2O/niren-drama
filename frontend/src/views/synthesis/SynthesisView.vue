@@ -170,6 +170,32 @@
             <div v-if="call.error" class="task-trace-error">{{ call.error }}</div>
           </div>
         </div>
+        <div v-if="asyncTaskDetails.length" class="task-async-panel">
+          <div class="task-trace-title">阿里云任务明细</div>
+          <div class="task-async-list">
+            <div v-for="item in asyncTaskDetails" :key="`${item.shotId}-${item.taskId || item.statusUrl}`" class="task-async-item">
+              <div class="task-async-head">
+                <span class="task-trace-shot">镜头 {{ item.shotNo || '-' }}</span>
+                <span v-if="item.provider" class="task-trace-method">{{ item.provider }}</span>
+                <span :class="['task-trace-status', isTaskItemSuccess(item) ? 'is-success' : isTaskItemFailed(item) ? 'is-failed' : '']">
+                  {{ item.taskStatus || item.renderStatus || '-' }}
+                </span>
+              </div>
+              <div class="task-async-field">
+                <span class="trace-label">taskId</span>
+                <span class="task-async-value">{{ item.taskId || '-' }}</span>
+              </div>
+              <div class="task-async-field">
+                <span class="trace-label">statusUrl</span>
+                <span class="task-async-value">{{ item.statusUrl || '-' }}</span>
+              </div>
+              <div v-if="item.videoUrl" class="task-async-field">
+                <span class="trace-label">videoUrl</span>
+                <span class="task-async-value">{{ item.videoUrl }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -299,6 +325,10 @@ const selectedShotIds = ref<Array<number | string>>([])
 const submitLoading = ref(false)
 
 const taskTrace = computed(() => parseTaskTrace(currentTask.value?.result))
+const asyncTaskDetails = computed(() => {
+  const items = taskTrace.value?.summary?.asyncTasks
+  return Array.isArray(items) ? items : []
+})
 
 const dialogTitle = computed(() => {
   switch(dialogType.value) {
@@ -497,6 +527,8 @@ const taskTypeLabel = (t: string) => ({
 const shotStatusLabel = (s: string) => ({
   draft: '待处理',
   image_generated: '图片就绪',
+  video_submitted: '动态任务已提交',
+  video_polling: '动态生成中',
   video_generated: '动态片段就绪',
   audio_generated: '配音就绪',
   image_failed: '图片失败',
@@ -530,6 +562,20 @@ function formatTraceBody(value: any) {
     }
   }
   return JSON.stringify(value, null, 2)
+}
+
+function normalizeTaskState(value: any) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : ''
+}
+
+function isTaskItemSuccess(item: any) {
+  const state = normalizeTaskState(item?.taskStatus || item?.renderStatus)
+  return ['success', 'succeeded', 'completed', 'done', 'finished', 'video_generated'].includes(state)
+}
+
+function isTaskItemFailed(item: any) {
+  const state = normalizeTaskState(item?.taskStatus || item?.renderStatus)
+  return ['failed', 'error', 'cancelled', 'canceled', 'rejected', 'video_failed'].includes(state)
 }
 
 onMounted(async () => {
@@ -794,6 +840,42 @@ onUnmounted(() => {
   color: #b91c1c;
   font-size: 12px;
   white-space: pre-wrap;
+}
+.task-async-panel {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed #d1d5db;
+}
+.task-async-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.task-async-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+}
+.task-async-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.task-async-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.task-async-value {
+  font-size: 12px;
+  color: #111827;
+  line-height: 1.5;
+  word-break: break-all;
 }
 
 /* Video section */

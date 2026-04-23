@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.niren.drama.ai.ImageAiProvider;
+import com.niren.drama.ai.RemoteAssetStorage;
 import com.niren.drama.ai.trace.AiTraceSupport;
 import lombok.extern.slf4j.Slf4j;
 
@@ -20,13 +21,25 @@ public class OpenAiImageProvider implements ImageAiProvider {
     private final String baseUrl;
     private final String apiKey;
     private final String model;
+    private final String uploadPath;
+    private final String publicBaseUrl;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
     public OpenAiImageProvider(String baseUrl, String apiKey, String model) {
+        this(baseUrl, apiKey, model, null, null);
+    }
+
+    public OpenAiImageProvider(String baseUrl,
+                               String apiKey,
+                               String model,
+                               String uploadPath,
+                               String publicBaseUrl) {
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
         this.model = model;
+        this.uploadPath = uploadPath;
+        this.publicBaseUrl = publicBaseUrl;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
                 .build();
@@ -73,6 +86,7 @@ public class OpenAiImageProvider implements ImageAiProvider {
                 error = "Image API returned empty url: " + responseBody;
                 throw new RuntimeException(error);
             }
+            imageUrl = RemoteAssetStorage.persistHttpUrl(imageUrl, uploadPath, publicBaseUrl, "generated-images", httpClient, "png");
             return imageUrl;
         } catch (Exception e) {
             if (!hasText(error)) {

@@ -3,6 +3,7 @@ import request from './request'
 export interface ProjectCreateParams {
   name: string
   description?: string
+  projectType?: string
   genre?: string
   episodes: number
   episodeDuration: number

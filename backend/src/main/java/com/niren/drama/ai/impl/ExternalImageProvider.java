@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.niren.drama.ai.ImageAiProvider;
+import com.niren.drama.ai.RemoteAssetStorage;
 import com.niren.drama.ai.trace.AiTraceSupport;
 import lombok.extern.slf4j.Slf4j;
 
@@ -113,6 +114,8 @@ public class ExternalImageProvider implements ImageAiProvider {
             imageUrl = extractImageUrl(json);
             if (!hasText(imageUrl)) {
                 imageUrl = persistBase64Image(json);
+            } else {
+                imageUrl = RemoteAssetStorage.persistHttpUrl(imageUrl, uploadPath, publicBaseUrl, "generated-images", httpClient, "png");
             }
             if (!hasText(imageUrl)) {
                 error = "External image API returned empty url: " + responseBody;

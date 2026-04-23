@@ -1,5 +1,7 @@
 package com.niren.drama.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -14,8 +16,11 @@ import com.niren.drama.mapper.StoryboardMapper;
 import com.niren.drama.mapper.TaskRecordMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -28,8 +33,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -42,6 +51,8 @@ import java.util.UUID;
 public class VideoCompositionService {
 
     private static final int MAX_TASK_TRACE_CALLS = 20;
+    private static final Duration DYNAMIC_VIDEO_TASK_TIMEOUT = Duration.ofMinutes(10);
+    private static final long DYNAMIC_VIDEO_POLL_DELAY_SECONDS = 5L;
 
     private final StoryboardService storyboardService;
     private final StoryboardMapper storyboardMapper;
@@ -50,6 +61,7 @@ public class VideoCompositionService {
     private final AiVideoGenerationService aiVideoGenerationService;
     private final ObjectMapper objectMapper;
     private final ObjectProvider<VideoCompositionService> selfProvider;
+    private final TaskScheduler aiPollScheduler;
 
     @Value("${niren.upload.path:./uploads}")
     private String uploadPath;
@@ -129,6 +141,28 @@ public class VideoCompositionService {
 
         selfProvider.getObject().generateDynamicVideosAsync(userId, projectId, selectedShots, task.getId());
         return task;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void resumePendingDynamicVideoTasks() {
+        List<TaskRecord> tasks = taskRecordMapper.selectList(
+                new LambdaQueryWrapper<TaskRecord>()
+                        .eq(TaskRecord::getTaskType, "DYNAMIC_VIDEO_GEN")
+                        .in(TaskRecord::getStatus, "PENDING", "RUNNING"));
+        for (TaskRecord task : tasks) {
+            long pendingCount = storyboardMapper.selectCount(
+                    new LambdaQueryWrapper<Storyboard>()
+                            .eq(Storyboard::getVideoTaskRecordId, task.getId())
+                            .and(wrapper -> wrapper
+                                    .eq(Storyboard::getStatus, "video_submitted")
+                                    .or()
+                                    .eq(Storyboard::getStatus, "video_polling")));
+            if (pendingCount > 0) {
+                log.info("Resuming pending dynamic video polling: taskId={}, projectId={}, pendingShots={}",
+                        task.getId(), task.getProjectId(), pendingCount);
+                scheduleDynamicVideoPoll(task.getUserId(), task.getProjectId(), task.getId(), DYNAMIC_VIDEO_POLL_DELAY_SECONDS);
+            }
+        }
     }
 
     @Async("aiTaskExecutor")
@@ -266,26 +300,35 @@ public class VideoCompositionService {
         int omittedTraceCalls = 0;
         try {
             int total = shots.size();
-            int completed = 0;
             int generated = 0;
             int failed = 0;
+            int pending = 0;
             List<String> failedDetails = new ArrayList<>();
 
-            log.debug("Dynamic video generation start: taskId={}, userId={}, projectId={}, shotCount={}",
+            log.debug("Dynamic video submission start: taskId={}, userId={}, projectId={}, shotCount={}",
                     taskId, userId, projectId, total);
 
-            for (Storyboard shot : shots) {
-                completed++;
+            updateTask(task, "RUNNING", 5, "正在提交动态视频任务...");
+
+            for (int index = 0; index < shots.size(); index++) {
+                Storyboard shot = shots.get(index);
                 if (!hasText(shot.getVideoPrompt()) && !hasText(shot.getDescription())) {
                     log.warn("Dynamic shot {} has no usable video prompt, skipped", shot.getShotNo());
+                    failed++;
+                    prepareShotForDynamicVideoTask(shot, taskId);
+                    shot.setVideoTaskStatus("failed");
+                    shot.setStatus("video_failed");
+                    storyboardMapper.updateById(shot);
+                    failedDetails.add(String.format("镜头%s: 缺少视频提示词", resolveShotLabel(shot)));
                     continue;
                 }
 
                 updateTask(task, "RUNNING",
-                        10 + (80 * completed / total),
-                        String.format("正在生成第%d/%d个动态镜头...", completed, total));
+                        10 + (40 * (index + 1) / total),
+                        String.format("正在提交第%d/%d个动态镜头任务...", index + 1, total));
 
                 try {
+                    prepareShotForDynamicVideoTask(shot, taskId);
                     log.debug("Dynamic video request prepared: taskId={}, projectId={}, shotId={}, shotNo={}, promptLength={}, hasImage={}",
                             taskId,
                             projectId,
@@ -293,22 +336,32 @@ public class VideoCompositionService {
                             shot.getShotNo(),
                             hasText(shot.getVideoPrompt()) ? shot.getVideoPrompt().length() : (hasText(shot.getDescription()) ? shot.getDescription().length() : 0),
                             hasText(shot.getImageUrl()));
-                    String videoUrl = aiVideoGenerationService.generateVideo(userId, shot);
-                    if (!hasText(videoUrl)) {
-                        throw new BusinessException("视频接口未返回有效视频地址");
+                    AiVideoGenerationService.VideoTaskSubmission submission = aiVideoGenerationService.submitVideoTask(userId, shot);
+                    shot.setVideoTaskProvider(submission.provider());
+                    if (hasText(submission.videoUrl())) {
+                        shot.setVideoUrl(submission.videoUrl());
+                        shot.setRenderMode("video");
+                        shot.setVideoTaskStatus("success");
+                        shot.setStatus("video_generated");
+                        generated++;
+                        log.debug("Dynamic video generated directly: taskId={}, projectId={}, shotId={}, shotNo={}, videoUrl={}",
+                                taskId, projectId, shot.getId(), shot.getShotNo(), submission.videoUrl());
+                    } else {
+                        shot.setVideoTaskId(submission.taskId());
+                        shot.setVideoTaskStatusUrl(submission.statusUrl());
+                        shot.setVideoTaskStatus("submitted");
+                        shot.setStatus("video_submitted");
+                        pending++;
+                        log.debug("Dynamic video task accepted: taskId={}, projectId={}, shotId={}, shotNo={}, vendorTaskId={}, statusUrl={}",
+                                taskId, projectId, shot.getId(), shot.getShotNo(), submission.taskId(), submission.statusUrl());
                     }
-                    shot.setVideoUrl(videoUrl);
-                    shot.setRenderMode("video");
-                    shot.setStatus("video_generated");
                     storyboardMapper.updateById(shot);
-                    generated++;
-                    log.debug("Dynamic video generated: taskId={}, projectId={}, shotId={}, shotNo={}, videoUrl={}",
-                            taskId, projectId, shot.getId(), shot.getShotNo(), videoUrl);
                 } catch (Exception e) {
                     failed++;
+                    shot.setVideoTaskStatus("failed");
                     shot.setStatus("video_failed");
                     storyboardMapper.updateById(shot);
-                    String shotLabel = shot.getShotNo() != null ? String.valueOf(shot.getShotNo()) : String.valueOf(shot.getId());
+                    String shotLabel = resolveShotLabel(shot);
                     String errorMessage = hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName();
                     failedDetails.add(String.format("镜头%s: %s", shotLabel, errorMessage));
                     log.warn("Failed to generate dynamic video for shot {}", shotLabel, e);
@@ -317,31 +370,116 @@ public class VideoCompositionService {
                 }
             }
 
-            if (generated == 0 && failed > 0) {
-                throw new BusinessException("没有成功生成任何动态镜头片段");
+            Map<String, ?> summary = buildDynamicVideoSummary(taskId, total, generated, failed, pending);
+            if (pending > 0) {
+                task.setStatus("RUNNING");
+                task.setProgress(calculateDynamicVideoProgress(total, generated, failed, pending));
+                task.setMessage(buildDynamicVideoRunningMessage(generated, failed, pending));
+                task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls, summary));
+                taskRecordMapper.updateById(task);
+                scheduleDynamicVideoPoll(userId, projectId, taskId, DYNAMIC_VIDEO_POLL_DELAY_SECONDS);
+                return;
             }
 
-            task.setStatus(failed > 0 ? "SUCCESS" : "SUCCESS");
-            task.setProgress(100);
-            if (failed > 0) {
-                task.setMessage(String.format("动态镜头生成完成：成功%d个，失败%d个。%s", generated, failed, buildFailureReasonSummary(failedDetails, 3)));
-            } else {
-                task.setMessage(String.format("动态镜头生成完成，共生成%d个片段", generated));
-            }
-            task.setResult(buildTaskTraceResult("video", projectId, traceCalls, omittedTraceCalls,
-                    java.util.Map.of(
-                            "total", total,
-                            "generated", generated,
-                            "failed", failed)));
-            taskRecordMapper.updateById(task);
-                log.debug("Dynamic video generation complete: taskId={}, projectId={}, total={}, generated={}, failed={}",
+            finishDynamicVideoTask(task, projectId, total, generated, failed, pending, failedDetails, traceCalls, omittedTraceCalls);
+            log.debug("Dynamic video submission complete without pending poll: taskId={}, projectId={}, total={}, generated={}, failed={}",
                     taskId, projectId, total, generated, failed);
         } catch (Exception e) {
             log.error("Dynamic video generation failed for task {}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("动态镜头生成失败: " + e.getMessage());
-            task.setResult(buildTaskTraceResult("video", projectId, traceCalls, omittedTraceCalls,
-                    java.util.Map.of("error", e.getMessage())));
+            task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls,
+                    Map.of("error", e.getMessage())));
+            taskRecordMapper.updateById(task);
+        }
+    }
+
+    @Async("aiTaskExecutor")
+    public void pollDynamicVideoTasksAsync(Long userId, Long projectId, Long taskId) {
+        TaskRecord task = taskRecordMapper.selectById(taskId);
+        if (task == null || "SUCCESS".equalsIgnoreCase(task.getStatus()) || "FAILED".equalsIgnoreCase(task.getStatus())) {
+            return;
+        }
+
+        List<Storyboard> shots = storyboardMapper.selectList(
+                new LambdaQueryWrapper<Storyboard>()
+                        .eq(Storyboard::getProjectId, projectId)
+                        .eq(Storyboard::getVideoTaskRecordId, taskId)
+                        .orderByAsc(Storyboard::getEpisodeNo)
+                        .orderByAsc(Storyboard::getShotNo)
+                        .orderByAsc(Storyboard::getId));
+        if (shots.isEmpty()) {
+            log.warn("No storyboard shots found for dynamic video task {}, skip polling", taskId);
+            return;
+        }
+
+        ArrayNode traceCalls = objectMapper.createArrayNode();
+        int omittedTraceCalls = 0;
+        List<String> failedDetails = new ArrayList<>();
+        boolean timedOut = isDynamicVideoTaskTimedOut(task);
+
+        try {
+            for (Storyboard shot : shots) {
+                if (!isPendingDynamicVideoShot(shot)) {
+                    continue;
+                }
+
+                if (timedOut) {
+                    markDynamicVideoShotFailed(shot, "动态视频任务轮询超时，已等待至少10分钟", failedDetails);
+                    continue;
+                }
+
+                try {
+                    AiVideoGenerationService.VideoTaskQueryResult result = aiVideoGenerationService.querySubmittedVideoTask(userId, shot);
+                    if (hasText(result.videoUrl()) && (isSuccessVideoTaskStatus(result.status()) || !hasText(result.status()))) {
+                        shot.setVideoUrl(result.videoUrl());
+                        shot.setRenderMode("video");
+                        shot.setVideoTaskStatus(hasText(result.status()) ? result.status() : "success");
+                        shot.setStatus("video_generated");
+                    } else if (isFailureVideoTaskStatus(result.status())) {
+                        markDynamicVideoShotFailed(shot,
+                                hasText(result.errorMessage()) ? result.errorMessage() : "视频生成任务失败",
+                                failedDetails);
+                    } else {
+                        shot.setVideoTaskStatus(hasText(result.status()) ? result.status() : "running");
+                        shot.setStatus("video_polling");
+                        storyboardMapper.updateById(shot);
+                    }
+                    if ("video_generated".equals(shot.getStatus())) {
+                        storyboardMapper.updateById(shot);
+                    }
+                } catch (Exception e) {
+                    markDynamicVideoShotFailed(shot,
+                            hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName(),
+                            failedDetails);
+                } finally {
+                    omittedTraceCalls = appendTraceCalls(traceCalls, shot, AiTraceContext.drain(), omittedTraceCalls);
+                }
+            }
+
+            int total = shots.size();
+            int generated = (int) shots.stream().filter(shot -> "video_generated".equalsIgnoreCase(shot.getStatus())).count();
+            int failed = (int) shots.stream().filter(shot -> "video_failed".equalsIgnoreCase(shot.getStatus())).count();
+            int pending = (int) shots.stream().filter(this::isPendingDynamicVideoShot).count();
+            Map<String, ?> summary = buildDynamicVideoSummary(taskId, total, generated, failed, pending);
+
+            if (pending > 0 && !timedOut) {
+                task.setStatus("RUNNING");
+                task.setProgress(calculateDynamicVideoProgress(total, generated, failed, pending));
+                task.setMessage(buildDynamicVideoRunningMessage(generated, failed, pending));
+                task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls, summary));
+                taskRecordMapper.updateById(task);
+                scheduleDynamicVideoPoll(userId, projectId, taskId, DYNAMIC_VIDEO_POLL_DELAY_SECONDS);
+                return;
+            }
+
+            finishDynamicVideoTask(task, projectId, total, generated, failed, pending, failedDetails, traceCalls, omittedTraceCalls);
+        } catch (Exception e) {
+            log.error("Dynamic video polling failed for task {}", taskId, e);
+            task.setStatus("FAILED");
+            task.setMessage("动态视频轮询失败: " + e.getMessage());
+            task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls,
+                    Map.of("error", e.getMessage())));
             taskRecordMapper.updateById(task);
         }
     }
@@ -580,6 +718,225 @@ public class VideoCompositionService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("Download interrupted", e);
+        }
+    }
+
+    private void prepareShotForDynamicVideoTask(Storyboard shot, Long taskId) {
+        shot.setVideoUrl(null);
+        shot.setVideoTaskId(null);
+        shot.setVideoTaskStatusUrl(null);
+        shot.setVideoTaskProvider(null);
+        shot.setVideoTaskStatus(null);
+        shot.setVideoTaskRecordId(taskId);
+    }
+
+    private void markDynamicVideoShotFailed(Storyboard shot, String reason, List<String> failedDetails) {
+        shot.setVideoUrl(null);
+        shot.setVideoTaskStatus("failed");
+        shot.setStatus("video_failed");
+        storyboardMapper.updateById(shot);
+        if (failedDetails != null) {
+            failedDetails.add(String.format("镜头%s: %s", resolveShotLabel(shot), reason));
+        }
+    }
+
+    private String resolveShotLabel(Storyboard shot) {
+        return shot.getShotNo() != null ? String.valueOf(shot.getShotNo()) : String.valueOf(shot.getId());
+    }
+
+    private void scheduleDynamicVideoPoll(Long userId, Long projectId, Long taskId, long delaySeconds) {
+        Instant runAt = Instant.now().plusSeconds(Math.max(1L, delaySeconds));
+        log.debug("Schedule dynamic video polling: taskId={}, projectId={}, runAt={}", taskId, projectId, runAt);
+        aiPollScheduler.schedule(
+                () -> selfProvider.getObject().pollDynamicVideoTasksAsync(userId, projectId, taskId),
+                runAt);
+    }
+
+    private boolean isDynamicVideoTaskTimedOut(TaskRecord task) {
+        LocalDateTime createTime = task.getCreateTime();
+        return createTime != null && Duration.between(createTime, LocalDateTime.now()).compareTo(DYNAMIC_VIDEO_TASK_TIMEOUT) >= 0;
+    }
+
+    private boolean isPendingDynamicVideoShot(Storyboard shot) {
+        if (shot == null || shot.getVideoTaskRecordId() == null) {
+            return false;
+        }
+        if ("video_generated".equalsIgnoreCase(shot.getStatus()) || "video_failed".equalsIgnoreCase(shot.getStatus())) {
+            return false;
+        }
+        return "video_submitted".equalsIgnoreCase(shot.getStatus())
+                || "video_polling".equalsIgnoreCase(shot.getStatus())
+                || isPendingVideoTaskStatus(shot.getVideoTaskStatus());
+    }
+
+    private boolean isSuccessVideoTaskStatus(String status) {
+        if (!hasText(status)) {
+            return false;
+        }
+        String normalized = status.trim().toLowerCase();
+        return "success".equals(normalized)
+                || "succeeded".equals(normalized)
+                || "completed".equals(normalized)
+                || "done".equals(normalized)
+                || "finished".equals(normalized);
+    }
+
+    private boolean isFailureVideoTaskStatus(String status) {
+        if (!hasText(status)) {
+            return false;
+        }
+        String normalized = status.trim().toLowerCase();
+        return "failed".equals(normalized)
+                || "error".equals(normalized)
+                || "cancelled".equals(normalized)
+                || "canceled".equals(normalized)
+                || "rejected".equals(normalized);
+    }
+
+    private boolean isPendingVideoTaskStatus(String status) {
+        if (!hasText(status)) {
+            return false;
+        }
+        String normalized = status.trim().toLowerCase();
+        return "submitted".equals(normalized)
+                || "pending".equals(normalized)
+                || "queued".equals(normalized)
+                || "running".equals(normalized)
+                || "processing".equals(normalized)
+                || "in_progress".equals(normalized);
+    }
+
+    private Map<String, ?> buildDynamicVideoSummary(Long taskId, int total, int generated, int failed, int pending) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("total", total);
+        summary.put("generated", generated);
+        summary.put("failed", failed);
+        summary.put("pending", pending);
+        summary.put("asyncTasks", buildDynamicVideoTaskItems(taskId));
+        return summary;
+    }
+
+    private List<Map<String, Object>> buildDynamicVideoTaskItems(Long taskId) {
+        if (taskId == null) {
+            return List.of();
+        }
+        List<Storyboard> taskShots = storyboardMapper.selectList(
+                new LambdaQueryWrapper<Storyboard>()
+                        .eq(Storyboard::getVideoTaskRecordId, taskId)
+                        .orderByAsc(Storyboard::getEpisodeNo)
+                        .orderByAsc(Storyboard::getShotNo)
+                        .orderByAsc(Storyboard::getId));
+        if (taskShots == null || taskShots.isEmpty()) {
+            return List.of();
+        }
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (Storyboard shot : taskShots) {
+            if (!hasText(shot.getVideoTaskId()) && !hasText(shot.getVideoTaskStatusUrl())) {
+                continue;
+            }
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("shotId", shot.getId());
+            item.put("shotNo", shot.getShotNo());
+            item.put("taskId", shot.getVideoTaskId());
+            item.put("statusUrl", shot.getVideoTaskStatusUrl());
+            item.put("provider", shot.getVideoTaskProvider());
+            item.put("taskStatus", shot.getVideoTaskStatus());
+            item.put("renderStatus", shot.getStatus());
+            item.put("videoUrl", shot.getVideoUrl());
+            items.add(item);
+        }
+        return items;
+    }
+
+    private int calculateDynamicVideoProgress(int total, int generated, int failed, int pending) {
+        if (total <= 0) {
+            return 0;
+        }
+        if (pending <= 0) {
+            return 100;
+        }
+        int completed = generated + failed;
+        return Math.max(10, Math.min(99, 50 + (45 * completed / total)));
+    }
+
+    private String buildDynamicVideoRunningMessage(int generated, int failed, int pending) {
+        return String.format("动态镜头任务已提交，已完成%d个，失败%d个，剩余%d个轮询中", generated, failed, pending);
+    }
+
+    private void finishDynamicVideoTask(TaskRecord task,
+                                        Long projectId,
+                                        int total,
+                                        int generated,
+                                        int failed,
+                                        int pending,
+                                        List<String> failedDetails,
+                                        ArrayNode traceCalls,
+                                        int omittedTraceCalls) {
+        task.setProgress(100);
+        task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls,
+            buildDynamicVideoSummary(task.getId(), total, generated, failed, pending)));
+        String failureSummary = buildFailureReasonSummary(failedDetails, 3);
+        if (generated == 0 && failed > 0 && pending == 0) {
+            task.setStatus("FAILED");
+            task.setMessage(hasText(failureSummary)
+                    ? String.format("动态镜头生成失败，所选%d个镜头均未生成成功。%s", total, failureSummary)
+                    : String.format("动态镜头生成失败，所选%d个镜头均未生成成功", total));
+        } else {
+            task.setStatus("SUCCESS");
+            if (failed > 0) {
+                task.setMessage(hasText(failureSummary)
+                        ? String.format("动态镜头生成完成：成功%d个，失败%d个。%s", generated, failed, failureSummary)
+                        : String.format("动态镜头生成完成：成功%d个，失败%d个", generated, failed));
+            } else {
+                task.setMessage(String.format("动态镜头生成完成，共生成%d个片段", generated));
+            }
+        }
+        taskRecordMapper.updateById(task);
+    }
+
+    private String mergeTaskTraceResult(String existingResult,
+                                        String mediaType,
+                                        Long projectId,
+                                        ArrayNode newCalls,
+                                        int newOmittedTraceCalls,
+                                        Map<String, ?> summary) {
+        try {
+            ArrayNode mergedCalls = objectMapper.createArrayNode();
+            int omittedTraceCalls = Math.max(0, newOmittedTraceCalls);
+
+            if (hasText(existingResult)) {
+                JsonNode existingRoot = objectMapper.readTree(existingResult);
+                omittedTraceCalls += existingRoot.path("omittedCalls").asInt(0);
+                JsonNode existingCalls = existingRoot.path("calls");
+                if (existingCalls.isArray()) {
+                    for (JsonNode call : existingCalls) {
+                        if (mergedCalls.size() >= MAX_TASK_TRACE_CALLS) {
+                            omittedTraceCalls++;
+                            continue;
+                        }
+                        mergedCalls.add(call);
+                    }
+                }
+            }
+
+            if (newCalls != null) {
+                for (JsonNode call : newCalls) {
+                    if (mergedCalls.size() >= MAX_TASK_TRACE_CALLS) {
+                        omittedTraceCalls++;
+                        continue;
+                    }
+                    mergedCalls.add(call);
+                }
+            }
+
+            return buildTaskTraceResult(mediaType, projectId, mergedCalls, omittedTraceCalls, summary);
+        } catch (Exception e) {
+            log.warn("Failed to merge AI task trace result", e);
+            return buildTaskTraceResult(mediaType, projectId,
+                    newCalls != null ? newCalls : objectMapper.createArrayNode(),
+                    newOmittedTraceCalls,
+                    summary);
         }
     }
 

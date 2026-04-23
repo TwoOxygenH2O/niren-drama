@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS drama_project (
     name             VARCHAR(200) NOT NULL COMMENT '项目名称',
     description      TEXT         COMMENT '项目描述',
     common_info      LONGTEXT     COMMENT '项目通用信息（人物小传/世界观/长期设定）',
+    project_type     VARCHAR(50)  NOT NULL DEFAULT '真人短剧' COMMENT '项目类型：真人短剧/漫画短剧',
     genre            VARCHAR(50)  COMMENT '题材风格',
     episodes         INT          NOT NULL DEFAULT 1 COMMENT '剧集数量',
     episode_duration INT          NOT NULL DEFAULT 180 COMMENT '单集时长（秒）',
@@ -144,6 +145,11 @@ CREATE TABLE IF NOT EXISTS drama_storyboard (
     duration     INT          NOT NULL DEFAULT 5 COMMENT '镜头时长（秒）',
     image_url    VARCHAR(500) COMMENT '分镜图片URL',
     video_url    VARCHAR(500) COMMENT '分镜视频URL',
+    video_task_id VARCHAR(120) COMMENT '外部视频任务ID',
+    video_task_status_url VARCHAR(1000) COMMENT '外部视频任务状态查询地址',
+    video_task_provider VARCHAR(50) COMMENT '外部视频任务供应商',
+    video_task_status VARCHAR(30) COMMENT '外部视频任务状态',
+    video_task_record_id BIGINT COMMENT '关联动态视频批任务ID',
     audio_url    VARCHAR(500) COMMENT '配音音频URL',
     image_prompt TEXT         COMMENT 'AI生图提示词',
     video_prompt TEXT         COMMENT '动态镜头视频提示词',
@@ -159,7 +165,8 @@ CREATE TABLE IF NOT EXISTS drama_storyboard (
     deleted      TINYINT      NOT NULL DEFAULT 0,
     PRIMARY KEY (id),
     KEY idx_project_id (project_id),
-    KEY idx_script_id (script_id)
+    KEY idx_script_id (script_id),
+    KEY idx_video_task_record_id (video_task_record_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='分镜脚本表';
 
 -- ===========================

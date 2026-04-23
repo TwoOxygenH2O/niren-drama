@@ -5,11 +5,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.AiResolvedConfig;
+import com.niren.drama.ai.RemoteAssetStorage;
 import com.niren.drama.ai.trace.AiTraceSupport;
+import com.niren.drama.common.ProjectStyleSupport;
+import com.niren.drama.entity.Project;
 import com.niren.drama.entity.Storyboard;
 import com.niren.drama.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -25,14 +29,26 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AiVideoGenerationService {
 
-    private static final int MAX_POLL_ATTEMPTS = 60;
+    private static final Duration BLOCKING_POLL_TIMEOUT = Duration.ofMinutes(10);
     private static final long POLL_INTERVAL_MS = 3000L;
 
     private final AiProviderFactory aiProviderFactory;
+    private final ProjectService projectService;
     private final ObjectMapper objectMapper;
+
+    @Value("${niren.upload.path:./uploads}")
+    private String uploadPath;
+
+    @Value("${niren.upload.base-url:http://localhost:8080/api/files}")
+    private String uploadBaseUrl;
+
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(30))
             .build();
+
+        public record VideoTaskSubmission(String provider, String taskId, String statusUrl, String videoUrl) {}
+
+        public record VideoTaskQueryResult(String provider, String status, String videoUrl, String errorMessage) {}
 
     public String generateVideo(Long userId, Storyboard shot) {
         AiResolvedConfig config = aiProviderFactory.resolveConfig(userId, "video");
@@ -49,7 +65,59 @@ public class AiVideoGenerationService {
         return generateCustomVideo(config, shot);
     }
 
+    public VideoTaskSubmission submitVideoTask(Long userId, Storyboard shot) {
+        AiResolvedConfig config = aiProviderFactory.resolveConfig(userId, "video");
+        log.debug("Submit video task: userId={}, shotId={}, shotNo={}, provider={}, model={}, hasImageUrl={}",
+                userId,
+                shot.getId(),
+                shot.getShotNo(),
+                config.provider(),
+                config.model(),
+                hasText(shot.getImageUrl()));
+        if (isAliyunProvider(config.provider())) {
+            return submitAliyunVideoTask(config, shot);
+        }
+        return submitCustomVideoTask(config, shot);
+    }
+
+    public VideoTaskQueryResult querySubmittedVideoTask(Long userId, Storyboard shot) {
+        AiResolvedConfig config = aiProviderFactory.resolveConfig(userId, "video");
+        String provider = hasText(shot.getVideoTaskProvider()) ? shot.getVideoTaskProvider() : config.provider();
+        if (!hasText(config.apiKey())) {
+            throw new BusinessException("未配置视频生成 API Key，请先在 AI 配置中设置视频服务");
+        }
+        String statusUrl = resolveSubmittedTaskStatusUrl(provider, config.baseUrl(), shot.getVideoTaskStatusUrl(), shot.getVideoTaskId());
+        if (!hasText(statusUrl)) {
+            throw new BusinessException("视频任务缺少 taskId 或状态查询地址，无法继续轮询");
+        }
+        log.debug("Query submitted video task: shotId={}, shotNo={}, provider={}, statusUrl={}",
+                shot.getId(), shot.getShotNo(), provider, statusUrl);
+        try {
+            return queryVideoTask(provider, config.apiKey(), statusUrl);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("视频任务查询失败: " + e.getMessage(), e);
+        }
+    }
+
     private String generateAliyunVideo(AiResolvedConfig config, Storyboard shot) {
+        VideoTaskSubmission submission = submitAliyunVideoTask(config, shot);
+        if (hasText(submission.videoUrl())) {
+            return submission.videoUrl();
+        }
+        String statusUrl = resolveSubmittedTaskStatusUrl(submission.provider(), config.baseUrl(), submission.statusUrl(), submission.taskId());
+        if (!hasText(statusUrl)) {
+            throw new RuntimeException("视频接口未返回可用视频地址，也未提供任务查询地址");
+        }
+        try {
+            return waitForVideoResult(submission.provider(), config.apiKey(), statusUrl);
+        } catch (Exception e) {
+            throw new RuntimeException("视频生成失败: " + e.getMessage(), e);
+        }
+    }
+
+    private VideoTaskSubmission submitAliyunVideoTask(AiResolvedConfig config, Storyboard shot) {
         if (!hasText(config.apiKey())) {
             throw new BusinessException("未配置视频生成 API Key，请先在 AI 配置中设置视频服务");
         }
@@ -60,11 +128,13 @@ public class AiVideoGenerationService {
 
         String endpoint = resolveAliyunVideoEndpoint(config.baseUrl());
         log.debug("Start aliyun video generation: shotId={}, shotNo={}, endpoint={}, model={}, promptLength={}",
-            shot.getId(), shot.getShotNo(), endpoint, config.model(), prompt.length());
+                shot.getId(), shot.getShotNo(), endpoint, config.model(), prompt.length());
         String requestBody = null;
         HttpResponse<String> response = null;
         String responseBody = null;
         String videoUrl = null;
+        String taskId = null;
+        String statusUrl = null;
         String error = null;
         Map<String, String> headers = Map.of(
                 "Content-Type", "application/json",
@@ -105,31 +175,26 @@ public class AiVideoGenerationService {
             JsonNode root = objectMapper.readTree(responseBody);
             videoUrl = extractVideoUrl(root);
             if (hasText(videoUrl)) {
+                videoUrl = persistVideoUrl(videoUrl);
                 log.debug("Aliyun video generation returned direct url: shotId={}, shotNo={}, videoUrl={}",
                         shot.getId(), shot.getShotNo(), videoUrl);
-                return videoUrl;
+                return new VideoTaskSubmission(config.provider(), null, null, videoUrl);
             }
 
-            String statusUrl = resolveAliyunStatusUrl(endpoint, root);
-            if (!hasText(statusUrl)) {
-                String taskId = extractTaskId(root);
-                if (hasText(taskId)) {
-                    statusUrl = normalizeAliyunApiBase(config.baseUrl()) + "/tasks/" + taskId;
-                }
+            taskId = extractTaskId(root);
+            statusUrl = resolveAliyunStatusUrl(endpoint, root);
+            if (!hasText(statusUrl) && hasText(taskId)) {
+                statusUrl = normalizeAliyunApiBase(config.baseUrl()) + "/tasks/" + taskId;
             }
 
-            log.debug("Aliyun video generation switched to polling: shotId={}, shotNo={}, statusUrl={}",
-                    shot.getId(), shot.getShotNo(), statusUrl);
+            log.debug("Aliyun video generation accepted async task: shotId={}, shotNo={}, taskId={}, statusUrl={}",
+                    shot.getId(), shot.getShotNo(), taskId, statusUrl);
 
-            if (!hasText(statusUrl)) {
+            if (!hasText(statusUrl) && !hasText(taskId)) {
                 error = "视频接口未返回可用视频地址，也未提供任务查询地址: " + responseBody;
                 throw new RuntimeException(error);
             }
-
-            videoUrl = pollVideoResult(config.provider(), config.apiKey(), statusUrl);
-            log.debug("Aliyun video polling complete: shotId={}, shotNo={}, videoUrl={}",
-                    shot.getId(), shot.getShotNo(), videoUrl);
-            return videoUrl;
+            return new VideoTaskSubmission(config.provider(), taskId, statusUrl, null);
         } catch (Exception e) {
             if (!hasText(error)) {
                 error = e.getMessage();
@@ -149,13 +214,29 @@ public class AiVideoGenerationService {
                     response != null ? response.headers().firstValue("Content-Type").orElse(null) : null,
                     responseBody,
                     responseBody != null ? responseBody.length() : null,
-                    hasText(videoUrl),
-                    videoUrl,
+                    response != null && response.statusCode() < 400 && (hasText(videoUrl) || hasText(taskId) || hasText(statusUrl)),
+                    hasText(videoUrl) ? videoUrl : statusUrl,
                     error);
         }
     }
 
     private String generateCustomVideo(AiResolvedConfig config, Storyboard shot) {
+        VideoTaskSubmission submission = submitCustomVideoTask(config, shot);
+        if (hasText(submission.videoUrl())) {
+            return submission.videoUrl();
+        }
+        String statusUrl = resolveSubmittedTaskStatusUrl(submission.provider(), config.baseUrl(), submission.statusUrl(), submission.taskId());
+        if (!hasText(statusUrl)) {
+            throw new RuntimeException("视频接口未返回可用视频地址，也未提供任务查询地址");
+        }
+        try {
+            return waitForVideoResult(submission.provider(), config.apiKey(), statusUrl);
+        } catch (Exception e) {
+            throw new RuntimeException("视频生成失败: " + e.getMessage(), e);
+        }
+    }
+
+    private VideoTaskSubmission submitCustomVideoTask(AiResolvedConfig config, Storyboard shot) {
         if (!hasText(config.apiKey())) {
             throw new BusinessException("未配置自定义视频接口 API Key");
         }
@@ -171,6 +252,8 @@ public class AiVideoGenerationService {
         HttpResponse<String> response = null;
         String responseBody = null;
         String videoUrl = null;
+        String taskId = null;
+        String statusUrl = null;
         String error = null;
         Map<String, String> headers = AiTraceSupport.jsonHeaders(config.apiKey());
 
@@ -205,31 +288,26 @@ public class AiVideoGenerationService {
             JsonNode root = objectMapper.readTree(responseBody);
             videoUrl = extractVideoUrl(root);
             if (hasText(videoUrl)) {
+                videoUrl = persistVideoUrl(videoUrl);
                 log.debug("Custom video generation returned direct url: shotId={}, shotNo={}, videoUrl={}",
                         shot.getId(), shot.getShotNo(), videoUrl);
-                return videoUrl;
+                return new VideoTaskSubmission(config.provider(), null, null, videoUrl);
             }
 
-            String statusUrl = resolveGenericStatusUrl(endpoint, root);
-            if (!hasText(statusUrl)) {
-                String taskId = extractTaskId(root);
-                if (hasText(taskId)) {
-                    statusUrl = resolveGenericTaskEndpoint(endpoint, taskId);
-                }
+            taskId = extractTaskId(root);
+            statusUrl = resolveGenericStatusUrl(endpoint, root);
+            if (!hasText(statusUrl) && hasText(taskId)) {
+                statusUrl = resolveGenericTaskEndpoint(endpoint, taskId);
             }
 
-            log.debug("Custom video generation switched to polling: shotId={}, shotNo={}, statusUrl={}",
-                    shot.getId(), shot.getShotNo(), statusUrl);
+            log.debug("Custom video generation accepted async task: shotId={}, shotNo={}, taskId={}, statusUrl={}",
+                    shot.getId(), shot.getShotNo(), taskId, statusUrl);
 
-            if (!hasText(statusUrl)) {
+            if (!hasText(statusUrl) && !hasText(taskId)) {
                 error = "视频接口未返回可用视频地址，也未提供任务查询地址: " + responseBody;
                 throw new RuntimeException(error);
             }
-
-            videoUrl = pollVideoResult(config.provider(), config.apiKey(), statusUrl);
-            log.debug("Custom video polling complete: shotId={}, shotNo={}, videoUrl={}",
-                    shot.getId(), shot.getShotNo(), videoUrl);
-            return videoUrl;
+            return new VideoTaskSubmission(config.provider(), taskId, statusUrl, null);
         } catch (Exception e) {
             if (!hasText(error)) {
                 error = e.getMessage();
@@ -248,15 +326,41 @@ public class AiVideoGenerationService {
                     response != null ? response.headers().firstValue("Content-Type").orElse(null) : null,
                     responseBody,
                     responseBody != null ? responseBody.length() : null,
-                    hasText(videoUrl),
-                    videoUrl,
+                    response != null && response.statusCode() < 400 && (hasText(videoUrl) || hasText(taskId) || hasText(statusUrl)),
+                    hasText(videoUrl) ? videoUrl : statusUrl,
                     error);
         }
     }
 
-    private String pollVideoResult(String provider, String apiKey, String statusUrl) throws Exception {
-        for (int attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
+    private String waitForVideoResult(String provider, String apiKey, String statusUrl) throws Exception {
+        long deadline = System.nanoTime() + BLOCKING_POLL_TIMEOUT.toNanos();
+        int attempt = 0;
+        while (System.nanoTime() < deadline) {
+            attempt++;
             Thread.sleep(POLL_INTERVAL_MS);
+            VideoTaskQueryResult result = queryVideoTask(provider, apiKey, statusUrl);
+            log.debug("Video polling attempt: provider={}, statusUrl={}, attempt={}, status={}, hasVideoUrl={}",
+                    provider, statusUrl, attempt, result.status(), hasText(result.videoUrl()));
+            if (hasText(result.videoUrl()) && (isSuccessStatus(result.status()) || !hasText(result.status()))) {
+                return result.videoUrl();
+            }
+            if (isFailureStatus(result.status())) {
+                throw new RuntimeException(hasText(result.errorMessage()) ? result.errorMessage() : "视频生成任务失败");
+            }
+            if (isSuccessStatus(result.status()) && !hasText(result.videoUrl())) {
+                throw new RuntimeException("视频任务已成功，但响应中没有可用视频地址");
+            }
+        }
+        throw new RuntimeException("视频生成任务轮询超时，已等待至少10分钟，请稍后重试");
+    }
+
+    private VideoTaskQueryResult queryVideoTask(String provider, String apiKey, String statusUrl) throws Exception {
+        HttpResponse<String> response = null;
+        String responseBody = null;
+        String videoUrl = null;
+        String status = null;
+        String error = null;
+        try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(statusUrl))
                     .header("Authorization", "Bearer " + apiKey)
@@ -264,15 +368,23 @@ public class AiVideoGenerationService {
                     .timeout(Duration.ofSeconds(60))
                     .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            String responseBody = response.body();
-            String error = response.statusCode() >= 400 ? ("HTTP " + response.statusCode() + " - " + responseBody) : null;
-            JsonNode root = objectMapper.readTree(responseBody);
-            String videoUrl = extractVideoUrl(root);
-            String status = normalizeStatus(extractStatus(root));
-                log.debug("Video polling attempt: provider={}, statusUrl={}, attempt={}, status={}, hasVideoUrl={}",
-                    provider, statusUrl, attempt + 1, status, hasText(videoUrl));
-
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            responseBody = response.body();
+            JsonNode root = hasText(responseBody) ? objectMapper.readTree(responseBody) : objectMapper.createObjectNode();
+            videoUrl = extractVideoUrl(root);
+            if (hasText(videoUrl)) {
+                videoUrl = persistVideoUrl(videoUrl);
+            }
+            status = normalizeStatus(extractStatus(root));
+            if (response.statusCode() >= 400) {
+                error = "HTTP " + response.statusCode() + " - " + responseBody;
+                throw new RuntimeException(error);
+            }
+            if (isFailureStatus(status)) {
+                error = extractErrorMessage(root);
+            }
+            return new VideoTaskQueryResult(provider, status, videoUrl, error);
+        } finally {
             AiTraceSupport.record(
                     "video",
                     provider,
@@ -281,28 +393,27 @@ public class AiVideoGenerationService {
                     statusUrl,
                     Map.of("Authorization", AiTraceSupport.maskBearer(apiKey)),
                     null,
-                    response.statusCode(),
-                    response.headers().firstValue("Content-Type").orElse(null),
+                    response != null ? response.statusCode() : null,
+                    response != null ? response.headers().firstValue("Content-Type").orElse(null) : null,
                     responseBody,
                     responseBody != null ? responseBody.length() : null,
-                    response.statusCode() < 400 && (hasText(videoUrl) || isPendingStatus(status) || isSuccessStatus(status)),
+                    response != null && response.statusCode() < 400 && (hasText(videoUrl) || isPendingStatus(status) || isSuccessStatus(status)),
                     videoUrl,
                     error);
-
-            if (response.statusCode() >= 400) {
-                throw new RuntimeException(error);
-            }
-            if (hasText(videoUrl) && (isSuccessStatus(status) || !hasText(status))) {
-                return videoUrl;
-            }
-            if (isFailureStatus(status)) {
-                throw new RuntimeException(extractErrorMessage(root));
-            }
-            if (isSuccessStatus(status) && !hasText(videoUrl)) {
-                throw new RuntimeException("视频任务已成功，但响应中没有可用视频地址: " + responseBody);
-            }
         }
-        throw new RuntimeException("视频生成任务轮询超时，请稍后重试");
+    }
+
+    private String resolveSubmittedTaskStatusUrl(String provider, String baseUrl, String statusUrl, String taskId) {
+        if (hasText(statusUrl)) {
+            return statusUrl;
+        }
+        if (!hasText(taskId)) {
+            return null;
+        }
+        if (isAliyunProvider(provider)) {
+            return normalizeAliyunApiBase(baseUrl) + "/tasks/" + taskId;
+        }
+        return resolveGenericTaskEndpoint(resolveCustomVideoEndpoint(baseUrl), taskId);
     }
 
     private String resolveCustomVideoEndpoint(String baseUrl) {
@@ -478,10 +589,24 @@ public class AiVideoGenerationService {
     }
 
     private String resolvePrompt(Storyboard shot) {
+        String basePrompt;
         if (hasText(shot.getVideoPrompt())) {
-            return shot.getVideoPrompt();
+            basePrompt = shot.getVideoPrompt();
+        } else {
+            basePrompt = hasText(shot.getDescription()) ? shot.getDescription() : null;
         }
-        return hasText(shot.getDescription()) ? shot.getDescription() : null;
+        if (!hasText(basePrompt)) {
+            return null;
+        }
+        Project project = shot.getProjectId() != null ? projectService.getProject(shot.getProjectId()) : null;
+        String visualGuide = ProjectStyleSupport.buildVisualCreationRules(
+                project != null ? project.getProjectType() : null,
+                project != null ? project.getGenre() : null)
+                .replace("\n", " ")
+                .replace("- ", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        return basePrompt + "。项目视觉约束：" + visualGuide;
     }
 
     private boolean isAliyunProvider(String provider) {
@@ -524,5 +649,9 @@ public class AiVideoGenerationService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String persistVideoUrl(String videoUrl) {
+        return RemoteAssetStorage.persistHttpUrl(videoUrl, uploadPath, uploadBaseUrl, "videos", httpClient, "mp4");
     }
 }

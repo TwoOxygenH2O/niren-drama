@@ -46,14 +46,26 @@ public class OpenAiTtsProvider implements TtsProvider {
 
     @Override
     public byte[] synthesize(String text, String voiceId, float speed, float pitch) {
+        return synthesize(text, voiceId, speed, pitch, null, null);
+    }
+
+    @Override
+    public byte[] synthesize(String text,
+                             String voiceId,
+                             float speed,
+                             float pitch,
+                             String instruction,
+                             String languageType) {
         String endpoint = normalizeBaseUrl(baseUrl) + "/audio/speech";
-        log.debug("Start OpenAI-compatible TTS synthesize: provider={}, model={}, voiceId={}, textLength={}, speed={}, pitch={}",
+        log.debug("Start OpenAI-compatible TTS synthesize: provider={}, model={}, voiceId={}, textLength={}, speed={}, pitch={}, hasInstruction={}, languageType={}",
             providerName,
             model,
             voiceId != null && !voiceId.isBlank() ? voiceId : "alloy",
             text != null ? text.length() : 0,
             speed,
-            pitch);
+            pitch,
+            instruction != null && !instruction.isBlank(),
+            languageType);
         String requestBody = null;
         HttpResponse<byte[]> response = null;
         byte[] responseBytes = null;

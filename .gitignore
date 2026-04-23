@@ -26,6 +26,7 @@ Thumbs.db
 # Logs
 *.log
 logs/
+log/
 
 # Node
 node_modules/
