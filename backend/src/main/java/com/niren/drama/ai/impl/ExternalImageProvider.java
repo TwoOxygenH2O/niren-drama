@@ -75,9 +75,10 @@ public class ExternalImageProvider implements ImageAiProvider {
         Map<String, String> headers = AiTraceSupport.jsonHeaders(apiKey);
         try {
             ObjectNode body = objectMapper.createObjectNode();
+            String resolvedSize = normalizeImageSize(size);
             body.put("model", hasText(model) ? model : "qwen-image-2.0-pro");
             body.put("prompt", prompt);
-            body.put("size", hasText(size) ? size : "1024x1792");
+            body.put("size", resolvedSize);
             if (hasText(style)) {
                 body.put("style", style);
             }

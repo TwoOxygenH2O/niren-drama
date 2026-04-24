@@ -77,9 +77,26 @@ niren:
     quality-tier: ${COST_QUALITY_TIER:standard}
     video-ai-enabled: ${COST_VIDEO_AI_ENABLED:false}
     video-ai-shot-ratio: ${COST_VIDEO_AI_RATIO:0.3}
-    preview-resolution: ${COST_PREVIEW_RESOLUTION:512x512}
+    preview-resolution: ${COST_PREVIEW_RESOLUTION:1024x1024}
   ffmpeg:
     path: ${FFMPEG_PATH:D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffmpeg.exe}
+    ffprobe-path: ${FFPROBE_PATH:D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffprobe.exe}
+  compose:
+    transition:
+      duration-seconds: ${COMPOSE_TRANSITION_DURATION:0.45}
+    audio:
+      tail-padding-seconds: ${COMPOSE_AUDIO_TAIL_PADDING:0.35}
+    subtitle:
+      enabled: ${COMPOSE_SUBTITLE_ENABLED:true}
+      font-path: ${COMPOSE_SUBTITLE_FONT_PATH:C:/Windows/Fonts/msyh.ttc}
+      font-size: ${COMPOSE_SUBTITLE_FONT_SIZE:54}
+      margin-bottom: ${COMPOSE_SUBTITLE_MARGIN_BOTTOM:160}
+    bgm:
+      source: ${COMPOSE_BGM_SOURCE:classpath:assets/bgm_default.wav}
+      volume: ${COMPOSE_BGM_VOLUME:0.16}
+    transition-sfx:
+      source: ${COMPOSE_TRANSITION_SFX_SOURCE:classpath:assets/zc_default.wav}
+      volume: ${COMPOSE_TRANSITION_SFX_VOLUME:0.18}
   storage:
     cos:
       enabled: ${NIREN_COS_ENABLED:true}

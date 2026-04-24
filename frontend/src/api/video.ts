@@ -1,5 +1,7 @@
 ﻿import request from './request'
 
+const VIDEO_STATUS_TIMEOUT = 60 * 60 * 1000
+
 function buildShotSelectionPayload(shotIds?: Array<number | string>) {
   if (!shotIds || shotIds.length === 0) {
     return undefined
@@ -26,7 +28,7 @@ export const videoApi = {
 
   /** Get latest video composition status */
   getStatus: (projectId: number | string) =>
-    request.get(`/videos/status/${projectId}`),
+    request.get(`/videos/status/${projectId}`, { timeout: VIDEO_STATUS_TIMEOUT }),
 
   /** Get storyboard list with status */
   getStoryboards: (projectId: number | string) =>

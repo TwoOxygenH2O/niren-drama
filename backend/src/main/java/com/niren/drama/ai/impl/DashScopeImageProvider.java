@@ -57,13 +57,14 @@ public class DashScopeImageProvider implements ImageAiProvider {
         String imageUrl = null;
         String error = null;
         Map<String, String> headers = AiTraceSupport.jsonHeaders(apiKey);
+        String resolvedSize = normalizeImageSize(size);
         try {
             // DashScope uses OpenAI-compatible /images/generations endpoint
             ObjectNode body = objectMapper.createObjectNode();
             body.put("model", model);
             body.put("prompt", prompt);
             body.put("n", 1);
-            body.put("size", size != null ? convertSize(size) : "1024x1024");
+            body.put("size", convertSize(resolvedSize));
             if (style != null && !style.isBlank()) {
                 body.put("style", style);
             }
@@ -99,7 +100,7 @@ public class DashScopeImageProvider implements ImageAiProvider {
                             null,
                             "HTTP 404 fallback to multimodal endpoint");
                     log.warn("DashScope compatible image endpoint returned 404 for model {}, fallback to multimodal text-only", model);
-                    return generateImageByMultimodal(prompt, size, style, List.of());
+                    return generateImageByMultimodal(prompt, resolvedSize, style, List.of());
                 }
                 log.error("DashScope image generation API error: {} - {}", response.statusCode(), responseBody);
                 error = "HTTP " + response.statusCode() + " - " + responseBody;
@@ -141,21 +142,22 @@ public class DashScopeImageProvider implements ImageAiProvider {
 
     @Override
     public String generateImage(String prompt, String size, String style, List<String> referenceImageUrls) {
+        String resolvedSize = normalizeImageSize(size);
         List<String> references = normalizeReferenceImageUrls(referenceImageUrls);
         if (isQwenImageModel(model)) {
             if (!references.isEmpty()) {
                 log.info("Ignore {} reference images for model {} and force text-to-image endpoint", references.size(), model);
             }
-            return generateImage(prompt, size, style);
+            return generateImage(prompt, resolvedSize, style);
         }
         if (references.isEmpty()) {
-            return generateImage(prompt, size, style);
+            return generateImage(prompt, resolvedSize, style);
         }
         try {
-            return generateImageWithReferences(prompt, size, style, references);
+            return generateImageWithReferences(prompt, resolvedSize, style, references);
         } catch (Exception e) {
             log.warn("DashScope reference-image generation failed, falling back to text-to-image: {}", e.getMessage());
-            return generateImage(prompt, size, style);
+            return generateImage(prompt, resolvedSize, style);
         }
     }
 
@@ -221,6 +223,7 @@ public class DashScopeImageProvider implements ImageAiProvider {
 
         private String generateImageByMultimodal(String prompt, String size, String style, List<String> referenceImageUrls)
             throws Exception {
+        String resolvedSize = normalizeImageSize(size);
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", resolveReferenceEditModel());
 
@@ -232,7 +235,7 @@ public class DashScopeImageProvider implements ImageAiProvider {
         for (String referenceImageUrl : referenceImageUrls) {
             content.addObject().put("image", referenceImageUrl);
         }
-        content.addObject().put("text", buildReferencePrompt(prompt, size, style));
+        content.addObject().put("text", buildReferencePrompt(prompt, resolvedSize, style));
 
         String endpoint = getDashScopeApiBaseUrl() + "/services/aigc/multimodal-conversation/generation";
         log.info("DashScope multimodal image request endpoint={}, model={}, refCount={}", endpoint, model, referenceImageUrls.size());

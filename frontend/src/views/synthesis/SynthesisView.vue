@@ -562,7 +562,12 @@ const confirmGenerate = async () => {
   }
 }
 
-let pollTimer: ReturnType<typeof setInterval> | null = null
+const TASK_POLL_INTERVAL_MS = 5000
+const TASK_POLL_EXPIRE_MS = 60 * 60 * 1000
+
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+let pollStartedAt = 0
+let pollInFlight = false
 
 async function loadOverview() {
   try {
@@ -626,29 +631,59 @@ function handleDownload() {
 
 function startPolling(taskId: string | number) {
   stopPolling()
-  pollTimer = setInterval(async () => {
-    try {
-      const res = await taskApi.get(taskId)
-      currentTask.value = res.data.data
-      if (currentTask.value.status === 'SUCCESS') {
-        stopPolling()
-        ElMessage.success(currentTask.value.message || '任务完成！')
-        await loadOverview()
-        await loadShots()
-      } else if (currentTask.value.status === 'FAILED') {
-        stopPolling()
-        ElMessage.error(currentTask.value.message || '任务失败')
-      }
-    } catch (e: any) {
-      console.error('Poll error:', e)
-    }
-  }, 5000)
+  pollStartedAt = Date.now()
+  void startPollingCycle(taskId)
 }
 
 function stopPolling() {
   if (pollTimer) {
-    clearInterval(pollTimer)
+    clearTimeout(pollTimer)
     pollTimer = null
+  }
+  pollInFlight = false
+  pollStartedAt = 0
+}
+
+function scheduleNextPoll(taskId: string | number) {
+  if (pollTimer) {
+    clearTimeout(pollTimer)
+  }
+  pollTimer = setTimeout(() => {
+    void startPollingCycle(taskId)
+  }, TASK_POLL_INTERVAL_MS)
+}
+
+async function startPollingCycle(taskId: string | number) {
+  if (pollInFlight) {
+    scheduleNextPoll(taskId)
+    return
+  }
+  if (Date.now() - pollStartedAt >= TASK_POLL_EXPIRE_MS) {
+    stopPolling()
+    ElMessage.error('任务轮询已超过 1 小时，请稍后刷新页面查看最新状态')
+    return
+  }
+
+  pollInFlight = true
+  try {
+    const res = await taskApi.get(taskId)
+    currentTask.value = res.data.data
+    if (currentTask.value.status === 'SUCCESS') {
+      stopPolling()
+      ElMessage.success(currentTask.value.message || '任务完成！')
+      await loadOverview()
+      await loadShots()
+    } else if (currentTask.value.status === 'FAILED') {
+      stopPolling()
+      ElMessage.error(currentTask.value.message || '任务失败')
+    } else {
+      scheduleNextPoll(taskId)
+    }
+  } catch (e: any) {
+    console.error('Poll error:', e)
+    scheduleNextPoll(taskId)
+  } finally {
+    pollInFlight = false
   }
 }
 

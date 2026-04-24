@@ -36,6 +36,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +55,23 @@ public class VideoCompositionService {
     private static final int MAX_TASK_TRACE_CALLS = 20;
     private static final Duration DYNAMIC_VIDEO_TASK_TIMEOUT = Duration.ofMinutes(10);
     private static final long DYNAMIC_VIDEO_POLL_DELAY_SECONDS = 5L;
+    private static final double DEFAULT_SHOT_DURATION_SECONDS = 5.0d;
+    private static final double MIN_SHOT_DURATION_SECONDS = 2.5d;
+    private static final double DEFAULT_BGM_FADE_OUT_SECONDS = 1.2d;
+    /** Output video width (vertical 9:16) */
+    private static final int VIDEO_WIDTH = 1080;
+    /** Output video height (vertical 9:16) */
+    private static final int VIDEO_HEIGHT = 1920;
+    /** Output video frame rate */
+    private static final int FRAME_RATE = 25;
+    private static final List<String> DEFAULT_TRANSITIONS = List.of(
+            "fade",
+            "fadeblack",
+            "fadewhite",
+            "smoothleft",
+            "smoothup",
+            "slideright"
+    );
 
     private final StoryboardService storyboardService;
     private final StoryboardMapper storyboardMapper;
@@ -74,9 +92,47 @@ public class VideoCompositionService {
     @Value("${niren.ffmpeg.path:ffmpeg}")
     private String ffmpegPath;
 
+    @Value("${niren.ffmpeg.ffprobe-path:}")
+    private String ffprobePath;
+
+    @Value("${niren.compose.transition.duration-seconds:0.45}")
+    private double composeTransitionDuration;
+
+    @Value("${niren.compose.audio.tail-padding-seconds:0.35}")
+    private double composeAudioTailPadding;
+
+    @Value("${niren.compose.subtitle.enabled:true}")
+    private boolean composeSubtitleEnabled;
+
+    @Value("${niren.compose.subtitle.font-path:}")
+    private String composeSubtitleFontPath;
+
+    @Value("${niren.compose.subtitle.font-size:54}")
+    private int composeSubtitleFontSize;
+
+    @Value("${niren.compose.subtitle.margin-bottom:160}")
+    private int composeSubtitleMarginBottom;
+
+    @Value("${niren.compose.bgm.source:}")
+    private String composeBgmSource;
+
+    @Value("${niren.compose.bgm.volume:0.16}")
+    private double composeBgmVolume;
+
+    @Value("${niren.compose.transition-sfx.source:}")
+    private String composeTransitionSfxSource;
+
+    @Value("${niren.compose.transition-sfx.volume:0.18}")
+    private double composeTransitionSfxVolume;
+
     private volatile String resolvedFfmpegExecutable;
+    private volatile String resolvedFfprobeExecutable;
 
     private static final String SHOT_VIDEO_DIR = "shot-videos";
+
+    private record ShotRenderPlan(double contentDuration, double clipDuration, String subtitleText) {}
+
+    private record ShotSegment(Path videoPath, double clipDuration, Storyboard shot) {}
 
     /**
      * Start the video composition process for a project.
@@ -86,6 +142,11 @@ public class VideoCompositionService {
         if (shotIds != null && !shotIds.isEmpty()) {
             shots = shots.stream().filter(s -> shotIds.contains(s.getId())).collect(java.util.stream.Collectors.toList());
         }
+        shots = shots.stream()
+                .sorted(Comparator.comparing(Storyboard::getEpisodeNo, Comparator.nullsLast(Integer::compareTo))
+                        .thenComparing(Storyboard::getShotNo, Comparator.nullsLast(Integer::compareTo))
+                        .thenComparing(Storyboard::getId, Comparator.nullsLast(Long::compareTo)))
+                .toList();
         if (shots.isEmpty()) {
             throw new BusinessException("项目下没有分镜数据，请先生成分镜");
         }
@@ -187,17 +248,26 @@ public class VideoCompositionService {
 
             updateTask(task, "RUNNING", 5, "准备合成素材...");
 
-            // Step 1: Download images to local files
-            List<Path> shotVideos = new ArrayList<>();
-            int total = shots.size();
-            int index = 0;
+            List<Storyboard> renderableShots = shots.stream()
+                    .filter(this::hasRenderableMedia)
+                    .toList();
+            if (renderableShots.isEmpty()) {
+                throw new BusinessException("没有可用于合成的视频镜头，请先生成图片或动态视频");
+            }
 
-            for (Storyboard shot : shots) {
-                index++;
-                if (!hasText(shot.getImageUrl()) && !hasText(shot.getVideoUrl())) {
-                    log.warn("Shot {} has no image, skipping", shot.getShotNo());
-                    continue;
-                }
+            double transitionDuration = resolveTransitionDuration(renderableShots.size());
+            Path bgmPath = prepareComposeAsset(composeBgmSource,
+                    workDir.resolve("compose_bgm" + resolveAssetExtension(composeBgmSource, ".mp3")));
+            Path transitionSfxPath = prepareComposeAsset(composeTransitionSfxSource,
+                    workDir.resolve("transition_sfx" + resolveAssetExtension(composeTransitionSfxSource, ".mp3")));
+
+            // Step 1: Download images to local files
+            List<ShotSegment> shotVideos = new ArrayList<>();
+            int total = renderableShots.size();
+
+            for (int index = 0; index < renderableShots.size(); index++) {
+                Storyboard shot = renderableShots.get(index);
+                boolean hasNext = index < renderableShots.size() - 1;
 
                 log.debug("Composing shot video: taskId={}, projectId={}, shotId={}, shotNo={}, renderMode={}, hasImage={}, hasVideo={}, hasAudio={}, duration={}",
                         taskId,
@@ -211,8 +281,8 @@ public class VideoCompositionService {
                         shot.getDuration());
 
                 updateTask(task, "RUNNING",
-                        5 + (70 * index / total),
-                        String.format("正在合成第%d/%d个镜头...", index, total));
+                        5 + (70 * (index + 1) / total),
+                        String.format("正在合成第%d/%d个镜头...", index + 1, total));
 
                 // Download audio if available
                 Path audioPath = null;
@@ -221,21 +291,25 @@ public class VideoCompositionService {
                     downloadFile(shot.getAudioUrl(), audioPath);
                 }
 
-                int duration = shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 5;
+                double audioDuration = measureMediaDurationSeconds(audioPath);
+                ShotRenderPlan renderPlan = buildShotRenderPlan(
+                        shot,
+                        audioDuration,
+                        hasNext ? transitionDuration : 0d);
                 Path shotVideo = workDir.resolve("shot_" + shot.getShotNo() + ".mp4");
 
                 if (shouldUseDynamicVideo(shot) && hasText(shot.getVideoUrl())) {
                     Path sourceVideo = workDir.resolve("source_shot_" + shot.getShotNo() + ".mp4");
                     downloadFile(shot.getVideoUrl(), sourceVideo);
-                    composeDynamicShot(sourceVideo, audioPath, shotVideo, duration);
+                    composeDynamicShot(sourceVideo, audioPath, shotVideo, renderPlan, shot);
                 } else {
                     Path imagePath = workDir.resolve("shot_" + shot.getShotNo() + ".jpg");
                     downloadFile(shot.getImageUrl(), imagePath);
-                    composeSingleShot(imagePath, audioPath, shotVideo, duration);
+                    composeSingleShot(imagePath, audioPath, shotVideo, renderPlan, shot);
                 }
 
                 if (Files.exists(shotVideo) && Files.size(shotVideo) > 0) {
-                    shotVideos.add(shotVideo);
+                    shotVideos.add(new ShotSegment(shotVideo, renderPlan.clipDuration(), shot));
                     log.debug("Shot video composed successfully: taskId={}, projectId={}, shotNo={}, output={}",
                             taskId, projectId, shot.getShotNo(), shotVideo);
                 }
@@ -250,7 +324,7 @@ public class VideoCompositionService {
             // Step 2: Concatenate all shot videos
             String outputFilename = UUID.randomUUID().toString().replace("-", "") + ".mp4";
             Path finalVideo = videoDir.resolve(outputFilename);
-            concatenateVideos(shotVideos, finalVideo, workDir);
+            concatenateVideos(shotVideos, finalVideo, bgmPath, transitionSfxPath);
 
             if (!Files.exists(finalVideo) || Files.size(finalVideo) == 0) {
                 throw new BusinessException("视频拼接失败");
@@ -283,7 +357,7 @@ public class VideoCompositionService {
         } catch (Exception e) {
             log.error("Video composition failed for task {}", taskId, e);
             task.setStatus("FAILED");
-            task.setMessage("视频合成失败: " + e.getMessage());
+            task.setMessage("视频合成失败: " + buildFailureReason(e));
             taskRecordMapper.updateById(task);
 
             // Update project status to failed
@@ -496,13 +570,18 @@ public class VideoCompositionService {
      * Creates a video with Ken Burns zoom effect.
      * Output format: 1080x1920 (9:16 vertical), 25fps, H.264+AAC
      */
-    private void composeSingleShot(Path imagePath, Path audioPath, Path outputPath, int duration) throws IOException, InterruptedException {
+    private void composeSingleShot(Path imagePath,
+                                   Path audioPath,
+                                   Path outputPath,
+                                   ShotRenderPlan renderPlan,
+                                   Storyboard shot) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
         cmd.add(ffmpegPath);
         cmd.add("-y"); // overwrite
 
         // Input image
         cmd.add("-loop"); cmd.add("1");
+        cmd.add("-framerate"); cmd.add(String.valueOf(FRAME_RATE));
         cmd.add("-i"); cmd.add(imagePath.toAbsolutePath().toString());
 
         // Input audio (if available)
@@ -516,34 +595,38 @@ public class VideoCompositionService {
             cmd.add("-i"); cmd.add("anullsrc=r=44100:cl=stereo");
         }
 
-        // Video filter: scale to 1080x1920 (9:16) with slow zoom (Ken Burns effect)
-        String videoFilter = buildVideoFilter(duration);
+        cmd.add("-map"); cmd.add("0:v:0");
+        cmd.add("-map"); cmd.add("1:a:0");
+
+        String videoFilter = buildStillShotFilter(shot, renderPlan);
         cmd.add("-vf");
         cmd.add(videoFilter);
+        cmd.add("-af");
+        cmd.add(buildShotAudioFilter(renderPlan.clipDuration()));
 
         // Video codec
         cmd.add("-c:v"); cmd.add("libx264");
-        cmd.add("-preset"); cmd.add("fast");
+        cmd.add("-preset"); cmd.add("medium");
+        cmd.add("-crf"); cmd.add("20");
         cmd.add("-pix_fmt"); cmd.add("yuv420p");
         cmd.add("-r"); cmd.add(String.valueOf(FRAME_RATE));
 
-        // Audio codec
-        if (audioPath != null && Files.exists(audioPath)) {
-            cmd.add("-c:a"); cmd.add("aac");
-            cmd.add("-b:a"); cmd.add("128k");
-        } else {
-            cmd.add("-c:a"); cmd.add("aac");
-        }
-
-        cmd.add("-shortest");
-
-        cmd.add("-t"); cmd.add(String.valueOf(duration));
+        cmd.add("-c:a"); cmd.add("aac");
+        cmd.add("-b:a"); cmd.add("160k");
+        cmd.add("-ar"); cmd.add("44100");
+        cmd.add("-ac"); cmd.add("2");
+        cmd.add("-movflags"); cmd.add("+faststart");
+        cmd.add("-t"); cmd.add(ffmpegNumber(renderPlan.clipDuration()));
         cmd.add(outputPath.toAbsolutePath().toString());
 
         executeFFmpeg(cmd);
     }
 
-    private void composeDynamicShot(Path videoPath, Path audioPath, Path outputPath, int duration) throws IOException, InterruptedException {
+    private void composeDynamicShot(Path videoPath,
+                                    Path audioPath,
+                                    Path outputPath,
+                                    ShotRenderPlan renderPlan,
+                                    Storyboard shot) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
         cmd.add(ffmpegPath);
         cmd.add("-y");
@@ -561,18 +644,24 @@ public class VideoCompositionService {
             cmd.add("anullsrc=r=44100:cl=stereo");
         }
 
+        cmd.add("-map"); cmd.add("0:v:0");
+        cmd.add("-map"); cmd.add("1:a:0");
         cmd.add("-vf");
-        cmd.add(String.format("scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2",
-                VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_WIDTH, VIDEO_HEIGHT));
+        cmd.add(buildDynamicShotFilter(shot, renderPlan));
+        cmd.add("-af");
+        cmd.add(buildShotAudioFilter(renderPlan.clipDuration()));
 
         cmd.add("-c:v"); cmd.add("libx264");
-        cmd.add("-preset"); cmd.add("fast");
+        cmd.add("-preset"); cmd.add("medium");
+        cmd.add("-crf"); cmd.add("20");
         cmd.add("-pix_fmt"); cmd.add("yuv420p");
         cmd.add("-r"); cmd.add(String.valueOf(FRAME_RATE));
         cmd.add("-c:a"); cmd.add("aac");
-        cmd.add("-b:a"); cmd.add("128k");
-        cmd.add("-shortest");
-        cmd.add("-t"); cmd.add(String.valueOf(duration));
+        cmd.add("-b:a"); cmd.add("160k");
+        cmd.add("-ar"); cmd.add("44100");
+        cmd.add("-ac"); cmd.add("2");
+        cmd.add("-movflags"); cmd.add("+faststart");
+        cmd.add("-t"); cmd.add(ffmpegNumber(renderPlan.clipDuration()));
         cmd.add(outputPath.toAbsolutePath().toString());
 
         executeFFmpeg(cmd);
@@ -595,13 +684,6 @@ public class VideoCompositionService {
         executeFFmpeg(cmd);
     }
 
-    /** Output video width (vertical 9:16) */
-    private static final int VIDEO_WIDTH = 1080;
-    /** Output video height (vertical 9:16) */
-    private static final int VIDEO_HEIGHT = 1920;
-    /** Output video frame rate */
-    private static final int FRAME_RATE = 25;
-
     /**
      * Build FFmpeg video filter for Ken Burns zoom effect on a still image.
      */
@@ -615,6 +697,158 @@ public class VideoCompositionService {
                 VIDEO_WIDTH, VIDEO_HEIGHT,
                 totalFrames, VIDEO_WIDTH, VIDEO_HEIGHT, FRAME_RATE
         );
+    }
+
+    private String buildStillShotFilter(Storyboard shot, ShotRenderPlan renderPlan) {
+        String filter = buildStillMotionFilter(shot, renderPlan.clipDuration());
+        String subtitleFilter = buildSubtitleFilter(renderPlan.subtitleText(), renderPlan.contentDuration());
+        return hasText(subtitleFilter) ? filter + "," + subtitleFilter : filter;
+    }
+
+    private String buildDynamicShotFilter(Storyboard shot, ShotRenderPlan renderPlan) {
+        String filter = String.format(Locale.ROOT,
+                "fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,tpad=stop_mode=clone:stop_duration=%s",
+                FRAME_RATE,
+                VIDEO_WIDTH,
+                VIDEO_HEIGHT,
+                VIDEO_WIDTH,
+                VIDEO_HEIGHT,
+                ffmpegNumber(renderPlan.clipDuration()));
+        String subtitleFilter = buildSubtitleFilter(renderPlan.subtitleText(), renderPlan.contentDuration());
+        return hasText(subtitleFilter) ? filter + "," + subtitleFilter : filter;
+    }
+
+    private String buildStillMotionFilter(Storyboard shot, double durationSeconds) {
+        int totalFrames = Math.max(1, (int) Math.ceil(durationSeconds * FRAME_RATE));
+        double zoomStep = 0.0011d;
+        double zoomMax = 1.24d;
+        String xExpr = "iw/2-(iw/zoom/2)";
+        String yExpr = "ih/2-(ih/zoom/2)";
+        String cameraAngle = normalizeCameraAngle(shot != null ? shot.getCameraAngle() : null);
+        if (isHighMotion(shot)) {
+            zoomStep = 0.0016d;
+            zoomMax = 1.30d;
+        }
+        switch (cameraAngle) {
+            case "close-up", "closeup" -> {
+                zoomStep = Math.max(zoomStep, 0.0018d);
+                zoomMax = Math.max(zoomMax, 1.34d);
+            }
+            case "wide" -> {
+                zoomStep = 0.0007d;
+                zoomMax = 1.12d;
+            }
+            case "overhead" -> {
+                zoomStep = 0.0010d;
+                zoomMax = 1.18d;
+                yExpr = "ih/2-(ih/zoom/2)-on*0.12";
+            }
+            case "pov" -> {
+                zoomStep = 0.0013d;
+                zoomMax = Math.max(zoomMax, 1.25d);
+                xExpr = "iw/2-(iw/zoom/2)+sin(on/18)*18";
+                yExpr = "ih/2-(ih/zoom/2)+cos(on/20)*12";
+            }
+            default -> {
+            }
+        }
+        return String.format(Locale.ROOT,
+                "scale=%d:%d:force_original_aspect_ratio=decrease," +
+                        "pad=%d:%d:(ow-iw)/2:(oh-ih)/2," +
+                        "zoompan=z='min(zoom+%.4f,%.2f)':x='%s':y='%s':d=%d:s=%dx%d:fps=%d",
+                VIDEO_WIDTH,
+                VIDEO_HEIGHT,
+                VIDEO_WIDTH,
+                VIDEO_HEIGHT,
+                zoomStep,
+                zoomMax,
+                xExpr,
+                yExpr,
+                totalFrames,
+                VIDEO_WIDTH,
+                VIDEO_HEIGHT,
+                FRAME_RATE);
+    }
+
+    private String buildShotAudioFilter(double durationSeconds) {
+        return String.format(Locale.ROOT,
+                "aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=%s,volume=1.06,apad=whole_dur=%s",
+                ffmpegNumber(durationSeconds),
+                ffmpegNumber(durationSeconds));
+    }
+
+    private String buildSubtitleFilter(String subtitleText, double visibleDurationSeconds) {
+        if (!composeSubtitleEnabled || !hasText(subtitleText)) {
+            return null;
+        }
+        double visibleDuration = Math.max(1.0d, visibleDurationSeconds);
+        StringBuilder filter = new StringBuilder("drawtext=");
+        String fontOption = resolveSubtitleFontOption();
+        if (hasText(fontOption)) {
+            filter.append(fontOption).append(":");
+        }
+        filter.append("text='").append(escapeDrawtextText(subtitleText)).append("'")
+                .append(":fontsize=").append(Math.max(28, composeSubtitleFontSize))
+                .append(":fontcolor=white")
+                .append(":borderw=4")
+                .append(":bordercolor=black")
+                .append(":box=1")
+                .append(":boxcolor=black@0.25")
+                .append(":boxborderw=18")
+                .append(":line_spacing=10")
+                .append(":x=(w-text_w)/2")
+                .append(":y=h-text_h-").append(Math.max(80, composeSubtitleMarginBottom)).append("-6*sin(2*PI*t/2.8)")
+                .append(":enable='between(t\\,0\\,").append(ffmpegNumber(visibleDuration)).append(")'");
+        return filter.toString();
+    }
+
+    private String resolveSubtitleFontOption() {
+        Path fontPath = resolveSubtitleFontPath();
+        if (fontPath == null) {
+            return null;
+        }
+        return "fontfile='" + escapeFilterPath(fontPath.toAbsolutePath().toString()) + "'";
+    }
+
+    private Path resolveSubtitleFontPath() {
+        if (hasText(composeSubtitleFontPath)) {
+            Path configured = toPath(composeSubtitleFontPath.trim());
+            if (configured != null && Files.exists(configured)) {
+                return configured.toAbsolutePath();
+            }
+        }
+        List<String> candidates = isWindows()
+                ? List.of(
+                "C:/Windows/Fonts/msyh.ttc",
+                "C:/Windows/Fonts/msyhbd.ttc",
+                "C:/Windows/Fonts/simhei.ttf")
+                : List.of(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc");
+        for (String candidate : candidates) {
+            Path path = toPath(candidate);
+            if (path != null && Files.exists(path)) {
+                return path.toAbsolutePath();
+            }
+        }
+        return null;
+    }
+
+    private String escapeDrawtextText(String text) {
+        return text.replace("\\", "\\\\")
+                .replace(":", "\\:")
+                .replace("'", "\\'")
+                .replace("%", "\\%")
+                .replace("[", "\\[")
+                .replace("]", "\\]")
+                .replace("\r", "")
+                .replace("\n", "\\n");
+    }
+
+    private String escapeFilterPath(String text) {
+        return text.replace("\\", "/")
+                .replace(":", "\\:")
+                .replace("'", "\\'");
     }
 
     private String buildDynamicVideoFilter(int durationSeconds, String motionLevel) {
@@ -649,41 +883,186 @@ public class VideoCompositionService {
     }
 
     /**
-     * Concatenate multiple video segments into a final video using FFmpeg concat demuxer.
+     * Compose the final vertical short drama video with cinematic transitions and optional BGM/SFX.
      */
-    private void concatenateVideos(List<Path> videos, Path outputPath, Path workDir) throws IOException, InterruptedException {
-        // Create concat file list with properly escaped paths
-        Path concatFile = workDir.resolve("concat.txt");
-        StringBuilder sb = new StringBuilder();
-        for (Path video : videos) {
-            // Escape single quotes in file paths for FFmpeg concat format
-            String escapedPath = video.toAbsolutePath().toString().replace("'", "'\\''");
-            sb.append("file '").append(escapedPath).append("'\n");
-        }
-        Files.writeString(concatFile, sb.toString());
+    private void concatenateVideos(List<ShotSegment> videos,
+                                   Path outputPath,
+                                   Path bgmPath,
+                                   Path transitionSfxPath) throws IOException, InterruptedException {
+        List<String> cmd = new ArrayList<>();
+        cmd.add(ffmpegPath);
+        cmd.add("-y");
 
-        List<String> cmd = List.of(
-                ffmpegPath, "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", concatFile.toAbsolutePath().toString(),
-                "-c:v", "libx264",
-                "-preset", "fast",
-                "-c:a", "aac",
-                "-b:a", "128k",
-                "-movflags", "+faststart",
-                outputPath.toAbsolutePath().toString()
-        );
+        for (ShotSegment video : videos) {
+            cmd.add("-i");
+            cmd.add(video.videoPath().toAbsolutePath().toString());
+        }
+
+        int bgmInputIndex = -1;
+        if (bgmPath != null && Files.exists(bgmPath)) {
+            bgmInputIndex = videos.size();
+            cmd.add("-stream_loop");
+            cmd.add("-1");
+            cmd.add("-i");
+            cmd.add(bgmPath.toAbsolutePath().toString());
+        }
+
+        int transitionSfxInputIndex = -1;
+        if (transitionSfxPath != null && Files.exists(transitionSfxPath) && videos.size() > 1) {
+            transitionSfxInputIndex = cmd.stream().filter("-i"::equals).toArray().length;
+            cmd.add("-i");
+            cmd.add(transitionSfxPath.toAbsolutePath().toString());
+        }
+
+        cmd.add("-filter_complex");
+        cmd.add(buildFinalCompositionFilter(videos, bgmInputIndex, transitionSfxInputIndex));
+        cmd.add("-map");
+        cmd.add("[vout]");
+        cmd.add("-map");
+        cmd.add("[aout]");
+        cmd.add("-c:v");
+        cmd.add("libx264");
+        cmd.add("-preset");
+        cmd.add("slow");
+        cmd.add("-crf");
+        cmd.add("19");
+        cmd.add("-pix_fmt");
+        cmd.add("yuv420p");
+        cmd.add("-r");
+        cmd.add(String.valueOf(FRAME_RATE));
+        cmd.add("-c:a");
+        cmd.add("aac");
+        cmd.add("-b:a");
+        cmd.add("192k");
+        cmd.add("-ar");
+        cmd.add("44100");
+        cmd.add("-ac");
+        cmd.add("2");
+        cmd.add("-movflags");
+        cmd.add("+faststart");
+        cmd.add(outputPath.toAbsolutePath().toString());
 
         executeFFmpeg(cmd);
     }
 
+    private String buildFinalCompositionFilter(List<ShotSegment> segments,
+                                               int bgmInputIndex,
+                                               int transitionSfxInputIndex) {
+        List<String> filterSteps = new ArrayList<>();
+        List<Double> transitionMarkers = new ArrayList<>();
+        for (int i = 0; i < segments.size(); i++) {
+            filterSteps.add(String.format(Locale.ROOT,
+                    "[%d:v]settb=AVTB,setpts=PTS-STARTPTS[v%d]",
+                    i,
+                    i));
+            filterSteps.add(String.format(Locale.ROOT,
+                    "[%d:a]aformat=sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS[a%d]",
+                    i,
+                    i));
+        }
+
+        String currentVideo = "v0";
+        String currentAudio = "a0";
+        double transitionDuration = resolveTransitionDuration(segments.size());
+        double currentDuration = segments.get(0).clipDuration();
+
+        if (segments.size() > 1 && transitionDuration > 0d) {
+            for (int i = 1; i < segments.size(); i++) {
+                double offset = Math.max(currentDuration - transitionDuration, 0d);
+                transitionMarkers.add(offset);
+                String videoOut = "vxf" + i;
+                String audioOut = "axf" + i;
+                filterSteps.add(String.format(Locale.ROOT,
+                        "[%s][v%d]xfade=transition=%s:duration=%s:offset=%s[%s]",
+                        currentVideo,
+                        i,
+                        resolveTransitionName(segments.get(i - 1).shot(), segments.get(i).shot(), i - 1),
+                        ffmpegNumber(transitionDuration),
+                        ffmpegNumber(offset),
+                        videoOut));
+                filterSteps.add(String.format(Locale.ROOT,
+                        "[%s][a%d]acrossfade=d=%s:c1=tri:c2=tri[%s]",
+                        currentAudio,
+                        i,
+                        ffmpegNumber(transitionDuration),
+                        audioOut));
+                currentVideo = videoOut;
+                currentAudio = audioOut;
+                currentDuration = currentDuration + segments.get(i).clipDuration() - transitionDuration;
+            }
+        }
+
+        String mixedAudio = currentAudio;
+        if (bgmInputIndex >= 0) {
+            double bgmFadeDuration = Math.min(DEFAULT_BGM_FADE_OUT_SECONDS, currentDuration);
+            double bgmFadeStart = Math.max(currentDuration - bgmFadeDuration, 0d);
+            filterSteps.add(String.format(Locale.ROOT,
+                    "[%d:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=%s,asetpts=PTS-STARTPTS,volume=%s,afade=t=out:st=%s:d=%s[bgm0]",
+                    bgmInputIndex,
+                    ffmpegNumber(currentDuration),
+                    ffmpegNumber(resolveBgmVolume()),
+                    ffmpegNumber(bgmFadeStart),
+                    ffmpegNumber(bgmFadeDuration)));
+            filterSteps.add(String.format(Locale.ROOT,
+                    "[bgm0][%s]sidechaincompress=threshold=0.035:ratio=10:attack=15:release=280[bgmduck]",
+                    currentAudio));
+            filterSteps.add(String.format(Locale.ROOT,
+                    "[%s][bgmduck]amix=inputs=2:duration=first:weights='1 0.28':normalize=0[amixbgm]",
+                    currentAudio));
+            mixedAudio = "amixbgm";
+        }
+
+        if (transitionSfxInputIndex >= 0 && !transitionMarkers.isEmpty()) {
+            filterSteps.add(String.format(Locale.ROOT,
+                    "[%d:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=0.8,asetpts=PTS-STARTPTS,volume=%s[sfxsrc]",
+                    transitionSfxInputIndex,
+                    ffmpegNumber(resolveTransitionSfxVolume())));
+            if (transitionMarkers.size() == 1) {
+                int delayMs = (int) Math.round(Math.max(transitionMarkers.get(0) - 0.05d, 0d) * 1000d);
+                filterSteps.add(String.format(Locale.ROOT,
+                        "[sfxsrc]adelay=%d|%d[sfxd0]",
+                        delayMs,
+                        delayMs));
+                filterSteps.add(String.format(Locale.ROOT,
+                        "[%s][sfxd0]amix=inputs=2:duration=first:normalize=0[aout]",
+                        mixedAudio));
+            } else {
+                StringBuilder split = new StringBuilder("[sfxsrc]asplit=")
+                        .append(transitionMarkers.size());
+                for (int i = 0; i < transitionMarkers.size(); i++) {
+                    split.append("[sfx").append(i).append("]");
+                }
+                filterSteps.add(split.toString());
+                StringBuilder mixInputs = new StringBuilder("[").append(mixedAudio).append("]");
+                for (int i = 0; i < transitionMarkers.size(); i++) {
+                    int delayMs = (int) Math.round(Math.max(transitionMarkers.get(i) - 0.05d, 0d) * 1000d);
+                    filterSteps.add(String.format(Locale.ROOT,
+                            "[sfx%d]adelay=%d|%d[sfxd%d]",
+                            i,
+                            delayMs,
+                            delayMs,
+                            i));
+                    mixInputs.append("[sfxd").append(i).append("]");
+                }
+                filterSteps.add(mixInputs + String.format(Locale.ROOT,
+                        "amix=inputs=%d:duration=first:normalize=0[aout]",
+                        transitionMarkers.size() + 1));
+            }
+        } else {
+            filterSteps.add(String.format(Locale.ROOT, "[%s]anull[aout]", mixedAudio));
+        }
+
+        filterSteps.add(String.format(Locale.ROOT, "[%s]format=pix_fmts=yuv420p[vout]", currentVideo));
+        return String.join(";", filterSteps);
+    }
+
     private void executeFFmpeg(List<String> cmd) throws IOException, InterruptedException {
         String executable = resolveFfmpegExecutable();
-        cmd.set(0, executable);
-        log.debug("FFmpeg command: {}", String.join(" ", cmd));
+        List<String> effectiveCmd = new ArrayList<>(cmd);
+        effectiveCmd.set(0, executable);
+        log.debug("FFmpeg command: {}", String.join(" ", effectiveCmd));
 
-        ProcessBuilder pb = new ProcessBuilder(cmd);
+        ProcessBuilder pb = new ProcessBuilder(effectiveCmd);
         pb.redirectErrorStream(true);
         Process process;
         try {
@@ -711,9 +1090,31 @@ public class VideoCompositionService {
                     ? "<no ffmpeg output captured>"
                     : String.join(" | ", outputLines);
             throw new RuntimeException("FFmpeg exited with code " + exitCode
-                    + ", command=" + String.join(" ", cmd)
+                    + ", command=" + String.join(" ", effectiveCmd)
                     + ", outputTail=" + tail);
         }
+    }
+
+    private String executeCommandForOutput(List<String> cmd, String toolName) throws IOException, InterruptedException {
+        log.debug("{} command: {}", toolName, String.join(" ", cmd));
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        StringBuilder output = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (output.length() > 0) {
+                    output.append(System.lineSeparator());
+                }
+                output.append(line);
+            }
+        }
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new RuntimeException(toolName + " exited with code " + exitCode + ", output=" + output);
+        }
+        return output.toString().trim();
     }
 
     private String resolveFfmpegExecutable() {
@@ -757,6 +1158,47 @@ public class VideoCompositionService {
         // Fallback to configured value; startup error will include detailed diagnostics.
         resolvedFfmpegExecutable = configured;
         return resolvedFfmpegExecutable;
+    }
+
+    private String resolveFfprobeExecutable() {
+        if (hasText(resolvedFfprobeExecutable)) {
+            return resolvedFfprobeExecutable;
+        }
+
+        if (hasText(ffprobePath)) {
+            String configured = normalizeExecutableConfig(ffprobePath);
+            Path configuredPath = toPath(configured);
+            if (configuredPath != null && Files.exists(configuredPath)) {
+                resolvedFfprobeExecutable = configuredPath.toAbsolutePath().toString();
+                return resolvedFfprobeExecutable;
+            }
+            if (isWindows() && !configured.toLowerCase(Locale.ROOT).endsWith(".exe")) {
+                Path configuredExePath = toPath(configured + ".exe");
+                if (configuredExePath != null && Files.exists(configuredExePath)) {
+                    resolvedFfprobeExecutable = configuredExePath.toAbsolutePath().toString();
+                    return resolvedFfprobeExecutable;
+                }
+            }
+        }
+
+        Path ffmpegExecutable = toPath(resolveFfmpegExecutable());
+        if (ffmpegExecutable != null && ffmpegExecutable.getParent() != null) {
+            String probeName = isWindows() ? "ffprobe.exe" : "ffprobe";
+            Path sibling = ffmpegExecutable.getParent().resolve(probeName);
+            if (Files.exists(sibling)) {
+                resolvedFfprobeExecutable = sibling.toAbsolutePath().toString();
+                return resolvedFfprobeExecutable;
+            }
+        }
+
+        String foundOnPath = findOnSystemPath(isWindows() ? "ffprobe.exe" : "ffprobe");
+        if (hasText(foundOnPath)) {
+            resolvedFfprobeExecutable = foundOnPath;
+            return resolvedFfprobeExecutable;
+        }
+
+        resolvedFfprobeExecutable = isWindows() ? "ffprobe.exe" : "ffprobe";
+        return resolvedFfprobeExecutable;
     }
 
     private String findOnSystemPath(String executableName) {
@@ -851,6 +1293,193 @@ public class VideoCompositionService {
             Thread.currentThread().interrupt();
             throw new IOException("Download interrupted", e);
         }
+    }
+
+    private double measureMediaDurationSeconds(Path mediaPath) {
+        if (mediaPath == null || !Files.exists(mediaPath)) {
+            return 0d;
+        }
+        try {
+            List<String> cmd = List.of(
+                    resolveFfprobeExecutable(),
+                    "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    mediaPath.toAbsolutePath().toString());
+            String output = executeCommandForOutput(cmd, "ffprobe");
+            return hasText(output) ? Double.parseDouble(output.trim()) : 0d;
+        } catch (Exception e) {
+            log.warn("Failed to probe media duration: path={}, reason={}", mediaPath, buildFailureReason(e));
+            return 0d;
+        }
+    }
+
+    private ShotRenderPlan buildShotRenderPlan(Storyboard shot, double audioDuration, double transitionTail) {
+        double requestedDuration = shot.getDuration() != null && shot.getDuration() > 0
+                ? shot.getDuration()
+                : DEFAULT_SHOT_DURATION_SECONDS;
+        double contentDuration = Math.max(requestedDuration, audioDuration + Math.max(0.1d, composeAudioTailPadding));
+        contentDuration = Math.max(contentDuration, MIN_SHOT_DURATION_SECONDS);
+        double clipDuration = contentDuration + Math.max(0d, transitionTail);
+        return new ShotRenderPlan(contentDuration, clipDuration, resolveSubtitleText(shot));
+    }
+
+    private String resolveSubtitleText(Storyboard shot) {
+        String dialogue = normalizeSubtitleSource(shot != null ? shot.getDialogue() : null);
+        String narration = normalizeSubtitleSource(shot != null ? shot.getNarration() : null);
+        String subtitleText;
+        if (hasText(dialogue) && hasText(narration) && !dialogue.equals(narration)) {
+            subtitleText = dialogue + "\n" + narration;
+        } else {
+            subtitleText = hasText(dialogue) ? dialogue : narration;
+        }
+        return wrapSubtitleText(subtitleText);
+    }
+
+    private String normalizeSubtitleSource(String source) {
+        if (!hasText(source)) {
+            return null;
+        }
+        return source.replace('\r', ' ')
+                .replace("\n", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private String wrapSubtitleText(String text) {
+        if (!hasText(text)) {
+            return null;
+        }
+        List<String> lines = new ArrayList<>();
+        StringBuilder currentLine = new StringBuilder();
+        int currentWidth = 0;
+        int maxWidth = 26;
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (ch == '\n') {
+                if (!currentLine.isEmpty()) {
+                    lines.add(currentLine.toString());
+                }
+                currentLine.setLength(0);
+                currentWidth = 0;
+                continue;
+            }
+            int charWidth = ch > 255 ? 2 : 1;
+            if (currentWidth + charWidth > maxWidth && !currentLine.isEmpty()) {
+                lines.add(currentLine.toString());
+                currentLine.setLength(0);
+                currentWidth = 0;
+            }
+            currentLine.append(ch);
+            currentWidth += charWidth;
+            if (lines.size() >= 2 && currentWidth >= maxWidth) {
+                break;
+            }
+        }
+        if (!currentLine.isEmpty() && lines.size() < 3) {
+            lines.add(currentLine.toString());
+        }
+        return lines.isEmpty() ? null : String.join("\n", lines.subList(0, Math.min(3, lines.size())));
+    }
+
+    private boolean hasRenderableMedia(Storyboard shot) {
+        if (shot == null) {
+            return false;
+        }
+        boolean renderable = hasText(shot.getImageUrl()) || hasText(shot.getVideoUrl());
+        if (!renderable) {
+            log.warn("Shot {} has no image or video, skipping composition", shot.getShotNo());
+        }
+        return renderable;
+    }
+
+    private double resolveTransitionDuration(int shotCount) {
+        if (shotCount <= 1) {
+            return 0d;
+        }
+        double configured = composeTransitionDuration > 0d ? composeTransitionDuration : 0.45d;
+        return Math.min(Math.max(configured, 0.18d), 1.2d);
+    }
+
+    private double resolveBgmVolume() {
+        return Math.min(Math.max(composeBgmVolume, 0.02d), 0.8d);
+    }
+
+    private double resolveTransitionSfxVolume() {
+        return Math.min(Math.max(composeTransitionSfxVolume, 0.02d), 1.0d);
+    }
+
+    private String resolveTransitionName(Storyboard previous, Storyboard next, int index) {
+        if (shouldUseDynamicVideo(previous) || shouldUseDynamicVideo(next) || isHighMotion(previous) || isHighMotion(next)) {
+            return index % 2 == 0 ? "smoothleft" : "smoothup";
+        }
+        String nextAngle = normalizeCameraAngle(next != null ? next.getCameraAngle() : null);
+        return switch (nextAngle) {
+            case "close-up", "closeup" -> "fadewhite";
+            case "overhead" -> "fadeblack";
+            case "wide" -> "fade";
+            default -> DEFAULT_TRANSITIONS.get(index % DEFAULT_TRANSITIONS.size());
+        };
+    }
+
+    private boolean isHighMotion(Storyboard shot) {
+        return shot != null && hasText(shot.getMotionLevel()) && "high".equalsIgnoreCase(shot.getMotionLevel());
+    }
+
+    private String normalizeCameraAngle(String cameraAngle) {
+        if (!hasText(cameraAngle)) {
+            return "";
+        }
+        return cameraAngle.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private Path prepareComposeAsset(String source, Path targetPath) throws IOException {
+        if (!hasText(source)) {
+            return null;
+        }
+        try {
+            if (isRemoteSource(source) || source.startsWith(baseUrl)) {
+                downloadFile(source, targetPath);
+                return Files.exists(targetPath) ? targetPath : null;
+            }
+            Path localPath = toPath(source.trim());
+            if (localPath != null && Files.exists(localPath)) {
+                return localPath.toAbsolutePath();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to prepare optional compose asset, skipping: source={}, reason={}", source, buildFailureReason(e));
+            return null;
+        }
+        log.warn("Compose asset not found, skipping: {}", source);
+        return null;
+    }
+
+    private boolean isRemoteSource(String source) {
+        return source.startsWith("http://") || source.startsWith("https://");
+    }
+
+    private String resolveAssetExtension(String source, String defaultExtension) {
+        if (!hasText(source)) {
+            return defaultExtension;
+        }
+        try {
+            String path = isRemoteSource(source) ? URI.create(source).getPath() : source;
+            if (!hasText(path)) {
+                return defaultExtension;
+            }
+            int slashIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+            int dotIndex = path.lastIndexOf('.');
+            if (dotIndex > slashIndex) {
+                return path.substring(dotIndex);
+            }
+        } catch (Exception ignored) {
+            // Fall back to default extension.
+        }
+        return defaultExtension;
+    }
+
+    private String ffmpegNumber(double value) {
+        return String.format(Locale.ROOT, "%.3f", Math.max(0d, value));
     }
 
     private void prepareShotForDynamicVideoTask(Storyboard shot, Long taskId) {
@@ -1078,6 +1707,18 @@ public class VideoCompositionService {
 
     private boolean hasText(String text) {
         return text != null && !text.isBlank();
+    }
+
+    private String buildFailureReason(Throwable error) {
+        if (error == null) {
+            return "unknown";
+        }
+        Throwable current = error;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        return hasText(message) ? message : current.getClass().getSimpleName();
     }
 
     private void cleanupDirectory(Path dir) {

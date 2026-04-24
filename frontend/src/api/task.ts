@@ -1,8 +1,10 @@
 import request from './request'
 
+const TASK_POLL_TIMEOUT = 60 * 60 * 1000
+
 export const taskApi = {
   get: (id: number | string) =>
-    request.get(`/tasks/${id}`),
+    request.get(`/tasks/${id}`, { timeout: TASK_POLL_TIMEOUT }),
 
   listByProject: (projectId: number | string) =>
     request.get(`/tasks/project/${projectId}`),

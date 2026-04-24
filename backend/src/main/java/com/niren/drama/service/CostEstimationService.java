@@ -199,10 +199,10 @@ public class CostEstimationService {
     }
 
     // Image resolution constants
-    private static final String RESOLUTION_LOW = "512x512";
+    private static final String RESOLUTION_LOW = "1024x1024";
     private static final String RESOLUTION_STANDARD = "1024x1024";
     private static final String RESOLUTION_HIGH = "1024x1792";
-    private static final String RESOLUTION_WIDE_LOW = "512x912";
+    private static final String RESOLUTION_WIDE_LOW = "1024x1792";
 
     /**
      * Get the optimal image size for a given camera angle based on quality tier.
@@ -211,11 +211,11 @@ public class CostEstimationService {
         if (cameraAngle == null) cameraAngle = "medium";
 
         return switch (qualityTier) {
-            case "preview" -> RESOLUTION_LOW; // Low-res for all shots in preview mode
+            case "preview" -> RESOLUTION_LOW; // Lowest provider-safe size for preview mode
             case "premium" -> RESOLUTION_HIGH; // High-res for all shots in premium mode
             default -> switch (cameraAngle.toLowerCase()) {
                 case "close-up", "pov" -> RESOLUTION_HIGH;     // High-res for close-ups
-                case "wide", "overhead" -> RESOLUTION_WIDE_LOW; // Lower-res for wide shots
+                case "wide", "overhead" -> RESOLUTION_WIDE_LOW; // Keep wide shots above the provider minimum pixel floor
                 default -> RESOLUTION_STANDARD;                 // Standard for medium shots
             };
         };

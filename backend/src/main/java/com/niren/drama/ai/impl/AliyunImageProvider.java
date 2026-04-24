@@ -75,9 +75,10 @@ public class AliyunImageProvider implements ImageAiProvider {
         String imageUrl = null;
         String error = null;
         Map<String, String> headers = AiTraceSupport.jsonHeaders(apiKey);
+        String resolvedSize = normalizeImageSize(size);
 
         try {
-            ObjectNode body = buildRequestBody(prompt, size, style, referenceImageUrls, negativePrompt);
+            ObjectNode body = buildRequestBody(prompt, resolvedSize, style, referenceImageUrls, negativePrompt);
             requestBody = objectMapper.writeValueAsString(body);
 
             HttpRequest request = HttpRequest.newBuilder()
