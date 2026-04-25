@@ -1,5 +1,6 @@
 package com.niren.drama.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -20,6 +21,18 @@ public class Storyboard extends BaseEntity {
     private String dialogue;
     /** Narrator text */
     private String narration;
+    /** 上屏字幕；空则由对白/旁白与合成配置派生 */
+    private String subtitleText;
+    /** 配音口播稿；空则派生自旁白+对白 */
+    private String ttsText;
+    /** 用户已手动锁定上屏，AI 重跑不覆盖 */
+    private Boolean userLockedSubtitle;
+    /** 用户已手动锁定配音稿，AI 重跑不覆盖 */
+    private Boolean userLockedTts;
+    @TableField(exist = false)
+    private String resolvedSubtitle;
+    @TableField(exist = false)
+    private String resolvedTts;
     /** Main character featured in this shot */
     private Long characterId;
     private Long sceneId;

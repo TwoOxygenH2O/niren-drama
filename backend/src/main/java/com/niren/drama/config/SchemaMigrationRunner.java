@@ -56,6 +56,36 @@ public class SchemaMigrationRunner implements ApplicationRunner {
             "idx_video_task_record_id",
             "ALTER TABLE drama_storyboard ADD INDEX idx_video_task_record_id (video_task_record_id)"
         );
+        ensureColumnExists(
+            "drama_storyboard",
+            "subtitle_text",
+            "ALTER TABLE drama_storyboard ADD COLUMN subtitle_text LONGTEXT COMMENT '上屏字幕（可覆盖；空则按规则从对白/旁白派生）' AFTER narration"
+        );
+        ensureColumnExists(
+            "drama_storyboard",
+            "tts_text",
+            "ALTER TABLE drama_storyboard ADD COLUMN tts_text LONGTEXT COMMENT '配音稿（可覆盖；空则由对白+旁白派生）' AFTER subtitle_text"
+        );
+        ensureColumnExists(
+            "drama_storyboard",
+            "user_locked_subtitle",
+            "ALTER TABLE drama_storyboard ADD COLUMN user_locked_subtitle TINYINT(1) NOT NULL DEFAULT 0 COMMENT '用户是否锁定上屏字幕' AFTER tts_text"
+        );
+        ensureColumnExists(
+            "drama_storyboard",
+            "user_locked_tts",
+            "ALTER TABLE drama_storyboard ADD COLUMN user_locked_tts TINYINT(1) NOT NULL DEFAULT 0 COMMENT '用户是否锁定配音稿' AFTER user_locked_subtitle"
+        );
+        ensureColumnExists(
+            "drama_character",
+            "speech_rate",
+            "ALTER TABLE drama_character ADD COLUMN speech_rate INT COMMENT 'TTS语速，100=1.0x，可空' AFTER voice_name"
+        );
+        ensureColumnExists(
+            "drama_character",
+            "tts_note",
+            "ALTER TABLE drama_character ADD COLUMN tts_note VARCHAR(500) COMMENT 'TTS导演补充（并入 instruction）' AFTER speech_rate"
+        );
     }
 
     private void ensureColumnExists(String tableName, String columnName, String ddl) {
@@ -70,7 +100,7 @@ public class SchemaMigrationRunner implements ApplicationRunner {
             return;
         }
 
-        log.info("Applying schema migration: add {}.{}", tableName, columnName);
+        log.info("执行数据库迁移: 新增字段 {}.{}", tableName, columnName);
         jdbcTemplate.execute(ddl);
     }
 
@@ -86,7 +116,7 @@ public class SchemaMigrationRunner implements ApplicationRunner {
             return;
         }
 
-        log.info("Applying schema migration: add index {} on {}", indexName, tableName);
+        log.info("执行数据库迁移: 在 {} 新增索引 {}", tableName, indexName);
         jdbcTemplate.execute(ddl);
     }
 }

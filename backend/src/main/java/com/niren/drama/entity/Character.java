@@ -20,5 +20,9 @@ public class Character extends BaseEntity {
     /** TTS voice identifier */
     private String voiceId;
     private String voiceName;
+    /** TTS 语速，100=1.0x，可空用默认 1.0 */
+    private Integer speechRate;
+    /** 导演补充，合并进 TTS instruction */
+    private String ttsNote;
     private Integer sortOrder;
 }

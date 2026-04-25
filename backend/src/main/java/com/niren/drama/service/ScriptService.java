@@ -62,7 +62,7 @@ public class ScriptService {
         Project project = projectService.getProject(userId, request.getProjectId());
         int totalEpisodes = resolveTotalEpisodes(project, request);
         resolveCreativeSeed(project, request, true);
-        log.debug("Creating outline task: userId={}, projectId={}, totalEpisodes={}",
+        log.debug("创建大纲任务: userId={}, projectId={}, totalEpisodes={}",
             userId, request.getProjectId(), totalEpisodes);
 
         TaskRecord task = new TaskRecord();
@@ -84,7 +84,7 @@ public class ScriptService {
         GenerationPlan plan = resolveGenerationPlan(project, request);
         request.setEpisodeNo(plan.singleEpisode());
         request.setTotalEpisodes(plan.totalEpisodes());
-        log.debug("Creating single script task: userId={}, projectId={}, episodeNo={}, totalEpisodes={}",
+        log.debug("创建单集剧本任务: userId={}, projectId={}, episodeNo={}, totalEpisodes={}",
             userId, request.getProjectId(), plan.singleEpisode(), plan.totalEpisodes());
 
         TaskRecord task = new TaskRecord();
@@ -108,7 +108,7 @@ public class ScriptService {
         request.setStartEpisode(plan.startEpisode());
         request.setEndEpisode(plan.endEpisode());
         request.setTotalEpisodes(plan.totalEpisodes());
-        log.debug("Creating batch script task: userId={}, projectId={}, startEpisode={}, endEpisode={}, totalEpisodes={}",
+        log.debug("创建批量剧本任务: userId={}, projectId={}, startEpisode={}, endEpisode={}, totalEpisodes={}",
             userId, request.getProjectId(), plan.startEpisode(), plan.endEpisode(), plan.totalEpisodes());
 
         int batchCount = plan.endEpisode() - plan.startEpisode() + 1;
@@ -128,7 +128,7 @@ public class ScriptService {
         Project project = projectService.getProject(userId, request.getProjectId());
         int totalEpisodes = resolveTotalEpisodes(project, request);
         int episodeDuration = resolveEpisodeDuration(project);
-        log.debug("Start outline streaming: userId={}, projectId={}, totalEpisodes={}, episodeDuration={}",
+        log.debug("开始流式生成大纲: userId={}, projectId={}, totalEpisodes={}, episodeDuration={}",
             userId, request.getProjectId(), totalEpisodes, episodeDuration);
 
         TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
@@ -141,12 +141,12 @@ public class ScriptService {
             request,
             totalEpisodes,
             episodeDuration);
-        log.debug("Outline streaming commonInfo ready: projectId={}, commonInfoLength={}",
+        log.debug("大纲流式通用信息已就绪: projectId={}, commonInfoLength={}",
                 request.getProjectId(), commonInfo.length());
         chunkConsumer.accept(formatProjectCommonInfoBlock(commonInfo));
         for (int chunkStart = 1; chunkStart <= totalEpisodes; chunkStart += OUTLINE_CHUNK_SIZE) {
             int chunkEnd = Math.min(totalEpisodes, chunkStart + OUTLINE_CHUNK_SIZE - 1);
-            log.debug("Outline streaming chunk start: projectId={}, startEpisode={}, endEpisode={}",
+            log.debug("大纲流式分片开始: projectId={}, startEpisode={}, endEpisode={}",
                     request.getProjectId(), chunkStart, chunkEnd);
             chunkConsumer.accept("\n\n");
             Map<Integer, EpisodeOutline> chunkOutlines = generateEpisodeOutlineChunk(
@@ -159,7 +159,7 @@ public class ScriptService {
                 chunkEnd,
                 totalEpisodes,
                 episodeDuration);
-            log.debug("Outline streaming chunk complete: projectId={}, startEpisode={}, endEpisode={}, generatedEpisodes={}",
+            log.debug("大纲流式分片完成: projectId={}, startEpisode={}, endEpisode={}, generatedEpisodes={}",
                     request.getProjectId(), chunkStart, chunkEnd, chunkOutlines.size());
             chunkConsumer.accept(formatEpisodeOutlineBlocks(chunkOutlines, chunkStart, chunkEnd));
         }
@@ -172,12 +172,12 @@ public class ScriptService {
         if (previewContent.isBlank()) {
             throw new BusinessException("大纲预览内容不能为空");
         }
-        log.debug("Saving outline preview: userId={}, projectId={}, previewLength={}, totalEpisodes={}",
+        log.debug("保存大纲预览: userId={}, projectId={}, previewLength={}, totalEpisodes={}",
             userId, request.getProjectId(), previewContent.length(), totalEpisodes);
 
         String commonInfo = extractProjectCommonInfoFromPreview(previewContent);
         Map<Integer, EpisodeOutline> outlineMap = parseEpisodeOutlinesFromPreview(previewContent, totalEpisodes);
-        log.debug("Outline preview parsed: projectId={}, commonInfoLength={}, outlineCount={}",
+        log.debug("大纲预览解析完成: projectId={}, commonInfoLength={}, outlineCount={}",
             request.getProjectId(), StringUtils.length(commonInfo), outlineMap.size());
         if (StringUtils.isNotBlank(commonInfo)) {
             projectService.updateCommonInfo(userId, project.getId(), commonInfo);
@@ -200,13 +200,13 @@ public class ScriptService {
         if (previewContent.isBlank()) {
             throw new BusinessException("大纲预览内容不能为空");
         }
-        log.debug("Repairing outline preview: userId={}, projectId={}, previewLength={}, totalEpisodes={}",
+        log.debug("修复大纲预览: userId={}, projectId={}, previewLength={}, totalEpisodes={}",
             userId, request.getProjectId(), previewContent.length(), totalEpisodes);
 
         String commonInfo = resolveOutlinePreviewCommonInfo(project, previewContent);
         Map<Integer, EpisodeOutline> outlineMap = parsePartialEpisodeOutlinesFromPreview(previewContent, totalEpisodes);
         List<Integer> missingEpisodes = findMissingEpisodes(outlineMap, totalEpisodes);
-        log.debug("Outline preview repair analysis: projectId={}, parsedEpisodes={}, missingEpisodes={}",
+        log.debug("大纲预览修复分析: projectId={}, parsedEpisodes={}, missingEpisodes={}",
             request.getProjectId(), outlineMap.size(), missingEpisodes);
         if (missingEpisodes.isEmpty()) {
             return Map.of(
@@ -240,7 +240,7 @@ public class ScriptService {
         }
 
         List<Integer> unresolvedEpisodes = findMissingEpisodes(outlineMap, totalEpisodes);
-        log.debug("Outline preview repair result: projectId={}, repairedEpisodes={}, unresolvedEpisodes={}",
+        log.debug("大纲预览修复结果: projectId={}, repairedEpisodes={}, unresolvedEpisodes={}",
             request.getProjectId(), missingEpisodes, unresolvedEpisodes);
         if (!unresolvedEpisodes.isEmpty()) {
             throw createOutlinePreviewParseException(totalEpisodes, unresolvedEpisodes);
@@ -266,7 +266,7 @@ public class ScriptService {
                 StringUtils.trimToEmpty(request.getContent()),
                 request.getStartEpisode(),
                 request.getEndEpisode());
-        log.debug("Saving batch script preview: userId={}, projectId={}, startEpisode={}, endEpisode={}, parsedScripts={}",
+        log.debug("保存批量剧本预览: userId={}, projectId={}, startEpisode={}, endEpisode={}, parsedScripts={}",
             userId, request.getProjectId(), request.getStartEpisode(), request.getEndEpisode(), episodeScripts.size());
 
         for (int episodeNo = request.getStartEpisode(); episodeNo <= request.getEndEpisode(); episodeNo++) {
@@ -289,7 +289,7 @@ public class ScriptService {
             Project project = projectService.getProject(userId, request.getProjectId());
             int totalEpisodes = request.getTotalEpisodes() != null ? request.getTotalEpisodes() : resolveTotalEpisodes(project, request);
             int episodeDuration = resolveEpisodeDuration(project);
-            log.debug("Async outline generation start: taskId={}, userId={}, projectId={}, totalEpisodes={}, episodeDuration={}",
+            log.debug("异步大纲生成开始: taskId={}, userId={}, projectId={}, totalEpisodes={}, episodeDuration={}",
                     taskId, userId, request.getProjectId(), totalEpisodes, episodeDuration);
 
             updateTask(task, "RUNNING", 10, "正在生成项目通用信息与人物小传...");
@@ -304,7 +304,7 @@ public class ScriptService {
                     episodeDuration);
             projectService.updateCommonInfo(userId, project.getId(), commonInfo);
                 syncCharactersFromCommonInfo(userId, project.getId(), commonInfo);
-                log.debug("Async outline commonInfo saved: taskId={}, projectId={}, commonInfoLength={}",
+                log.debug("异步大纲通用信息已保存: taskId={}, projectId={}, commonInfoLength={}",
                     taskId, request.getProjectId(), commonInfo.length());
 
             int generatedCount = 0;
@@ -324,7 +324,7 @@ public class ScriptService {
                     chunkEnd,
                     totalEpisodes,
                     episodeDuration);
-                log.debug("Async outline chunk generated: taskId={}, projectId={}, startEpisode={}, endEpisode={}, generatedEpisodes={}",
+                log.debug("异步大纲分片已生成: taskId={}, projectId={}, startEpisode={}, endEpisode={}, generatedEpisodes={}",
                         taskId, request.getProjectId(), chunkStart, chunkEnd, chunkOutlines.size());
                 // Save each chunk to the database immediately after generation so that
                 // partial progress is not lost if a later chunk or the overall task fails.
@@ -344,7 +344,7 @@ public class ScriptService {
             task.setResult(String.valueOf(project.getId()));
             taskRecordMapper.updateById(task);
         } catch (Exception e) {
-            log.error("Outline generation failed for task {}", taskId, e);
+            log.error("大纲生成失败: taskId={}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("大纲生成失败: " + e.getMessage());
             taskRecordMapper.updateById(task);
@@ -361,7 +361,7 @@ public class ScriptService {
             int endEpisode = request.getEndEpisode() != null ? request.getEndEpisode() : startEpisode;
             GenerationMaterials materials = loadGenerationMaterials(project, startEpisode, endEpisode);
                 syncCharactersFromCommonInfo(userId, project.getId(), materials.commonInfo());
-            log.debug("Batch script generation start: taskId={}, userId={}, projectId={}, startEpisode={}, endEpisode={}",
+            log.debug("批量剧本生成开始: taskId={}, userId={}, projectId={}, startEpisode={}, endEpisode={}",
                     taskId, userId, request.getProjectId(), startEpisode, endEpisode);
 
             updateTask(task, "RUNNING", 5,
@@ -377,11 +377,11 @@ public class ScriptService {
                 updateTask(task, "RUNNING", progress,
                         String.format("AI正在生成第 %d/%d 集剧本（第 %d 集）...",
                                 ep - startEpisode + 1, batchCount, ep));
-                log.debug("Batch script generating episode: taskId={}, projectId={}, episodeNo={}, progress={}",
+                log.debug("批量剧本正在生成分集: taskId={}, projectId={}, episodeNo={}, progress={}",
                     taskId, request.getProjectId(), ep, progress);
                 String userPrompt = buildScriptUserPrompt(request, materials, ep);
                 String scriptContent = textProvider.chat(systemPrompt, userPrompt);
-                log.debug("Batch script episode generated: taskId={}, projectId={}, episodeNo={}, contentLength={}",
+                log.debug("批量剧本分集已生成: taskId={}, projectId={}, episodeNo={}, contentLength={}",
                     taskId, request.getProjectId(), ep, StringUtils.length(scriptContent));
                 upsertGeneratedScript(request.getProjectId(), ep, scriptContent, request.getIdea());
             }
@@ -391,7 +391,7 @@ public class ScriptService {
             task.setMessage(String.format("批量生成完成，共 %d 集（第 %d-%d 集）", batchCount, startEpisode, endEpisode));
             taskRecordMapper.updateById(task);
         } catch (Exception e) {
-            log.error("Batch script generation failed for task {}", taskId, e);
+            log.error("批量剧本生成失败: taskId={}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("批量生成失败: " + e.getMessage());
             taskRecordMapper.updateById(task);
@@ -405,7 +405,7 @@ public class ScriptService {
         request.setTotalEpisodes(plan.totalEpisodes());
         request.setStartEpisode(plan.startEpisode());
         request.setEndEpisode(plan.endEpisode());
-        log.debug("Start script preview streaming: userId={}, projectId={}, startEpisode={}, endEpisode={}, totalEpisodes={}",
+        log.debug("开始流式生成剧本预览: userId={}, projectId={}, startEpisode={}, endEpisode={}, totalEpisodes={}",
             userId, request.getProjectId(), plan.startEpisode(), plan.endEpisode(), plan.totalEpisodes());
 
         TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
@@ -432,7 +432,7 @@ public class ScriptService {
             int episodeNo = request.getEpisodeNo() != null ? request.getEpisodeNo() : 1;
             GenerationMaterials materials = loadGenerationMaterials(project, episodeNo, episodeNo);
             syncCharactersFromCommonInfo(userId, project.getId(), materials.commonInfo());
-            log.debug("Async single script generation start: taskId={}, userId={}, projectId={}, episodeNo={}",
+            log.debug("异步单集剧本生成开始: taskId={}, userId={}, projectId={}, episodeNo={}",
                     taskId, userId, request.getProjectId(), episodeNo);
 
             updateTask(task, "RUNNING", 10, "开始生成剧本...");
@@ -443,7 +443,7 @@ public class ScriptService {
 
             updateTask(task, "RUNNING", 30, "AI正在生成剧本内容...");
             String scriptContent = textProvider.chat(systemPrompt, userPrompt);
-                log.debug("Async single script generated: taskId={}, projectId={}, episodeNo={}, contentLength={}",
+                log.debug("异步单集剧本已生成: taskId={}, projectId={}, episodeNo={}, contentLength={}",
                     taskId, request.getProjectId(), episodeNo, StringUtils.length(scriptContent));
 
             updateTask(task, "RUNNING", 80, "保存剧本内容...");
@@ -456,7 +456,7 @@ public class ScriptService {
             taskRecordMapper.updateById(task);
 
         } catch (Exception e) {
-            log.error("Script generation failed for task {}", taskId, e);
+            log.error("剧本生成失败: taskId={}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("剧本生成失败: " + e.getMessage());
             taskRecordMapper.updateById(task);
@@ -521,7 +521,7 @@ public class ScriptService {
     }
 
     private void updateTask(TaskRecord task, String status, int progress, String message) {
-        log.debug("Task update: taskId={}, taskType={}, status={}, progress={}, message={}",
+        log.debug("任务状态更新: taskId={}, taskType={}, status={}, progress={}, message={}",
                 task.getId(), task.getTaskType(), status, progress, message);
         task.setStatus(status);
         task.setProgress(progress);
@@ -611,7 +611,7 @@ public class ScriptService {
             }
         }
 
-        log.debug("Generation materials loaded: projectId={}, startEpisode={}, endEpisode={}, commonInfoLength={}, availableScripts={}",
+        log.debug("生成素材已加载: projectId={}, startEpisode={}, endEpisode={}, commonInfoLength={}, availableScripts={}",
                 project.getId(), startEpisode, endEpisode, commonInfo.length(), scriptsByEpisode.size());
 
         return new GenerationMaterials(project, commonInfo, scriptsByEpisode);
@@ -733,6 +733,7 @@ public class ScriptService {
         String genreText = ProjectStyleSupport.resolveGenre(genre);
         String styleText = style != null ? style : "";
         String styleGuide = ProjectStyleSupport.buildTextCreationRules(projectType, genreText);
+        String beatBlock = ProjectStyleSupport.buildShortDramaBeatBlock();
         return String.format("""
                 # 角色定位
                 你是一位负责短剧项目统筹策划的总编剧，要先搭建后续剧本、分镜、角色一致性都会复用的稳定设定。
@@ -744,7 +745,7 @@ public class ScriptService {
 
                 # 输出原则
                 - 角色小传要写清动机、弱点、秘密、关系、语言风格。
-                - 分集大纲要能直接交给编剧扩写成完整剧本，不要只写一句话简介。
+                - 分集大纲要能直接交给编剧扩写成完整剧本，不要只写一句话简介；每集大纲中必须点明本集「钩子-对抗-反转-悬念收束」四段，避免只有剧情简介。
                 - 设定必须前后一致，不允许互相打架。
                 - 节奏必须符合短剧商业化表达和竖屏内容习惯。
 
@@ -754,7 +755,9 @@ public class ScriptService {
 
                 # 项目风格锚点
                 %s
-                """, projectType, genreText, styleText, styleGuide);
+
+                %s
+                """, projectType, genreText, styleText, styleGuide, beatBlock);
     }
 
     private String buildScriptSystemPrompt(Project project, String genre, String style) {
@@ -762,6 +765,7 @@ public class ScriptService {
         String genreText = ProjectStyleSupport.resolveGenre(genre);
         String styleText = style != null ? style : "";
         String styleGuide = ProjectStyleSupport.buildTextCreationRules(projectType, genreText);
+        String beatBlock = ProjectStyleSupport.buildShortDramaBeatBlock();
         return String.format("""
                 # 角色定位
                 你是一位拥有10年爆款短剧编剧经验的金牌编剧，专精红果短剧、抖音短剧平台。
@@ -798,6 +802,7 @@ public class ScriptService {
                 - 单个场景 100-200 字（含描述+对白+动作指示）
                 
                 ## 对白要求
+                - 短剧可拍可念：口语短句、禁止小说体（大段心理、环境散文、「他开口道/心里一沉」等不要写进台词正文；舞台动作写进场记/景别，不要和口播混成一段）
                 - 台词简短有力，单句不超过20字
                 - 金句密度：每集至少5句可截图传播的台词
                 - 角色语言个性化：不同角色说话风格明显不同
@@ -816,7 +821,9 @@ public class ScriptService {
 
                 # 项目风格锚点
                 %s
-                """, projectType, genreText, styleText, styleGuide);
+
+                %s
+                """, projectType, genreText, styleText, styleGuide, beatBlock);
     }
 
     private String generateProjectCommonInfoWithRetry(TextAiProvider textProvider,
@@ -829,17 +836,17 @@ public class ScriptService {
         String lastResponse = null;
         BusinessException lastException = null;
         for (int attempt = 1; attempt <= COMMON_INFO_RETRY_ATTEMPTS; attempt++) {
-            log.debug("Generating commonInfo attempt: projectId={}, attempt={}, totalEpisodes={}, episodeDuration={}",
+            log.debug("生成通用信息尝试: projectId={}, attempt={}, totalEpisodes={}, episodeDuration={}",
                     project.getId(), attempt, totalEpisodes, episodeDuration);
             lastResponse = textProvider.chat(systemPrompt, prompt);
             try {
                 String commonInfo = extractProjectCommonInfo(lastResponse);
-                log.debug("CommonInfo generated successfully: projectId={}, attempt={}, commonInfoLength={}",
+                log.debug("通用信息生成成功: projectId={}, attempt={}, commonInfoLength={}",
                         project.getId(), attempt, commonInfo.length());
                 return commonInfo;
             } catch (BusinessException ex) {
                 lastException = ex;
-                log.warn("Project common info parse failed on attempt {}/{}, responseLength={}, message={}",
+                log.warn("项目通用信息解析失败: attempt={}/{}, responseLength={}, message={}",
                         attempt,
                         COMMON_INFO_RETRY_ATTEMPTS,
                         lastResponse != null ? lastResponse.length() : 0,
@@ -1004,7 +1011,7 @@ public class ScriptService {
         String prompt = buildEpisodeOutlineUserPrompt(project, request, commonInfo, startEpisode, endEpisode, totalEpisodes, episodeDuration);
         String lastResponse = null;
         BusinessException lastException = null;
-        log.debug("Generating outline chunk: projectId={}, startEpisode={}, endEpisode={}, totalEpisodes={}",
+        log.debug("生成大纲分片: projectId={}, startEpisode={}, endEpisode={}, totalEpisodes={}",
             project.getId(), startEpisode, endEpisode, totalEpisodes);
 
         for (int attempt = 1; attempt <= OUTLINE_CHUNK_RETRY_ATTEMPTS; attempt++) {
@@ -1012,12 +1019,12 @@ public class ScriptService {
             lastResponse = response;
             try {
             Map<Integer, EpisodeOutline> parsed = parseEpisodeOutlines(response, startEpisode, endEpisode);
-            log.debug("Outline chunk parsed successfully: projectId={}, startEpisode={}, endEpisode={}, attempt={}, parsedCount={}",
+            log.debug("大纲分片解析成功: projectId={}, startEpisode={}, endEpisode={}, attempt={}, parsedCount={}",
                 project.getId(), startEpisode, endEpisode, attempt, parsed.size());
             return parsed;
             } catch (BusinessException ex) {
                 int responseLength = response != null ? response.length() : 0;
-                log.warn("Outline chunk {}-{} parse incomplete on attempt {}/{}, responseLength={}, message={}",
+                log.warn("大纲分片解析不完整: range={}-{}, attempt={}/{}, responseLength={}, message={}",
                         startEpisode,
                         endEpisode,
                         attempt,
@@ -1048,7 +1055,7 @@ public class ScriptService {
         }
 
         int midEpisode = (startEpisode + endEpisode) / 2;
-        log.debug("Splitting outline chunk after retries: projectId={}, startEpisode={}, midEpisode={}, endEpisode={}",
+        log.debug("重试后拆分大纲分片: projectId={}, startEpisode={}, midEpisode={}, endEpisode={}",
             project.getId(), startEpisode, midEpisode, endEpisode);
         Map<Integer, EpisodeOutline> merged = new LinkedHashMap<>();
         merged.putAll(generateEpisodeOutlineChunk(
@@ -1483,16 +1490,16 @@ public class ScriptService {
     private void syncCharactersFromCommonInfo(Long userId, Long projectId, String commonInfo) {
         String normalizedCommonInfo = StringUtils.trimToNull(commonInfo);
         if (projectId == null || normalizedCommonInfo == null) {
-            log.debug("Skipping character sync because commonInfo is empty: userId={}, projectId={}", userId, projectId);
+            log.debug("通用信息为空，跳过角色同步: userId={}, projectId={}", userId, projectId);
             return;
         }
 
-        log.debug("Start character sync: userId={}, projectId={}, commonInfoLength={}",
+        log.debug("开始角色同步: userId={}, projectId={}, commonInfoLength={}",
                 userId, projectId, normalizedCommonInfo.length());
 
         List<CharacterProfile> profiles = extractCharacterProfilesWithRetry(userId, normalizedCommonInfo);
         if (profiles.isEmpty()) {
-            log.warn("Character sync skipped because no profiles were extracted for project {}", projectId);
+            log.warn("角色同步已跳过，未提取到角色档案: projectId={}", projectId);
             return;
         }
 
@@ -1503,7 +1510,7 @@ public class ScriptService {
                 .orderByAsc(Character::getCreateTime))) {
             existingByKey.putIfAbsent(normalizeCharacterKey(character.getName()), character);
         }
-        log.debug("Character sync source data: projectId={}, extractedProfiles={}, existingCharacters={}",
+        log.debug("角色同步源数据: projectId={}, extractedProfiles={}, existingCharacters={}",
                 projectId, profiles.size(), existingByKey.size());
 
         int sortOrder = 1;
@@ -1546,17 +1553,17 @@ public class ScriptService {
             if (isNew) {
                 characterMapper.insert(character);
                 insertedCount++;
-                log.debug("Character inserted: projectId={}, name={}, gender={}, age={}",
+                log.debug("角色已新增: projectId={}, name={}, gender={}, age={}",
                         projectId, character.getName(), character.getGender(), character.getAge());
             } else {
                 characterMapper.updateById(character);
                 updatedCount++;
-                log.debug("Character updated: projectId={}, name={}, gender={}, age={}",
+                log.debug("角色已更新: projectId={}, name={}, gender={}, age={}",
                         projectId, character.getName(), character.getGender(), character.getAge());
             }
             sortOrder += 1;
         }
-        log.debug("Character sync completed: projectId={}, inserted={}, updated={}, totalProfiles={}",
+        log.debug("角色同步完成: projectId={}, inserted={}, updated={}, totalProfiles={}",
                 projectId, insertedCount, updatedCount, profiles.size());
     }
 
@@ -1583,21 +1590,21 @@ public class ScriptService {
         Exception lastException = null;
         String lastResponse = null;
         for (int attempt = 1; attempt <= CHARACTER_EXTRACTION_RETRY_ATTEMPTS; attempt++) {
-            log.debug("Character extraction attempt: userId={}, attempt={}, commonInfoLength={}",
+            log.debug("角色提取尝试: userId={}, attempt={}, commonInfoLength={}",
                     userId, attempt, commonInfo.length());
             lastResponse = textProvider.chat(systemPrompt, userPrompt);
             try {
                 List<CharacterProfile> profiles = parseCharacterProfilesResponse(lastResponse);
                 if (!profiles.isEmpty()) {
-                    log.debug("Character extraction succeeded: userId={}, attempt={}, extractedProfiles={}",
+                    log.debug("角色提取成功: userId={}, attempt={}, extractedProfiles={}",
                             userId, attempt, profiles.size());
                     return profiles;
                 }
-                log.debug("Character extraction returned empty profiles: userId={}, attempt={}, responseLength={}",
+                log.debug("角色提取返回空档案: userId={}, attempt={}, responseLength={}",
                         userId, attempt, StringUtils.length(lastResponse));
             } catch (Exception ex) {
                 lastException = ex;
-                log.warn("Character extraction parse failed on attempt {}/{}, responseLength={}, message={}",
+                log.warn("角色提取解析失败: attempt={}/{}, responseLength={}, message={}",
                         attempt,
                         CHARACTER_EXTRACTION_RETRY_ATTEMPTS,
                         lastResponse != null ? lastResponse.length() : 0,
@@ -1606,9 +1613,9 @@ public class ScriptService {
         }
 
         if (lastException != null) {
-            log.warn("Character extraction failed after retries: {}", lastException.getMessage());
+            log.warn("角色提取重试后仍失败: {}", lastException.getMessage());
         } else {
-            log.warn("Character extraction returned no usable profiles after retries, lastResponseLength={}",
+            log.warn("角色提取重试后无可用档案: lastResponseLength={}",
                     lastResponse != null ? lastResponse.length() : 0);
         }
         return List.of();
@@ -1642,7 +1649,7 @@ public class ScriptService {
                     textOrEmpty(node, "description"));
             profilesByKey.putIfAbsent(normalizedKey, profile);
         }
-        log.debug("Parsed character profiles from AI response: profileCount={}", profilesByKey.size());
+        log.debug("已解析 AI 返回角色档案: profileCount={}", profilesByKey.size());
         return new ArrayList<>(profilesByKey.values());
     }
 
@@ -1724,11 +1731,11 @@ public class ScriptService {
 
         if (isNew) {
             scriptMapper.insert(script);
-            log.debug("Episode outline inserted: projectId={}, episodeNo={}, title={}",
+            log.debug("分集大纲已新增: projectId={}, episodeNo={}, title={}",
                     projectId, episodeNo, script.getTitle());
         } else {
             scriptMapper.updateById(script);
-            log.debug("Episode outline updated: projectId={}, episodeNo={}, title={}",
+            log.debug("分集大纲已更新: projectId={}, episodeNo={}, title={}",
                     projectId, episodeNo, script.getTitle());
         }
     }
@@ -1754,11 +1761,11 @@ public class ScriptService {
 
         if (isNew) {
             scriptMapper.insert(script);
-            log.debug("Generated script inserted: projectId={}, episodeNo={}, contentLength={}",
+            log.debug("生成剧本已新增: projectId={}, episodeNo={}, contentLength={}",
                     projectId, episodeNo, StringUtils.length(script.getContent()));
         } else {
             scriptMapper.updateById(script);
-            log.debug("Generated script updated: projectId={}, episodeNo={}, contentLength={}",
+            log.debug("生成剧本已更新: projectId={}, episodeNo={}, contentLength={}",
                     projectId, episodeNo, StringUtils.length(script.getContent()));
         }
         return script;

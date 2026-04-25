@@ -22,7 +22,9 @@
           <div class="char-desc" v-if="char.description">{{ char.description }}</div>
           <div class="char-voice" v-if="char.voiceName">
             <el-icon size="12"><Microphone /></el-icon> {{ char.voiceName }}
+            <span v-if="char.speechRate" class="char-rate"> · 语速 {{ char.speechRate }}%</span>
           </div>
+          <div v-if="char.ttsNote" class="char-tts-note">{{ char.ttsNote }}</div>
           <div class="char-actions">
             <el-button size="small" type="primary" :loading="generatingId === char.id" @click="generateImage(char)">
               AI生成图像
@@ -81,6 +83,13 @@
           </el-select>
           <div class="voice-tip">音色列表会跟随当前默认 TTS 模型变化。若要使用更细的语气描述，请在 AI 配置中心将 TTS 模型设为 qwen3-tts-instruct-flash。</div>
         </el-form-item>
+        <el-form-item label="语速">
+          <el-input-number v-model="form.speechRate" :min="50" :max="200" :step="5" placeholder="100=正常" />
+          <span class="field-hint">100=1.0x，可空</span>
+        </el-form-item>
+        <el-form-item label="导演说明">
+          <el-input v-model="form.ttsNote" type="textarea" :rows="2" placeholder="合并进 TTS 演绎指令，如：语气更冷、句尾略收" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCreate = false">取消</el-button>
@@ -116,7 +125,8 @@ const submitting = ref(false)
 const generatingId = ref<any>(null)
 
 const form = ref({
-  name: '', gender: 'male', age: '', personality: '', appearance: '', description: '', voiceId: '', voiceName: ''
+  name: '', gender: 'male', age: '', personality: '', appearance: '', description: '', voiceId: '', voiceName: '',
+  speechRate: undefined as number | undefined, ttsNote: '',
 })
 
 function onVoiceChange(val: string) {
@@ -211,7 +221,10 @@ onMounted(async () => {
 .char-meta { display: flex; gap: 8px; margin-bottom: 8px; }
 .char-gender, .char-age { font-size: 12px; color: #718096; background: #f0f0f0; padding: 2px 8px; border-radius: 8px; }
 .char-desc { font-size: 13px; color: #4a5568; margin-bottom: 8px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.char-voice { font-size: 12px; color: #6366f1; display: flex; align-items: center; gap: 4px; margin-bottom: 12px; }
+.char-voice { font-size: 12px; color: #6366f1; display: flex; align-items: center; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
+.char-rate { color: #64748b; font-weight: 500; }
+.char-tts-note { font-size: 11px; color: #64748b; margin-bottom: 12px; line-height: 1.4; }
+.field-hint { margin-left: 8px; font-size: 12px; color: #94a3b8; }
 .char-actions { display: flex; gap: 8px; }
 .voice-tip { margin-top: 8px; font-size: 12px; line-height: 1.5; color: #64748b; }
 .voice-option { display: flex; flex-direction: column; gap: 4px; padding: 2px 0; }

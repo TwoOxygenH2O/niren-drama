@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.niren.drama.ai.trace.AiCallTrace;
 import com.niren.drama.ai.trace.AiTraceContext;
 import com.niren.drama.entity.Project;
+import com.niren.drama.common.DramaTextSanitizer;
 import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.exception.BusinessException;
@@ -113,6 +114,12 @@ public class VideoCompositionService {
     @Value("${niren.compose.subtitle.margin-bottom:160}")
     private int composeSubtitleMarginBottom;
 
+    /** 字幕是否叠旁白；false=更像真人短剧（上屏以口播为主），旁白可走配音轨由业务侧单独处理 */
+    @Value("${niren.compose.subtitle.include-narration:false}")
+    private boolean composeSubtitleIncludeNarration;
+    @Value("${niren.compose.subtitle.strip-speaker-prefix:true}")
+    private boolean composeSubtitleStripSpeakerPrefix;
+
     @Value("${niren.compose.bgm.source:}")
     private String composeBgmSource;
 
@@ -124,6 +131,24 @@ public class VideoCompositionService {
 
     @Value("${niren.compose.transition-sfx.volume:0.18}")
     private double composeTransitionSfxVolume;
+
+    @Value("${niren.compose.max-shot-duration-seconds:5.0}")
+    private double composeMaxShotDurationSeconds;
+
+    @Value("${niren.compose.audio.between-shots-seconds:0.28}")
+    private double composeAudioBetweenShotsSeconds;
+
+    @Value("${niren.compose.transition.conflict-seconds:0.2}")
+    private double composeTransitionConflictSeconds;
+
+    @Value("${niren.compose.transition.lyrical-seconds:0.8}")
+    private double composeTransitionLyricalSeconds;
+
+    @Value("${niren.compose.ambient.source:}")
+    private String composeAmbientSource;
+
+    @Value("${niren.compose.ambient.volume:0.1}")
+    private double composeAmbientVolume;
 
     private volatile String resolvedFfmpegExecutable;
     private volatile String resolvedFfprobeExecutable;
@@ -157,7 +182,7 @@ public class VideoCompositionService {
             throw new BusinessException("分镜还没有生成图片，请先生成分镜图片");
         }
 
-        log.debug("Creating video compose task: userId={}, projectId={}, shotCount={}, filteredByIds={}",
+        log.debug("创建视频合成任务: userId={}, projectId={}, shotCount={}, filteredByIds={}",
             userId, projectId, shots.size(), shotIds != null && !shotIds.isEmpty());
 
         TaskRecord task = new TaskRecord();
@@ -192,7 +217,7 @@ public class VideoCompositionService {
             throw new BusinessException("仍有已选动态镜头缺少视频提示词，请先完成分镜生成或补全镜头描述");
         }
 
-        log.debug("Creating dynamic video task: userId={}, projectId={}, selectedShots={}, filteredByIds={}",
+        log.debug("创建动态视频任务: userId={}, projectId={}, selectedShots={}, filteredByIds={}",
             userId, projectId, selectedShots.size(), shotIds != null && !shotIds.isEmpty());
 
         TaskRecord task = new TaskRecord();
@@ -223,7 +248,7 @@ public class VideoCompositionService {
                                     .or()
                                     .eq(Storyboard::getStatus, "video_polling")));
             if (pendingCount > 0) {
-                log.info("Resuming pending dynamic video polling: taskId={}, projectId={}, pendingShots={}",
+                log.info("恢复动态视频轮询任务: taskId={}, projectId={}, pendingShots={}",
                         task.getId(), task.getProjectId(), pendingCount);
                 scheduleDynamicVideoPoll(task.getUserId(), task.getProjectId(), task.getId(), DYNAMIC_VIDEO_POLL_DELAY_SECONDS);
             }
@@ -237,7 +262,7 @@ public class VideoCompositionService {
 
         Path workDir = null;
         try {
-            log.debug("Video composition start: taskId={}, userId={}, projectId={}, shotCount={}",
+            log.debug("视频合成开始: taskId={}, userId={}, projectId={}, shotCount={}",
                     taskId, userId, projectId, shots.size());
             // Create working directory
             workDir = Paths.get(uploadPath, "compose", projectId.toString());
@@ -255,11 +280,12 @@ public class VideoCompositionService {
                 throw new BusinessException("没有可用于合成的视频镜头，请先生成图片或动态视频");
             }
 
-            double transitionDuration = resolveTransitionDuration(renderableShots.size());
             Path bgmPath = prepareComposeAsset(composeBgmSource,
                     workDir.resolve("compose_bgm" + resolveAssetExtension(composeBgmSource, ".mp3")));
             Path transitionSfxPath = prepareComposeAsset(composeTransitionSfxSource,
                     workDir.resolve("transition_sfx" + resolveAssetExtension(composeTransitionSfxSource, ".mp3")));
+            Path ambientPath = prepareComposeAsset(composeAmbientSource,
+                    workDir.resolve("compose_ambient" + resolveAssetExtension(composeAmbientSource, ".mp3")));
 
             // Step 1: Download images to local files
             List<ShotSegment> shotVideos = new ArrayList<>();
@@ -268,8 +294,10 @@ public class VideoCompositionService {
             for (int index = 0; index < renderableShots.size(); index++) {
                 Storyboard shot = renderableShots.get(index);
                 boolean hasNext = index < renderableShots.size() - 1;
+                Storyboard nextShot = hasNext ? renderableShots.get(index + 1) : null;
+                double transitionToNext = hasNext ? resolvePairTransitionDuration(shot, nextShot) : 0d;
 
-                log.debug("Composing shot video: taskId={}, projectId={}, shotId={}, shotNo={}, renderMode={}, hasImage={}, hasVideo={}, hasAudio={}, duration={}",
+                log.debug("镜头合成开始: taskId={}, projectId={}, shotId={}, shotNo={}, renderMode={}, hasImage={}, hasVideo={}, hasAudio={}, duration={}",
                         taskId,
                         projectId,
                         shot.getId(),
@@ -295,7 +323,7 @@ public class VideoCompositionService {
                 ShotRenderPlan renderPlan = buildShotRenderPlan(
                         shot,
                         audioDuration,
-                        hasNext ? transitionDuration : 0d);
+                        hasNext ? transitionToNext : 0d);
                 Path shotVideo = workDir.resolve("shot_" + shot.getShotNo() + ".mp4");
 
                 if (shouldUseDynamicVideo(shot) && hasText(shot.getVideoUrl())) {
@@ -310,7 +338,7 @@ public class VideoCompositionService {
 
                 if (Files.exists(shotVideo) && Files.size(shotVideo) > 0) {
                     shotVideos.add(new ShotSegment(shotVideo, renderPlan.clipDuration(), shot));
-                    log.debug("Shot video composed successfully: taskId={}, projectId={}, shotNo={}, output={}",
+                    log.debug("镜头合成成功: taskId={}, projectId={}, shotNo={}, output={}",
                             taskId, projectId, shot.getShotNo(), shotVideo);
                 }
             }
@@ -324,7 +352,7 @@ public class VideoCompositionService {
             // Step 2: Concatenate all shot videos
             String outputFilename = UUID.randomUUID().toString().replace("-", "") + ".mp4";
             Path finalVideo = videoDir.resolve(outputFilename);
-            concatenateVideos(shotVideos, finalVideo, bgmPath, transitionSfxPath);
+            concatenateVideos(shotVideos, finalVideo, bgmPath, transitionSfxPath, ambientPath);
 
             if (!Files.exists(finalVideo) || Files.size(finalVideo) == 0) {
                 throw new BusinessException("视频拼接失败");
@@ -351,11 +379,11 @@ public class VideoCompositionService {
             task.setMessage("视频合成完成！");
             task.setResult(videoUrl);
             taskRecordMapper.updateById(task);
-            log.debug("Video composition complete: taskId={}, projectId={}, output={}, composedShots={}",
+            log.debug("视频合成完成: taskId={}, projectId={}, output={}, composedShots={}",
                     taskId, projectId, videoUrl, shotVideos.size());
 
         } catch (Exception e) {
-            log.error("Video composition failed for task {}", taskId, e);
+            log.error("视频合成失败: taskId={}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("视频合成失败: " + buildFailureReason(e));
             taskRecordMapper.updateById(task);
@@ -368,7 +396,7 @@ public class VideoCompositionService {
                     projectMapper.updateById(project);
                 }
             } catch (Exception ex) {
-                log.warn("Failed to update project status", ex);
+                log.warn("更新项目状态失败", ex);
             }
         }
     }
@@ -386,7 +414,7 @@ public class VideoCompositionService {
             int pending = 0;
             List<String> failedDetails = new ArrayList<>();
 
-            log.debug("Dynamic video submission start: taskId={}, userId={}, projectId={}, shotCount={}",
+            log.debug("动态视频提交开始: taskId={}, userId={}, projectId={}, shotCount={}",
                     taskId, userId, projectId, total);
 
             updateTask(task, "RUNNING", 5, "正在提交动态视频任务...");
@@ -394,7 +422,7 @@ public class VideoCompositionService {
             for (int index = 0; index < shots.size(); index++) {
                 Storyboard shot = shots.get(index);
                 if (!hasText(shot.getVideoPrompt()) && !hasText(shot.getDescription())) {
-                    log.warn("Dynamic shot {} has no usable video prompt, skipped", shot.getShotNo());
+                    log.warn("动态镜头缺少可用提示词，已跳过: shotNo={}", shot.getShotNo());
                     failed++;
                     prepareShotForDynamicVideoTask(shot, taskId);
                     shot.setVideoTaskStatus("failed");
@@ -410,7 +438,7 @@ public class VideoCompositionService {
 
                 try {
                     prepareShotForDynamicVideoTask(shot, taskId);
-                    log.debug("Dynamic video request prepared: taskId={}, projectId={}, shotId={}, shotNo={}, promptLength={}, hasImage={}",
+                    log.debug("动态视频请求已准备: taskId={}, projectId={}, shotId={}, shotNo={}, promptLength={}, hasImage={}",
                             taskId,
                             projectId,
                             shot.getId(),
@@ -425,7 +453,7 @@ public class VideoCompositionService {
                         shot.setVideoTaskStatus("success");
                         shot.setStatus("video_generated");
                         generated++;
-                        log.debug("Dynamic video generated directly: taskId={}, projectId={}, shotId={}, shotNo={}, videoUrl={}",
+                        log.debug("动态视频直接返回成功: taskId={}, projectId={}, shotId={}, shotNo={}, videoUrl={}",
                                 taskId, projectId, shot.getId(), shot.getShotNo(), submission.videoUrl());
                     } else {
                         shot.setVideoTaskId(submission.taskId());
@@ -433,7 +461,7 @@ public class VideoCompositionService {
                         shot.setVideoTaskStatus("submitted");
                         shot.setStatus("video_submitted");
                         pending++;
-                        log.debug("Dynamic video task accepted: taskId={}, projectId={}, shotId={}, shotNo={}, vendorTaskId={}, statusUrl={}",
+                        log.debug("动态视频任务已受理: taskId={}, projectId={}, shotId={}, shotNo={}, vendorTaskId={}, statusUrl={}",
                                 taskId, projectId, shot.getId(), shot.getShotNo(), submission.taskId(), submission.statusUrl());
                     }
                     storyboardMapper.updateById(shot);
@@ -445,7 +473,7 @@ public class VideoCompositionService {
                     String shotLabel = resolveShotLabel(shot);
                     String errorMessage = hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName();
                     failedDetails.add(String.format("镜头%s: %s", shotLabel, errorMessage));
-                    log.warn("Failed to generate dynamic video for shot {}", shotLabel, e);
+                    log.warn("动态视频生成失败: shotLabel={}", shotLabel, e);
                 } finally {
                     omittedTraceCalls = appendTraceCalls(traceCalls, shot, AiTraceContext.drain(), omittedTraceCalls);
                 }
@@ -463,10 +491,10 @@ public class VideoCompositionService {
             }
 
             finishDynamicVideoTask(task, projectId, total, generated, failed, pending, failedDetails, traceCalls, omittedTraceCalls);
-            log.debug("Dynamic video submission complete without pending poll: taskId={}, projectId={}, total={}, generated={}, failed={}",
+            log.debug("动态视频提交完成(无需轮询): taskId={}, projectId={}, total={}, generated={}, failed={}",
                     taskId, projectId, total, generated, failed);
         } catch (Exception e) {
-            log.error("Dynamic video generation failed for task {}", taskId, e);
+            log.error("动态视频生成失败: taskId={}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("动态镜头生成失败: " + e.getMessage());
             task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls,
@@ -490,7 +518,10 @@ public class VideoCompositionService {
                         .orderByAsc(Storyboard::getShotNo)
                         .orderByAsc(Storyboard::getId));
         if (shots.isEmpty()) {
-            log.warn("No storyboard shots found for dynamic video task {}, skip polling", taskId);
+            log.warn("动态视频轮询未找到分镜，任务将标记失败: taskId={}, projectId={}", taskId, projectId);
+            task.setStatus("FAILED");
+            task.setMessage("动态视频轮询失败: 未找到关联分镜数据");
+            taskRecordMapper.updateById(task);
             return;
         }
 
@@ -556,7 +587,7 @@ public class VideoCompositionService {
 
             finishDynamicVideoTask(task, projectId, total, generated, failed, pending, failedDetails, traceCalls, omittedTraceCalls);
         } catch (Exception e) {
-            log.error("Dynamic video polling failed for task {}", taskId, e);
+            log.error("动态视频轮询失败: taskId={}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("动态视频轮询失败: " + e.getMessage());
             task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls,
@@ -888,7 +919,8 @@ public class VideoCompositionService {
     private void concatenateVideos(List<ShotSegment> videos,
                                    Path outputPath,
                                    Path bgmPath,
-                                   Path transitionSfxPath) throws IOException, InterruptedException {
+                                   Path transitionSfxPath,
+                                   Path ambientPath) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
         cmd.add(ffmpegPath);
         cmd.add("-y");
@@ -914,8 +946,17 @@ public class VideoCompositionService {
             cmd.add(transitionSfxPath.toAbsolutePath().toString());
         }
 
+        int ambientInputIndex = -1;
+        if (ambientPath != null && Files.exists(ambientPath) && videos.size() > 0) {
+            ambientInputIndex = cmd.stream().filter("-i"::equals).toArray().length;
+            cmd.add("-stream_loop");
+            cmd.add("-1");
+            cmd.add("-i");
+            cmd.add(ambientPath.toAbsolutePath().toString());
+        }
+
         cmd.add("-filter_complex");
-        cmd.add(buildFinalCompositionFilter(videos, bgmInputIndex, transitionSfxInputIndex));
+        cmd.add(buildFinalCompositionFilter(videos, bgmInputIndex, transitionSfxInputIndex, ambientInputIndex));
         cmd.add("-map");
         cmd.add("[vout]");
         cmd.add("-map");
@@ -947,7 +988,8 @@ public class VideoCompositionService {
 
     private String buildFinalCompositionFilter(List<ShotSegment> segments,
                                                int bgmInputIndex,
-                                               int transitionSfxInputIndex) {
+                                               int transitionSfxInputIndex,
+                                               int ambientInputIndex) {
         List<String> filterSteps = new ArrayList<>();
         List<Double> transitionMarkers = new ArrayList<>();
         for (int i = 0; i < segments.size(); i++) {
@@ -963,11 +1005,15 @@ public class VideoCompositionService {
 
         String currentVideo = "v0";
         String currentAudio = "a0";
-        double transitionDuration = resolveTransitionDuration(segments.size());
         double currentDuration = segments.get(0).clipDuration();
 
-        if (segments.size() > 1 && transitionDuration > 0d) {
+        if (segments.size() > 1) {
             for (int i = 1; i < segments.size(); i++) {
+                double transitionDuration = resolvePairTransitionDuration(
+                        segments.get(i - 1).shot(), segments.get(i).shot());
+                if (transitionDuration <= 0d) {
+                    transitionDuration = 0.18d;
+                }
                 double offset = Math.max(currentDuration - transitionDuration, 0d);
                 transitionMarkers.add(offset);
                 String videoOut = "vxf" + i;
@@ -1010,6 +1056,19 @@ public class VideoCompositionService {
                     "[%s][bgmduck]amix=inputs=2:duration=first:weights='1 0.28':normalize=0[amixbgm]",
                     currentAudio));
             mixedAudio = "amixbgm";
+        }
+
+        if (ambientInputIndex >= 0) {
+            double ambVol = Math.min(Math.max(composeAmbientVolume, 0.02d), 0.5d);
+            filterSteps.add(String.format(Locale.ROOT,
+                    "[%d:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=%s,asetpts=PTS-STARTPTS,volume=%s[ambloop]",
+                    ambientInputIndex,
+                    ffmpegNumber(currentDuration),
+                    ffmpegNumber(ambVol)));
+            filterSteps.add(String.format(Locale.ROOT,
+                    "[%s][ambloop]amix=inputs=2:duration=first:weights='1 0.2':normalize=0[amixamb]",
+                    mixedAudio));
+            mixedAudio = "amixamb";
         }
 
         if (transitionSfxInputIndex >= 0 && !transitionMarkers.isEmpty()) {
@@ -1060,7 +1119,7 @@ public class VideoCompositionService {
         String executable = resolveFfmpegExecutable();
         List<String> effectiveCmd = new ArrayList<>(cmd);
         effectiveCmd.set(0, executable);
-        log.debug("FFmpeg command: {}", String.join(" ", effectiveCmd));
+        log.debug("执行 FFmpeg 命令: {}", String.join(" ", effectiveCmd));
 
         ProcessBuilder pb = new ProcessBuilder(effectiveCmd);
         pb.redirectErrorStream(true);
@@ -1071,17 +1130,25 @@ public class VideoCompositionService {
             throw new IOException(buildFfmpegStartFailureMessage(executable), e);
         }
 
-        // Read output to prevent blocking
+        // Read output as raw bytes because FFmpeg progress often uses '\r' without '\n'.
+        // If we rely on readLine(), long-running progress output may block and stall the process.
         List<String> outputLines = new ArrayList<>();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                log.trace("FFmpeg: {}", line);
-                if (outputLines.size() >= 40) {
-                    outputLines.remove(0);
+        try (InputStream stream = process.getInputStream()) {
+            ByteArrayOutputStream lineBuffer = new ByteArrayOutputStream(512);
+            byte[] chunk = new byte[4096];
+            int read;
+            while ((read = stream.read(chunk)) != -1) {
+                for (int i = 0; i < read; i++) {
+                    byte b = chunk[i];
+                    if (b == '\n' || b == '\r') {
+                        appendFfmpegOutputLine(outputLines, lineBuffer.toString());
+                        lineBuffer.reset();
+                        continue;
+                    }
+                    lineBuffer.write(b);
                 }
-                outputLines.add(line);
             }
+            appendFfmpegOutputLine(outputLines, lineBuffer.toString());
         }
 
         int exitCode = process.waitFor();
@@ -1095,8 +1162,23 @@ public class VideoCompositionService {
         }
     }
 
+    private void appendFfmpegOutputLine(List<String> outputLines, String line) {
+        if (!hasText(line)) {
+            return;
+        }
+        String normalized = line.trim();
+        if (!hasText(normalized)) {
+            return;
+        }
+        log.trace("FFmpeg: {}", normalized);
+        if (outputLines.size() >= 40) {
+            outputLines.remove(0);
+        }
+        outputLines.add(normalized);
+    }
+
     private String executeCommandForOutput(List<String> cmd, String toolName) throws IOException, InterruptedException {
-        log.debug("{} command: {}", toolName, String.join(" ", cmd));
+        log.debug("执行{}命令: {}", toolName, String.join(" ", cmd));
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
         Process process = pb.start();
@@ -1126,7 +1208,7 @@ public class VideoCompositionService {
         Path configuredPath = toPath(configured);
         if (configuredPath != null && Files.exists(configuredPath)) {
             resolvedFfmpegExecutable = configuredPath.toAbsolutePath().toString();
-            log.info("FFmpeg executable resolved from configured path: {}", resolvedFfmpegExecutable);
+            log.info("FFmpeg 可执行文件来源(配置路径): {}", resolvedFfmpegExecutable);
             return resolvedFfmpegExecutable;
         }
 
@@ -1134,7 +1216,7 @@ public class VideoCompositionService {
             Path configuredExePath = toPath(configured + ".exe");
             if (configuredExePath != null && Files.exists(configuredExePath)) {
                 resolvedFfmpegExecutable = configuredExePath.toAbsolutePath().toString();
-                log.info("FFmpeg executable resolved from configured path with .exe: {}", resolvedFfmpegExecutable);
+                log.info("FFmpeg 可执行文件来源(配置路径补全.exe): {}", resolvedFfmpegExecutable);
                 return resolvedFfmpegExecutable;
             }
         }
@@ -1142,7 +1224,7 @@ public class VideoCompositionService {
         String foundOnPath = findOnSystemPath(configured);
         if (hasText(foundOnPath)) {
             resolvedFfmpegExecutable = foundOnPath;
-            log.info("FFmpeg executable resolved from PATH: {}", resolvedFfmpegExecutable);
+            log.info("FFmpeg 可执行文件来源(PATH): {}", resolvedFfmpegExecutable);
             return resolvedFfmpegExecutable;
         }
 
@@ -1150,7 +1232,7 @@ public class VideoCompositionService {
             String foundExeOnPath = findOnSystemPath(configured + ".exe");
             if (hasText(foundExeOnPath)) {
                 resolvedFfmpegExecutable = foundExeOnPath;
-                log.info("FFmpeg executable resolved from PATH with .exe: {}", resolvedFfmpegExecutable);
+                log.info("FFmpeg 可执行文件来源(PATH补全.exe): {}", resolvedFfmpegExecutable);
                 return resolvedFfmpegExecutable;
             }
         }
@@ -1309,77 +1391,81 @@ public class VideoCompositionService {
             String output = executeCommandForOutput(cmd, "ffprobe");
             return hasText(output) ? Double.parseDouble(output.trim()) : 0d;
         } catch (Exception e) {
-            log.warn("Failed to probe media duration: path={}, reason={}", mediaPath, buildFailureReason(e));
+            log.warn("探测媒体时长失败: path={}, reason={}", mediaPath, buildFailureReason(e));
             return 0d;
         }
     }
 
     private ShotRenderPlan buildShotRenderPlan(Storyboard shot, double audioDuration, double transitionTail) {
+        double cap = composeMaxShotDurationSeconds > 0.5d ? composeMaxShotDurationSeconds : 5.0d;
         double requestedDuration = shot.getDuration() != null && shot.getDuration() > 0
-                ? shot.getDuration()
-                : DEFAULT_SHOT_DURATION_SECONDS;
-        double contentDuration = Math.max(requestedDuration, audioDuration + Math.max(0.1d, composeAudioTailPadding));
+                ? Math.min(shot.getDuration(), cap)
+                : Math.min(DEFAULT_SHOT_DURATION_SECONDS, cap);
+        double contentDuration = Math.max(
+                requestedDuration,
+                audioDuration + Math.max(0.1d, composeAudioTailPadding) + Math.max(0d, composeAudioBetweenShotsSeconds));
+        contentDuration = Math.min(contentDuration, cap);
         contentDuration = Math.max(contentDuration, MIN_SHOT_DURATION_SECONDS);
         double clipDuration = contentDuration + Math.max(0d, transitionTail);
         return new ShotRenderPlan(contentDuration, clipDuration, resolveSubtitleText(shot));
     }
 
     private String resolveSubtitleText(Storyboard shot) {
-        String dialogue = normalizeSubtitleSource(shot != null ? shot.getDialogue() : null);
-        String narration = normalizeSubtitleSource(shot != null ? shot.getNarration() : null);
-        String subtitleText;
-        if (hasText(dialogue) && hasText(narration) && !dialogue.equals(narration)) {
-            subtitleText = dialogue + "\n" + narration;
-        } else {
-            subtitleText = hasText(dialogue) ? dialogue : narration;
+        if (hasText(shot.getSubtitleText())) {
+            return DramaTextSanitizer.wrapSubtitleLines(
+                    DramaTextSanitizer.normalizeSpokenText(shot.getSubtitleText().trim()));
         }
-        return wrapSubtitleText(subtitleText);
+        String raw = DramaTextSanitizer.deriveRawSubtitle(shot, composeSubtitleIncludeNarration,
+                composeSubtitleStripSpeakerPrefix, composeSubtitleStripSpeakerPrefix);
+        return DramaTextSanitizer.wrapSubtitleLines(raw);
     }
 
-    private String normalizeSubtitleSource(String source) {
-        if (!hasText(source)) {
-            return null;
+    private double resolvePairTransitionDuration(Storyboard previous, Storyboard next) {
+        if (next == null) {
+            return resolveTransitionDuration(1);
         }
-        return source.replace('\r', ' ')
-                .replace("\n", " ")
-                .replaceAll("\\s+", " ")
-                .trim();
+        String text = (previous != null ? coalesceMoodText(previous) : "")
+                + (next != null ? coalesceMoodText(next) : "");
+        if (isLyricalTone(text)) {
+            return Math.min(Math.max(composeTransitionLyricalSeconds, 0.35d), 1.2d);
+        }
+        if (isConflictTone(text)) {
+            return Math.min(Math.max(composeTransitionConflictSeconds, 0.1d), 0.5d);
+        }
+        return resolveTransitionDuration(2);
     }
 
-    private String wrapSubtitleText(String text) {
+    private String coalesceMoodText(Storyboard s) {
+        if (s == null) {
+            return "";
+        }
+        return (hasText(s.getDescription()) ? s.getDescription() : "")
+                + (hasText(s.getDialogue()) ? s.getDialogue() : "")
+                + (hasText(s.getNarration()) ? s.getNarration() : "");
+    }
+
+    private boolean isConflictTone(String text) {
         if (!hasText(text)) {
-            return null;
+            return false;
         }
-        List<String> lines = new ArrayList<>();
-        StringBuilder currentLine = new StringBuilder();
-        int currentWidth = 0;
-        int maxWidth = 26;
-        for (int i = 0; i < text.length(); i++) {
-            char ch = text.charAt(i);
-            if (ch == '\n') {
-                if (!currentLine.isEmpty()) {
-                    lines.add(currentLine.toString());
-                }
-                currentLine.setLength(0);
-                currentWidth = 0;
-                continue;
-            }
-            int charWidth = ch > 255 ? 2 : 1;
-            if (currentWidth + charWidth > maxWidth && !currentLine.isEmpty()) {
-                lines.add(currentLine.toString());
-                currentLine.setLength(0);
-                currentWidth = 0;
-            }
-            currentLine.append(ch);
-            currentWidth += charWidth;
-            if (lines.size() >= 2 && currentWidth >= maxWidth) {
-                break;
+        for (String k : new String[] {"怒", "骂", "打", "滚", "该死", "杀", "吵", "战", "怼", "打脸", "质问"}) {
+            if (text.contains(k)) {
+                return true;
             }
         }
-        if (!currentLine.isEmpty() && lines.size() < 3) {
-            lines.add(currentLine.toString());
+        return false;
+    }
+
+    private boolean isLyricalTone(String text) {
+        if (!hasText(text)) {
+            return false;
         }
-        return lines.isEmpty() ? null : String.join("\n", lines.subList(0, Math.min(3, lines.size())));
+        for (String k : new String[] {"泪", "雨", "回忆", "想你了", "温柔", "吻", "抱", "想你", "告白", "晚安"}) {
+            if (text.contains(k)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean hasRenderableMedia(Storyboard shot) {
@@ -1388,7 +1474,7 @@ public class VideoCompositionService {
         }
         boolean renderable = hasText(shot.getImageUrl()) || hasText(shot.getVideoUrl());
         if (!renderable) {
-            log.warn("Shot {} has no image or video, skipping composition", shot.getShotNo());
+            log.warn("镜头缺少图片和视频素材，跳过合成: shotNo={}", shot.getShotNo());
         }
         return renderable;
     }
@@ -1447,10 +1533,10 @@ public class VideoCompositionService {
                 return localPath.toAbsolutePath();
             }
         } catch (Exception e) {
-            log.warn("Failed to prepare optional compose asset, skipping: source={}, reason={}", source, buildFailureReason(e));
+            log.warn("准备可选合成素材失败，已跳过: source={}, reason={}", source, buildFailureReason(e));
             return null;
         }
-        log.warn("Compose asset not found, skipping: {}", source);
+        log.warn("可选合成素材不存在，已跳过: source={}", source);
         return null;
     }
 
@@ -1507,7 +1593,7 @@ public class VideoCompositionService {
 
     private void scheduleDynamicVideoPoll(Long userId, Long projectId, Long taskId, long delaySeconds) {
         Instant runAt = Instant.now().plusSeconds(Math.max(1L, delaySeconds));
-        log.debug("Schedule dynamic video polling: taskId={}, projectId={}, runAt={}", taskId, projectId, runAt);
+        log.debug("调度动态视频轮询: taskId={}, projectId={}, runAt={}", taskId, projectId, runAt);
         aiPollScheduler.schedule(
                 () -> selfProvider.getObject().pollDynamicVideoTasksAsync(userId, projectId, taskId),
                 runAt);
@@ -1693,7 +1779,7 @@ public class VideoCompositionService {
 
             return buildTaskTraceResult(mediaType, projectId, mergedCalls, omittedTraceCalls, summary);
         } catch (Exception e) {
-            log.warn("Failed to merge AI task trace result", e);
+            log.warn("合并 AI 任务追踪结果失败", e);
             return buildTaskTraceResult(mediaType, projectId,
                     newCalls != null ? newCalls : objectMapper.createArrayNode(),
                     newOmittedTraceCalls,
@@ -1730,17 +1816,17 @@ public class VideoCompositionService {
                             try {
                                 Files.deleteIfExists(path);
                             } catch (IOException e) {
-                                log.warn("Failed to delete: {}", path);
+                                log.warn("删除临时文件失败: path={}", path);
                             }
                         });
             }
         } catch (IOException e) {
-            log.warn("Failed to clean up directory: {}", dir, e);
+            log.warn("清理目录失败: dir={}", dir, e);
         }
     }
 
     private void updateTask(TaskRecord task, String status, int progress, String message) {
-        log.debug("Task update: taskId={}, taskType={}, status={}, progress={}, message={}",
+        log.debug("任务状态更新: taskId={}, taskType={}, status={}, progress={}, message={}",
                 task.getId(), task.getTaskType(), status, progress, message);
         task.setStatus(status);
         task.setProgress(progress);
@@ -1786,7 +1872,7 @@ public class VideoCompositionService {
             root.set("calls", calls);
             return objectMapper.writeValueAsString(root);
         } catch (Exception e) {
-            log.warn("Failed to serialize AI task trace result", e);
+            log.warn("序列化 AI 任务追踪结果失败", e);
             return null;
         }
     }
@@ -1848,10 +1934,10 @@ public class VideoCompositionService {
                 deleted = Files.deleteIfExists(videoPath);
             }
             if (deleted) {
-                log.info("Deleted exported video file: {}", videoPath);
+                log.info("导出后已删除视频文件: {}", videoPath);
             }
         } catch (IOException e) {
-            log.warn("Failed to delete video file after export: {}", videoPath, e);
+            log.warn("导出后删除视频文件失败: path={}", videoPath, e);
         }
         try {
             TaskRecord task = taskRecordMapper.selectById(taskId);
@@ -1863,7 +1949,7 @@ public class VideoCompositionService {
                 taskRecordMapper.updateById(task);
             }
         } catch (Exception e) {
-            log.warn("Failed to clear task result after export for task {}", taskId, e);
+            log.warn("导出后清理任务结果失败: taskId={}", taskId, e);
         }
         return deleted;
     }

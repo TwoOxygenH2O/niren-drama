@@ -1,6 +1,22 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
+function isJwtExpired(token?: string): boolean {
+  if (!token) return true
+  const parts = token.split('.')
+  if (parts.length !== 3) return true
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const normalized = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+    const payload = JSON.parse(atob(normalized))
+    const exp = Number(payload?.exp)
+    if (!Number.isFinite(exp) || exp <= 0) return true
+    return Date.now() >= exp * 1000
+  } catch {
+    return true
+  }
+}
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -98,6 +114,10 @@ const router = createRouter({
 router.beforeEach((to) => {
   const userStore = useUserStore()
   if (to.meta.requiresAuth !== false && !userStore.isLoggedIn) {
+    return '/login'
+  }
+  if (to.meta.requiresAuth !== false && isJwtExpired(userStore.token)) {
+    userStore.logout()
     return '/login'
   }
   if (userStore.isLoggedIn && (to.path === '/login' || to.path === '/register')) {

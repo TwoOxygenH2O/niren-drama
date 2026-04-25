@@ -47,6 +47,14 @@
             >
               根据大纲生成剧本
             </el-button>
+            <el-button
+              v-if="hasGeneratedScript"
+              type="success"
+              plain
+              @click="$router.push(`/projects/${projectId}/storyboard`)"
+            >
+              前往下一流程：分镜制作
+            </el-button>
           </div>
         </el-form-item>
       </el-form>
@@ -303,6 +311,10 @@ const episodeUpperBound = computed(() => projectInfo.value?.episodes || 120)
 const hasEpisodeSelection = computed(() => genForm.value.startEpisode != null || genForm.value.endEpisode != null)
 const outlineSeed = computed(() => (genForm.value.idea || projectInfo.value?.description || '').trim())
 const hasGeneratedOutline = computed(() => Boolean(projectInfo.value?.commonInfo) || scripts.value.some((script) => !!script?.summary?.trim()))
+const hasGeneratedScript = computed(() => scripts.value.some((script) => {
+  const content = script?.content
+  return typeof content === 'string' ? content.trim().length > 0 : Boolean(content)
+}))
 const canGenerateOutline = computed(() => Boolean(outlineSeed.value) && !hasGeneratedOutline.value && !outlinePreview.value.generating && !outlinePreview.value.saving)
 const canGenerateScript = computed(() => hasEpisodeSelection.value && hasGeneratedOutline.value && !scriptPreview.value.generating && !scriptPreview.value.saving)
 const projectTypeLabel = computed(() => formatProjectTypeLabel(projectInfo.value?.projectType))

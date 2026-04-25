@@ -108,7 +108,7 @@ public class AliyunImageProvider implements ImageAiProvider {
             if (!hasText(error)) {
                 error = e.getMessage();
             }
-            log.error("Aliyun image generation failed", e);
+            log.error("阿里云图片生成失败", e);
             throw new RuntimeException("Image generation failed: " + error, e);
         } finally {
             AiTraceSupport.record(

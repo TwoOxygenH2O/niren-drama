@@ -53,7 +53,7 @@ public class JwtUtils {
             parseClaims(token);
             return true;
         } catch (JwtException | IllegalArgumentException e) {
-            log.warn("Invalid JWT token: {}", e.getMessage());
+            log.warn("JWT 令牌无效: {}", e.getMessage());
             return false;
         }
     }

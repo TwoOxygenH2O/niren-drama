@@ -132,7 +132,7 @@ public class CostEstimationService {
         est.setTotalCost(est.getTextCostTotal() + est.getImageCostTotal()
                 + est.getTtsCostTotal() + est.getVideoAiCostTotal());
 
-        log.info("Cost estimation: {} episodes × {}s, quality={}, imageReuse={}, videoAi={}, total=¥{}",
+        log.info("成本估算: {} 集 × {}秒, quality={}, imageReuse={}, videoAi={}, total=¥{}",
                 episodes, episodeDuration, qualityTier, imageReuseEnabled, videoAiEnabled,
                 String.format("%.2f", est.getTotalCost()));
 

@@ -70,7 +70,7 @@ public class DashScopeImageProvider implements ImageAiProvider {
             }
 
             requestBody = objectMapper.writeValueAsString(body);
-            log.info("DashScope image request endpoint={}, model={}", endpoint, model);
+            log.info("通义图片请求: endpoint={}, model={}", endpoint, model);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(endpoint))
                     .header("Content-Type", "application/json")
@@ -99,10 +99,10 @@ public class DashScopeImageProvider implements ImageAiProvider {
                             false,
                             null,
                             "HTTP 404 fallback to multimodal endpoint");
-                    log.warn("DashScope compatible image endpoint returned 404 for model {}, fallback to multimodal text-only", model);
+                    log.warn("通义兼容图片接口返回 404，回退到多模态文生图: model={}", model);
                     return generateImageByMultimodal(prompt, resolvedSize, style, List.of());
                 }
-                log.error("DashScope image generation API error: {} - {}", response.statusCode(), responseBody);
+                log.error("通义图片生成接口异常: status={}, body={}", response.statusCode(), responseBody);
                 error = "HTTP " + response.statusCode() + " - " + responseBody;
                 throw new RuntimeException("Image generation failed: " + error);
             }
@@ -119,7 +119,7 @@ public class DashScopeImageProvider implements ImageAiProvider {
             if (!hasText(error)) {
                 error = e.getMessage();
             }
-            log.error("DashScope image generation failed", e);
+            log.error("通义图片生成失败", e);
             throw new RuntimeException("Image generation failed: " + e.getMessage());
         } finally {
             AiTraceSupport.record(
@@ -146,7 +146,7 @@ public class DashScopeImageProvider implements ImageAiProvider {
         List<String> references = normalizeReferenceImageUrls(referenceImageUrls);
         if (isQwenImageModel(model)) {
             if (!references.isEmpty()) {
-                log.info("Ignore {} reference images for model {} and force text-to-image endpoint", references.size(), model);
+                log.info("模型不支持参考图，忽略参考图并强制走文生图: refCount={}, model={}", references.size(), model);
             }
             return generateImage(prompt, resolvedSize, style);
         }
@@ -156,7 +156,7 @@ public class DashScopeImageProvider implements ImageAiProvider {
         try {
             return generateImageWithReferences(prompt, resolvedSize, style, references);
         } catch (Exception e) {
-            log.warn("DashScope reference-image generation failed, falling back to text-to-image: {}", e.getMessage());
+            log.warn("通义参考图生成失败，回退文生图: {}", e.getMessage());
             return generateImage(prompt, resolvedSize, style);
         }
     }
@@ -208,7 +208,7 @@ public class DashScopeImageProvider implements ImageAiProvider {
                 }
                 case "FAILED" -> throw new RuntimeException("Image generation task failed: " +
                         output.path("message").asText("unknown error"));
-                default -> log.debug("Task {} status: {}, attempt {}/{}", taskId, status, i + 1, MAX_POLL_ATTEMPTS);
+                default -> log.debug("任务状态轮询: taskId={}, status={}, attempt={}/{}", taskId, status, i + 1, MAX_POLL_ATTEMPTS);
             }
         }
 
@@ -238,7 +238,7 @@ public class DashScopeImageProvider implements ImageAiProvider {
         content.addObject().put("text", buildReferencePrompt(prompt, resolvedSize, style));
 
         String endpoint = getDashScopeApiBaseUrl() + "/services/aigc/multimodal-conversation/generation";
-        log.info("DashScope multimodal image request endpoint={}, model={}, refCount={}", endpoint, model, referenceImageUrls.size());
+        log.info("通义多模态图片请求: endpoint={}, model={}, refCount={}", endpoint, model, referenceImageUrls.size());
 
     String requestBody = objectMapper.writeValueAsString(body);
 

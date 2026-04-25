@@ -15,7 +15,7 @@ public class MockTtsProvider implements TtsProvider {
 
     @Override
     public byte[] synthesize(String text, String voiceId, float speed, float pitch) {
-        log.info("Mock TTS synthesize: voiceId={}, textLength={}", voiceId, text.length());
+        log.info("模拟 TTS 合成: voiceId={}, textLength={}", voiceId, text.length());
         // Minimal WAV RIFF header placeholder
         return new byte[]{0x52, 0x49, 0x46, 0x46};
     }

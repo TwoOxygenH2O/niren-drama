@@ -115,7 +115,7 @@ public class AliyunTtsProvider implements TtsProvider {
                 if (!hasText(instructionField)) {
                     throw e;
                 }
-                log.warn("Aliyun TTS request with instruction field '{}' failed, fallback to next variant: {}", instructionField, e.getMessage());
+                log.warn("阿里云 TTS 使用指令字段'{}'请求失败，回退下一种字段写法: {}", instructionField, e.getMessage());
             }
         }
         throw lastFailure != null ? lastFailure : new RuntimeException("TTS synthesis failed: no request variant succeeded");
@@ -129,7 +129,7 @@ public class AliyunTtsProvider implements TtsProvider {
                                 String languageType,
                                 String instructionField) {
         String endpoint = apiBaseUrl + "/services/aigc/multimodal-generation/generation";
-        log.debug("Start aliyun TTS synthesize: provider={}, model={}, voiceId={}, textLength={}, speed={}, pitch={}, languageType={}, instructionField={}, hasInstruction={}",
+        log.debug("开始阿里云 TTS 合成: provider={}, model={}, voiceId={}, textLength={}, speed={}, pitch={}, languageType={}, instructionField={}, hasInstruction={}",
             providerName,
             model,
             voiceId,
@@ -230,7 +230,7 @@ public class AliyunTtsProvider implements TtsProvider {
                     audioResponse.body() != null && audioResponse.body().length > 0,
                     audioUrl,
                     null);
-                    log.debug("Aliyun TTS synthesize success: provider={}, voiceId={}, audioUrl={}, audioSize={}",
+                    log.debug("阿里云 TTS 合成成功: provider={}, voiceId={}, audioUrl={}, audioSize={}",
                         providerName,
                         voiceId,
                         audioUrl,
@@ -255,7 +255,7 @@ public class AliyunTtsProvider implements TtsProvider {
                     false,
                     audioUrl,
                     error);
-            log.error("Aliyun TTS API call failed", e);
+            log.error("阿里云 TTS API 调用失败", e);
             throw new RuntimeException("TTS synthesis failed: " + error, e);
         }
     }
@@ -269,7 +269,7 @@ public class AliyunTtsProvider implements TtsProvider {
         if (voices.isEmpty()) {
             voices = VOICE_CATALOG.stream().map(VoiceCatalogEntry::toVoiceInfo).toList();
         }
-        log.debug("Aliyun TTS voices loaded: provider={}, count={}", providerName, voices.size());
+        log.debug("阿里云 TTS 音色加载完成: provider={}, count={}", providerName, voices.size());
         return voices;
     }
 

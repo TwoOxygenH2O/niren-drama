@@ -56,6 +56,23 @@
       </div>
     </div>
 
+    <el-card v-if="shots.length" class="copy-check-card" shadow="hover">
+      <template #header>
+        <div class="copy-check-header">
+          <span>音画文案校对（只读，编辑请至「分镜制作」）</span>
+          <el-button text type="primary" @click="$router.push(`/projects/${projectId}/storyboard`)">去分镜编辑</el-button>
+        </div>
+      </template>
+      <el-table :data="shots" size="small" max-height="360" border>
+        <el-table-column prop="shotNo" label="镜" width="56" />
+        <el-table-column prop="duration" label="秒" width="64" />
+        <el-table-column prop="resolvedSubtitle" label="上屏(生效)" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="resolvedTts" label="配音(生效)" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="dialogue" label="对白" min-width="100" show-overflow-tooltip />
+        <el-table-column prop="narration" label="旁白" min-width="100" show-overflow-tooltip />
+      </el-table>
+    </el-card>
+
     <!-- Action buttons -->
     <div class="action-section">
       <div class="action-title">生成流程</div>
@@ -781,6 +798,18 @@ onUnmounted(() => {
   font-size: 20px;
   font-weight: 700;
   color: var(--text-primary);
+}
+
+.copy-check-card {
+  margin-bottom: 20px;
+}
+.copy-check-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
 }
 
 /* Overview cards */

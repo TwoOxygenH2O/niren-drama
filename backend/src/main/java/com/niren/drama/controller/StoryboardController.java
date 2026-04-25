@@ -69,10 +69,10 @@ public class StoryboardController {
         });
 
         emitter.onTimeout(() -> {
-            log.warn("Storyboard stream timeout for project {}", request.getProjectId());
+            log.warn("分镜流式生成超时: projectId={}", request.getProjectId());
             sendError(emitter, new RuntimeException("流式生成超时，请缩小生成范围后重试"));
         });
-        emitter.onError(e -> log.warn("SSE emitter error: {}", e.getMessage()));
+        emitter.onError(e -> log.warn("SSE 连接异常: {}", e.getMessage()));
         return emitter;
     }
 
@@ -128,7 +128,7 @@ public class StoryboardController {
                     .name("chunk")
                     .data(objectMapper.writeValueAsString(Map.of("content", chunk)), MediaType.APPLICATION_JSON));
         } catch (Exception e) {
-            log.warn("SSE send chunk failed: {}", e.getMessage());
+            log.warn("SSE 发送分片失败: {}", e.getMessage());
         }
     }
 
@@ -138,12 +138,12 @@ public class StoryboardController {
                     .name("done")
                     .data(objectMapper.writeValueAsString(Map.of("message", message)), MediaType.APPLICATION_JSON));
         } catch (Exception e) {
-            log.warn("SSE send done failed: {}", e.getMessage());
+            log.warn("SSE 发送完成事件失败: {}", e.getMessage());
         }
     }
 
     private void sendError(SseEmitter emitter, Exception e) {
-        log.error("Storyboard stream generation failed", e);
+        log.error("分镜流式生成失败", e);
         try {
             emitter.send(SseEmitter.event()
                     .name("error")

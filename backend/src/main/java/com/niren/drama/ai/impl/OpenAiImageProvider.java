@@ -93,7 +93,7 @@ public class OpenAiImageProvider implements ImageAiProvider {
             if (!hasText(error)) {
                 error = e.getMessage();
             }
-            log.error("OpenAI image generation failed", e);
+            log.error("图片生成失败", e);
             throw new RuntimeException("Image generation failed: " + e.getMessage(), e);
         } finally {
             AiTraceSupport.record(

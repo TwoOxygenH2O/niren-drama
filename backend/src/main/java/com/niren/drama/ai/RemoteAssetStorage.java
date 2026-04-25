@@ -62,7 +62,7 @@ public final class RemoteAssetStorage {
             Files.write(targetFile, bytes);
             return normalizedBaseUrl + "/" + trimSlashes(subDir) + "/" + fileName;
         } catch (Exception e) {
-            log.warn("Failed to persist remote asset {}, keep original url: {}", sourceUrl, e.getMessage());
+            log.warn("远程资源落盘失败，保留原始 URL: sourceUrl={}, reason={}", sourceUrl, e.getMessage());
             return sourceUrl;
         }
     }

@@ -65,7 +65,7 @@ public class OpenAiTextProvider implements TextAiProvider {
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 400) {
-                log.error("AI text API error: {} - {}", response.statusCode(), response.body());
+                log.error("智能文本接口异常: 状态码={}, 响应体={}", response.statusCode(), response.body());
                 throw new RuntimeException("AI text service error: HTTP " + response.statusCode());
             }
             JsonNode responseJson = objectMapper.readTree(response.body());
@@ -78,7 +78,7 @@ public class OpenAiTextProvider implements TextAiProvider {
         } catch (AiOutputTruncatedException e) {
             throw e;
         } catch (Exception e) {
-            log.error("OpenAI text API call failed", e);
+            log.error("文本接口调用失败", e);
             throw new RuntimeException("AI text service unavailable: " + e.getMessage());
         }
     }
@@ -138,7 +138,7 @@ public class OpenAiTextProvider implements TextAiProvider {
         } catch (AiOutputTruncatedException e) {
             throw e;
         } catch (Exception e) {
-            log.error("OpenAI text streaming API call failed", e);
+            log.error("文本流式接口调用失败", e);
             throw new RuntimeException("AI text service unavailable: " + e.getMessage());
         }
     }
@@ -188,7 +188,7 @@ public class OpenAiTextProvider implements TextAiProvider {
             return null;
         }
         if (configuredMaxTokens > OPENAI_COMPATIBLE_MAX_TOKENS) {
-            log.warn("Configured max_tokens {} exceeds compatible limit {}, clamping request value",
+            log.warn("配置的 max_tokens={} 超过兼容上限 {}，已自动收敛",
                     configuredMaxTokens,
                     OPENAI_COMPATIBLE_MAX_TOKENS);
             return OPENAI_COMPATIBLE_MAX_TOKENS;

@@ -46,6 +46,13 @@ jwt:
   expiration: 86400
 
 niren:
+  drama:
+    line-doctor:
+      enabled: ${NIREN_DRAMA_LINE_DOCTOR_ENABLED:true}
+    dialogue:
+      strip-speaker-prefix: ${NIREN_DRAMA_STRIP_SPEAKER_PREFIX:true}
+      strip-narration-speaker-prefix: ${NIREN_DRAMA_STRIP_NARRATION_SPEAKER_PREFIX:false}
+      dedupe-narration: ${NIREN_DRAMA_DEDUPE_NARRATION:true}
   upload:
     path: ${UPLOAD_PATH:./uploads}
     base-url: ${BASE_URL:http://localhost:8080}/api/files
@@ -82,12 +89,22 @@ niren:
     path: ${FFMPEG_PATH:D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffmpeg.exe}
     ffprobe-path: ${FFPROBE_PATH:D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffprobe.exe}
   compose:
+    max-shot-duration-seconds: 5.0
     transition:
       duration-seconds: ${COMPOSE_TRANSITION_DURATION:0.45}
+      conflict-seconds: 0.2
+      lyrical-seconds: 0.8
     audio:
       tail-padding-seconds: ${COMPOSE_AUDIO_TAIL_PADDING:0.35}
+      between-shots-seconds: 0.28
+    ambient:
+      source: ${COMPOSE_AMBIENT_SOURCE:}
+      volume: 0.1
+    # 词级时间轴/停顿精同步需厂商返回时间戳，当前以镜头时长+句间静音+转场为主
     subtitle:
       enabled: ${COMPOSE_SUBTITLE_ENABLED:true}
+      include-narration: ${COMPOSE_SUBTITLE_INCLUDE_NARRATION:false}
+      strip-speaker-prefix: ${COMPOSE_SUBTITLE_STRIP_SPEAKER_PREFIX:true}
       font-path: ${COMPOSE_SUBTITLE_FONT_PATH:C:/Windows/Fonts/msyh.ttc}
       font-size: ${COMPOSE_SUBTITLE_FONT_SIZE:54}
       margin-bottom: ${COMPOSE_SUBTITLE_MARGIN_BOTTOM:160}
@@ -115,12 +132,20 @@ knife4j:
 logging:
   file:
     name: ${LOG_FILE:${user.dir}/log/niren-drama.log}
+  charset:
+    console: UTF-8
+    file: UTF-8
   level:
-    root: debug
+    root: info
     com.niren.drama: debug
     com.niren.drama.mapper: debug
     org.mybatis: debug
     com.baomidou.mybatisplus: debug
     org.springframework.security: debug
+    com.qcloud.cos: warn
+    org.apache.http: warn
+    org.apache.http.wire: off
+    org.apache.http.headers: off
   pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"

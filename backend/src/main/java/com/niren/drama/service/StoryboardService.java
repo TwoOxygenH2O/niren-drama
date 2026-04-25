@@ -8,6 +8,7 @@ import com.niren.drama.ai.TtsProvider;
 import com.niren.drama.ai.VoiceInfo;
 import com.niren.drama.ai.trace.AiCallTrace;
 import com.niren.drama.ai.trace.AiTraceContext;
+import com.niren.drama.common.DramaTextSanitizer;
 import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.dto.storyboard.StoryboardGenerateRequest;
 import com.niren.drama.dto.storyboard.StoryboardPreviewSaveRequest;
@@ -100,12 +101,25 @@ public class StoryboardService {
     private static final int STORYBOARD_SCENE_BATCH_MIN_CHARS = 50;
     private static final int STORYBOARD_SCENE_BATCH_MAX_LINES = 4;
 
+    @Value("${niren.drama.line-doctor.enabled:false}")
+    private boolean lineDoctorEnabled;
+    @Value("${niren.drama.dialogue.strip-speaker-prefix:true}")
+    private boolean stripDialogueSpeakerPrefix;
+    @Value("${niren.drama.dialogue.strip-narration-speaker-prefix:false}")
+    private boolean stripNarrationSpeakerPrefix;
+    @Value("${niren.drama.dialogue.dedupe-narration:true}")
+    private boolean dedupeDialogueNarration;
+    @Value("${niren.compose.subtitle.include-narration:false}")
+    private boolean enrichSubtitleIncludeNarration;
+    @Value("${niren.compose.subtitle.strip-speaker-prefix:true}")
+    private boolean enrichSubtitleStripSpeakerPrefix;
+
     /** Enable image reuse for same scene+character+angle combinations */
     @Value("${niren.cost.image-reuse-enabled:true}")
     private boolean imageReuseEnabled;
 
     public TaskRecord startGenerateStoryboard(Long userId, StoryboardGenerateRequest request) {
-        log.debug("Creating storyboard task: userId={}, projectId={}, scriptId={}",
+        log.debug("创建分镜任务: userId={}, projectId={}, scriptId={}",
             userId, request.getProjectId(), request.getScriptId());
         TaskRecord task = new TaskRecord();
         task.setProjectId(request.getProjectId());
@@ -121,7 +135,7 @@ public class StoryboardService {
     }
 
     public void streamGenerateStoryboard(Long userId, StoryboardGenerateRequest request, java.util.function.Consumer<String> chunkConsumer, java.util.function.Consumer<String> progressConsumer) {
-        log.debug("Start storyboard preview streaming: userId={}, projectId={}, scriptId={}",
+        log.debug("开始流式生成分镜预览: userId={}, projectId={}, scriptId={}",
             userId, request.getProjectId(), request.getScriptId());
         Project project = projectService.getProject(userId, request.getProjectId());
         Script script = requireScript(request.getScriptId(), request.getProjectId());
@@ -143,7 +157,7 @@ public class StoryboardService {
         }
 
         boolean isStream = chunkConsumer != null;
-        log.debug("Storyboard preview scene split complete: projectId={}, scriptId={}, sceneCount={}, streaming={}",
+        log.debug("分镜预览场景拆分完成: projectId={}, scriptId={}, sceneCount={}, streaming={}",
             request.getProjectId(), request.getScriptId(), scenes.size(), isStream);
         if (isStream) {
             chunkConsumer.accept("{\n  \"shots\": [\n");
@@ -164,7 +178,7 @@ public class StoryboardService {
             java.time.LocalDateTime scriptUpdate = script.getUpdateTime();
             java.time.LocalDateTime previewTime = savedShots.get(0).getCreateTime();
             if (scriptUpdate != null && scriptUpdate.isAfter(previewTime)) {
-                log.debug("Storyboard preview draft invalidated because script changed: projectId={}, scriptId={}, savedShots={}",
+                log.debug("剧本已变更，分镜预览草稿失效: projectId={}, scriptId={}, savedShots={}",
                         request.getProjectId(), request.getScriptId(), savedShots.size());
                 storyboardMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Storyboard>()
                         .eq(Storyboard::getProjectId, request.getProjectId())
@@ -189,14 +203,14 @@ public class StoryboardService {
                         } catch (Exception ignored) {}
                     }
                 }
-                log.debug("Storyboard preview resumed from saved draft: projectId={}, scriptId={}, resumedShots={}, nextShotNo={}, startSceneIndex={}",
+                log.debug("从已保存草稿恢复分镜预览: projectId={}, scriptId={}, resumedShots={}, nextShotNo={}, startSceneIndex={}",
                         request.getProjectId(), request.getScriptId(), savedShots.size(), nextShotNo, startSceneIndex);
                 startSceneIndex = (int) maxSceneId + 1;
             }
         }
 
         for (int sceneIndex = startSceneIndex; sceneIndex < scenes.size(); sceneIndex++) {
-            log.debug("Generating storyboard scene: projectId={}, scriptId={}, sceneIndex={}, sceneLabel={}",
+            log.debug("生成分镜场景: projectId={}, scriptId={}, sceneIndex={}, sceneLabel={}",
                     request.getProjectId(), request.getScriptId(), sceneIndex, scenes.get(sceneIndex).displayName());
             ArrayNode sceneShots = generateSceneShotsWithFallback(
                     textProvider,
@@ -225,6 +239,11 @@ public class StoryboardService {
                 } else {
                     draftShot.setEpisodeNo(1);
                 }
+                applyDramaTextProcessing(
+                        draftShot,
+                        project.getUserId(),
+                        project,
+                        textOrNull(shotObject, "characterName"));
                 storyboardMapper.insert(draftShot);
 if (isStream) {
                     try {
@@ -233,7 +252,7 @@ if (isStream) {
                         chunkConsumer.accept(chunk);
                         firstShotEmitted = true;
                     } catch (Exception e) {
-                        log.warn("Failed to stringify shot", e);
+                        log.warn("分镜对象序列化失败", e);
                     }
                 }
             }
@@ -278,7 +297,7 @@ if (isStream) {
             if (shouldRetrySceneWithSmallerBatches(ex, batchMaxChars)) {
                 int smallerBatchChars = Math.max(STORYBOARD_SCENE_BATCH_MIN_CHARS, batchMaxChars / 2);
                 if (smallerBatchChars < batchMaxChars) {
-                    log.warn("Storyboard scene {} failed with batch size {}, retrying with smaller chunks. reason={}",
+                    log.warn("分镜场景生成失败，准备缩小批次重试: scene={}, batchSize={}, reason={}",
                             scene.sceneNo(),
                             batchMaxChars,
                             ex.getMessage());
@@ -389,7 +408,7 @@ if (isStream) {
                 if (attempt + 1 >= STORYBOARD_CONTINUATION_MAX_ATTEMPTS) {
                     throw new BusinessException("分镜预览生成达到长度上限，多次续写后仍未完成，请缩小当前剧本范围或减少镜头复杂度后重试");
                 }
-                log.info("Storyboard preview truncated at attempt {}, continuing generation", attempt + 1);
+                log.info("分镜预览在第{}次尝试被截断，继续生成", attempt + 1);
                 messages = buildStoryboardContinuationMessages(userPrompt, accumulatedContent.toString(), true);
                 continue;
             }
@@ -403,7 +422,7 @@ if (isStream) {
             if (attempt + 1 >= STORYBOARD_CONTINUATION_MAX_ATTEMPTS) {
                 break;
             }
-            log.info("Storyboard preview still incomplete after attempt {}, requesting continuation", attempt + 1);
+            log.info("分镜预览在第{}次尝试后仍不完整，继续请求续写", attempt + 1);
             messages = buildStoryboardContinuationMessages(userPrompt, accumulatedContent.toString(), false);
         }
 
@@ -634,6 +653,9 @@ if (isStream) {
                 5. sceneName 优先使用“%s”。
                 6. 返回格式必须为 {"shots": [...]}。
                 7. 严禁Markdown格式文字。
+                8. dialogue 只写口播，短句、口语化；不要写“角色名：”前缀，用 characterName 标说话人；无口播可留空。
+                9. 若本段有两人交锋，请拆成多个镜头用短句形成一来一回，不要写成长段说明文。
+                10. 台词风格示例（仅示意语气，勿照抄）：「你再说一遍试试？」「试就试，你以为我不敢？」
                 """,
                 projectType,
                 genre,
@@ -664,9 +686,9 @@ if (isStream) {
     private record VoiceSelection(Character character, String voiceId, String voiceName, boolean autoAssigned) {}
 
     public List<Storyboard> saveStoryboardPreview(Long userId, StoryboardPreviewSaveRequest request) {
-        log.debug("Saving storyboard preview: userId={}, projectId={}, scriptId={}, contentLength={}",
+        log.debug("保存分镜预览: userId={}, projectId={}, scriptId={}, contentLength={}",
                 userId, request.getProjectId(), request.getScriptId(), request.getContent() != null ? request.getContent().length() : 0);
-        projectService.getProject(userId, request.getProjectId());
+        Project project = projectService.getProject(userId, request.getProjectId());
         Script script = requireScript(request.getScriptId(), request.getProjectId());
 
         StoryboardGenerateRequest generateRequest = new StoryboardGenerateRequest();
@@ -674,7 +696,7 @@ if (isStream) {
         generateRequest.setScriptId(request.getScriptId());
 
         List<Storyboard> shots = parseStoryboardJson(request.getContent(), generateRequest, true);
-    log.debug("Storyboard preview parsed: projectId={}, scriptId={}, shotCount={}",
+    log.debug("分镜预览解析完成: projectId={}, scriptId={}, shotCount={}",
         request.getProjectId(), request.getScriptId(), shots.size());
         storyboardMapper.delete(new LambdaQueryWrapper<Storyboard>()
                 .eq(Storyboard::getProjectId, request.getProjectId())
@@ -683,6 +705,7 @@ if (isStream) {
         int episodeNo = script.getEpisodeNo() != null ? script.getEpisodeNo() : 1;
         for (Storyboard shot : shots) {
             shot.setEpisodeNo(episodeNo);
+            applyDramaTextProcessing(shot, userId, project, null);
             storyboardMapper.insert(shot);
         }
         return shots;
@@ -693,7 +716,7 @@ if (isStream) {
         TaskRecord task = taskRecordMapper.selectById(taskId);
         if (task == null) return;
         try {
-            log.debug("Async storyboard generation start: taskId={}, userId={}, projectId={}, scriptId={}",
+            log.debug("异步分镜生成开始: taskId={}, userId={}, projectId={}, scriptId={}",
                     taskId, userId, request.getProjectId(), request.getScriptId());
             updateTask(task, "RUNNING", 10, "读取剧本内容...");
             Project project = projectService.getProject(userId, request.getProjectId());
@@ -720,11 +743,11 @@ if (isStream) {
             task.setProgress(100);
             task.setMessage(String.format("分镜生成完成，共%d个镜头", shotCount));
             taskRecordMapper.updateById(task);
-            log.debug("Async storyboard generation complete: taskId={}, projectId={}, scriptId={}, shotCount={}",
+            log.debug("异步分镜生成完成: taskId={}, projectId={}, scriptId={}, shotCount={}",
                     taskId, request.getProjectId(), request.getScriptId(), shotCount);
 
         } catch (Exception e) {
-            log.error("Storyboard generation failed for task {}", taskId, e);
+            log.error("分镜生成失败: taskId={}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("分镜生成失败: " + e.getMessage());
             taskRecordMapper.updateById(task);
@@ -748,7 +771,7 @@ if (isStream) {
             throw new BusinessException("当前选择的镜头均已勾选动态生成，请在动态镜头生成中处理");
         }
 
-        log.debug("Creating storyboard image task: userId={}, projectId={}, shotCount={}, filteredByIds={}",
+        log.debug("创建分镜图片任务: userId={}, projectId={}, shotCount={}, filteredByIds={}",
                 userId, projectId, shots.size(), shotIds != null && !shotIds.isEmpty());
 
         TaskRecord task = new TaskRecord();
@@ -780,7 +803,7 @@ if (isStream) {
             int failed = 0;
             List<String> failedDetails = new ArrayList<>();
 
-            log.debug("Start storyboard image generation: taskId={}, userId={}, projectId={}, shotCount={}, reuseEnabled={}",
+            log.debug("开始分镜图片生成: taskId={}, userId={}, projectId={}, shotCount={}, reuseEnabled={}",
                     taskId, userId, projectId, total, imageReuseEnabled);
 
             // Build image reuse cache for this batch only. Do not pre-populate it
@@ -799,7 +822,7 @@ if (isStream) {
                 List<String> referenceImageUrls = collectReferenceImageUrls(shot, character);
                 String generationPrompt = buildImageGenerationPrompt(prompt, character, referenceImageUrls, project);
                 String negativePrompt = buildImageNegativePrompt(character, project);
-                log.debug("Storyboard image request prepared: taskId={}, shotId={}, shotNo={}, characterId={}, promptLength={}, referenceCount={}, negativePromptLength={}",
+                log.debug("分镜图片请求已准备: taskId={}, shotId={}, shotNo={}, characterId={}, promptLength={}, referenceCount={}, negativePromptLength={}",
                     taskId,
                     shot.getId(),
                     shot.getShotNo(),
@@ -824,7 +847,7 @@ if (isStream) {
                         } else {
                             reused++;
                         }
-                        log.debug("Storyboard image resolved from batch cache: taskId={}, shotId={}, shotNo={}, cacheKey={}, replacedExisting={}, imageUrl={}",
+                        log.debug("分镜图片命中批次缓存: taskId={}, shotId={}, shotNo={}, cacheKey={}, replacedExisting={}, imageUrl={}",
                                 taskId, shot.getId(), shot.getShotNo(), cacheKey, hadExistingImage, shot.getImageUrl());
                     } else {
                         // Use smart resolution based on camera angle
@@ -847,7 +870,7 @@ if (isStream) {
                         } else {
                             generated++;
                         }
-                        log.debug("Storyboard image generated: taskId={}, shotId={}, shotNo={}, imageSize={}, replacedExisting={}, imageUrl={}",
+                        log.debug("分镜图片生成完成: taskId={}, shotId={}, shotNo={}, imageSize={}, replacedExisting={}, imageUrl={}",
                                 taskId, shot.getId(), shot.getShotNo(), imageSize, hadExistingImage, imageUrl);
 
                         // Cache this image for reuse
@@ -863,7 +886,7 @@ if (isStream) {
                     String shotLabel = shot.getShotNo() != null ? String.valueOf(shot.getShotNo()) : String.valueOf(shot.getId());
                     String errorMessage = hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName();
                     failedDetails.add(String.format("镜头%s: %s", shotLabel, errorMessage));
-                    log.warn("Failed to generate image for shot {}", shotLabel, e);
+                    log.warn("分镜图片生成失败: shot={}", shotLabel, e);
                 } finally {
                     omittedTraceCalls = appendTraceCalls(traceCalls, shot, AiTraceContext.drain(), omittedTraceCalls);
                 }
@@ -891,11 +914,11 @@ if (isStream) {
                             "replacedExisting", replacedExisting,
                             "failed", failed)));
             taskRecordMapper.updateById(task);
-                log.debug("Storyboard image generation complete: taskId={}, projectId={}, total={}, generated={}, reused={}, replacedExisting={}, failed={}",
+                log.debug("分镜图片生成完成: taskId={}, projectId={}, total={}, generated={}, reused={}, replacedExisting={}, failed={}",
                     taskId, projectId, total, generated, reused, replacedExisting, failed);
 
         } catch (Exception e) {
-            log.error("Storyboard image generation failed for task {}", taskId, e);
+            log.error("分镜图片生成失败: taskId={}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("分镜图片生成失败: " + e.getMessage());
             task.setResult(buildTaskTraceResult("image", projectId, traceCalls, omittedTraceCalls,
@@ -962,7 +985,7 @@ if (isStream) {
         }
         character.setImageUrl(shot.getImageUrl());
         characterMapper.updateById(character);
-        log.debug("Character image backfilled from storyboard shot: projectId={}, characterId={}, characterName={}, shotNo={}, imageUrl={}",
+        log.debug("已从分镜回填角色图片: projectId={}, characterId={}, characterName={}, shotNo={}, imageUrl={}",
                 character.getProjectId(), character.getId(), character.getName(), shot.getShotNo(), shot.getImageUrl());
     }
 
@@ -985,7 +1008,7 @@ if (isStream) {
                 }
             }
         }
-        log.debug("Storyboard image cache initialized with {} entries", cache.size());
+        log.debug("分镜图片缓存初始化完成: entries={}", cache.size());
     }
 
     /**
@@ -998,7 +1021,7 @@ if (isStream) {
         }
         if (shots.isEmpty()) throw new BusinessException("项目下没有分镜数据，请先生成分镜");
 
-        log.debug("Creating storyboard audio task: userId={}, projectId={}, shotCount={}, filteredByIds={}",
+        log.debug("创建分镜音频任务: userId={}, projectId={}, shotCount={}, filteredByIds={}",
                 userId, projectId, shots.size(), shotIds != null && !shotIds.isEmpty());
 
         TaskRecord task = new TaskRecord();
@@ -1031,14 +1054,14 @@ if (isStream) {
             int failed = 0;
             List<String> failedDetails = new ArrayList<>();
 
-            log.debug("Start storyboard audio generation: taskId={}, userId={}, projectId={}, shotCount={}, availableVoices={}",
+            log.debug("开始分镜音频生成: taskId={}, userId={}, projectId={}, shotCount={}, availableVoices={}",
                     taskId, userId, projectId, total, availableVoices.size());
 
             for (Storyboard shot : shots) {
                 // Build text to synthesize: combine dialogue and narration
                 String text = buildTtsText(shot);
                 if (text.isBlank()) {
-                    log.debug("Skip storyboard audio generation because text is blank: taskId={}, shotId={}, shotNo={}",
+                    log.debug("文本为空，跳过分镜音频生成: taskId={}, shotId={}, shotNo={}",
                             taskId, shot.getId(), shot.getShotNo());
                     skippedNoText++;
                     completed++;
@@ -1054,7 +1077,8 @@ if (isStream) {
                         VoiceSelection voiceSelection = resolveVoiceSelection(userId, shot, availableVoices, project);
                         VoiceInfo selectedVoiceInfo = findVoiceInfo(voiceSelection.voiceId(), availableVoices);
                         String ttsInstruction = buildTtsInstruction(shot, voiceSelection.character(), selectedVoiceInfo, project);
-                        log.debug("Storyboard audio request prepared: taskId={}, shotId={}, shotNo={}, characterId={}, voiceId={}, voiceName={}, textLength={}, autoAssigned={}, instructionLength={}",
+                        float speechSpeed = resolveTtsSpeechSpeed(voiceSelection.character());
+                        log.debug("分镜音频请求已准备: taskId={}, shotId={}, shotNo={}, characterId={}, voiceId={}, voiceName={}, textLength={}, autoAssigned={}, instructionLength={}",
                             taskId,
                             shot.getId(),
                             shot.getShotNo(),
@@ -1064,7 +1088,7 @@ if (isStream) {
                             text.length(),
                                 voiceSelection.autoAssigned(),
                                 ttsInstruction != null ? ttsInstruction.length() : 0);
-                            byte[] audioData = ttsProvider.synthesize(text, voiceSelection.voiceId(), 1.0f, 1.0f, ttsInstruction, "Chinese");
+                            byte[] audioData = ttsProvider.synthesize(text, voiceSelection.voiceId(), speechSpeed, 1.0f, ttsInstruction, "Chinese");
                     if (audioData == null || audioData.length <= 100) {
                         throw new BusinessException("配音接口未返回有效音频数据");
                     }
@@ -1083,7 +1107,7 @@ if (isStream) {
                     } else {
                         generated++;
                     }
-                    log.debug("Storyboard audio generated: taskId={}, shotId={}, shotNo={}, replacedExisting={}, audioUrl={}, audioSize={}",
+                    log.debug("分镜音频生成完成: taskId={}, shotId={}, shotNo={}, replacedExisting={}, audioUrl={}, audioSize={}",
                             taskId, shot.getId(), shot.getShotNo(), hadExistingAudio, shot.getAudioUrl(), audioData.length);
                 } catch (Exception e) {
                     failed++;
@@ -1092,7 +1116,7 @@ if (isStream) {
                     String shotLabel = shot.getShotNo() != null ? String.valueOf(shot.getShotNo()) : String.valueOf(shot.getId());
                     String errorMessage = hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName();
                     failedDetails.add(String.format("镜头%s: %s", shotLabel, errorMessage));
-                    log.warn("Failed to generate audio for shot {}: {}", shot.getShotNo(), e.getMessage());
+                    log.warn("分镜音频生成失败: shotNo={}, reason={}", shot.getShotNo(), e.getMessage());
                 } finally {
                     omittedTraceCalls = appendTraceCalls(traceCalls, shot, AiTraceContext.drain(), omittedTraceCalls);
                 }
@@ -1120,11 +1144,11 @@ if (isStream) {
                             "skippedNoText", skippedNoText,
                             "failed", failed)));
             taskRecordMapper.updateById(task);
-            log.debug("Storyboard audio generation complete: taskId={}, projectId={}, total={}, generated={}, replacedExisting={}, skippedNoText={}, failed={}",
+            log.debug("分镜音频生成完成: taskId={}, projectId={}, total={}, generated={}, replacedExisting={}, skippedNoText={}, failed={}",
                     taskId, projectId, total, generated, replacedExisting, skippedNoText, failed);
 
         } catch (Exception e) {
-            log.error("Storyboard audio generation failed for task {}", taskId, e);
+            log.error("分镜音频生成失败: taskId={}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("分镜配音生成失败: " + e.getMessage());
             task.setResult(buildTaskTraceResult("tts", projectId, traceCalls, omittedTraceCalls,
@@ -1152,7 +1176,7 @@ if (isStream) {
             if (!hasText(character.getVoiceName()) && hasText(voiceName)) {
                 character.setVoiceName(voiceName);
                 characterMapper.updateById(character);
-                log.debug("Character voice name backfilled from provider voices: projectId={}, characterId={}, characterName={}, voiceId={}, voiceName={}",
+                log.debug("已根据提供商音色回填角色音色名: projectId={}, characterId={}, characterName={}, voiceId={}, voiceName={}",
                         character.getProjectId(), character.getId(), character.getName(), character.getVoiceId(), voiceName);
             }
             return new VoiceSelection(character, character.getVoiceId(), voiceName, false);
@@ -1167,7 +1191,7 @@ if (isStream) {
             character.setVoiceId(selectedVoiceId);
             character.setVoiceName(selectedVoiceName);
             characterMapper.updateById(character);
-            log.debug("Character voice auto-assigned from TTS provider: projectId={}, characterId={}, characterName={}, voiceId={}, voiceName={}",
+            log.debug("已根据TTS提供商自动分配角色音色: projectId={}, characterId={}, characterName={}, voiceId={}, voiceName={}",
                     character.getProjectId(), character.getId(), character.getName(), selectedVoiceId, selectedVoiceName);
         }
         return new VoiceSelection(character, selectedVoiceId, selectedVoiceName, true);
@@ -1194,7 +1218,7 @@ if (isStream) {
             List<VoiceInfo> voices = ttsProvider.listVoices();
             return voices != null ? voices : List.of();
         } catch (Exception e) {
-            log.warn("Failed to load provider voice list, fallback to default voice id only: {}", e.getMessage());
+            log.warn("加载提供商音色列表失败，回退默认音色ID: {}", e.getMessage());
             return List.of();
         }
     }
@@ -1324,16 +1348,16 @@ if (isStream) {
                 && voiceInfo.getLanguage().toLowerCase(Locale.ROOT).startsWith("zh");
     }
 
+    private float resolveTtsSpeechSpeed(Character character) {
+        if (character == null || character.getSpeechRate() == null) {
+            return 1.0f;
+        }
+        float r = character.getSpeechRate() / 100f;
+        return Math.max(0.5f, Math.min(1.5f, r));
+    }
+
     private String buildTtsText(Storyboard shot) {
-        StringBuilder sb = new StringBuilder();
-        if (shot.getNarration() != null && !shot.getNarration().isBlank()) {
-            sb.append(shot.getNarration());
-        }
-        if (shot.getDialogue() != null && !shot.getDialogue().isBlank()) {
-            if (!sb.isEmpty()) sb.append("。");
-            sb.append(shot.getDialogue());
-        }
-        return sb.toString().trim();
+        return DramaTextSanitizer.resolveEffectiveTts(shot);
     }
 
     private String buildTtsInstruction(Storyboard shot, Character character, VoiceInfo voiceInfo, Project project) {
@@ -1370,6 +1394,9 @@ if (isStream) {
         if (hasText(projectAudioGuide)) {
             directives.add("项目演绎约束：" + projectAudioGuide);
         }
+        if (character != null && hasText(character.getTtsNote())) {
+            directives.add("导演补充：" + character.getTtsNote().trim());
+        }
         directives.add("避免机械朗读、避免夸张做作，保证情绪自然递进");
 
         String instruction = String.join("；", directives);
@@ -1404,26 +1431,50 @@ if (isStream) {
     }
 
     public List<Storyboard> listByProject(Long projectId) {
-        return storyboardMapper.selectList(new LambdaQueryWrapper<Storyboard>()
+        List<Storyboard> list = storyboardMapper.selectList(new LambdaQueryWrapper<Storyboard>()
                 .eq(Storyboard::getProjectId, projectId)
                 .orderByAsc(Storyboard::getEpisodeNo)
                 .orderByAsc(Storyboard::getShotNo));
+        enrichResolvedStoryboardFields(list);
+        return list;
     }
 
     public List<Storyboard> listByScript(Long scriptId) {
-        return storyboardMapper.selectList(new LambdaQueryWrapper<Storyboard>()
+        List<Storyboard> list = storyboardMapper.selectList(new LambdaQueryWrapper<Storyboard>()
                 .eq(Storyboard::getScriptId, scriptId)
                 .orderByAsc(Storyboard::getShotNo));
+        enrichResolvedStoryboardFields(list);
+        return list;
     }
 
     public Storyboard getStoryboard(Long id) {
         Storyboard s = storyboardMapper.selectById(id);
         if (s == null) throw new BusinessException("分镜不存在");
+        enrichResolvedStoryboardFields(s);
         return s;
     }
 
+    private void enrichResolvedStoryboardFields(Storyboard s) {
+        if (s == null) {
+            return;
+        }
+        s.setResolvedSubtitle(DramaTextSanitizer.resolveEffectiveWrappedSubtitle(s, enrichSubtitleIncludeNarration,
+                enrichSubtitleStripSpeakerPrefix, enrichSubtitleStripSpeakerPrefix));
+        s.setResolvedTts(DramaTextSanitizer.resolveEffectiveTts(s));
+    }
+
+    private void enrichResolvedStoryboardFields(List<Storyboard> list) {
+        if (list == null) {
+            return;
+        }
+        for (Storyboard s : list) {
+            enrichResolvedStoryboardFields(s);
+        }
+    }
+
     public Storyboard updateStoryboard(Long id, Storyboard update) {
-        Storyboard storyboard = getStoryboard(id);
+        Storyboard storyboard = storyboardMapper.selectById(id);
+        if (storyboard == null) throw new BusinessException("分镜不存在");
         if (update.getDescription() != null) storyboard.setDescription(update.getDescription());
         if (update.getDialogue() != null) storyboard.setDialogue(update.getDialogue());
         if (update.getNarration() != null) storyboard.setNarration(update.getNarration());
@@ -1437,12 +1488,38 @@ if (isStream) {
             storyboard.setRenderMode(Boolean.TRUE.equals(update.getDynamicSelected()) ? "video" : "image");
         }
         if (update.getRenderMode() != null) storyboard.setRenderMode(update.getRenderMode());
+        if (update.getSubtitleText() != null) {
+            if (!hasText(update.getSubtitleText())) {
+                storyboard.setSubtitleText(null);
+                storyboard.setUserLockedSubtitle(false);
+            } else {
+                storyboard.setSubtitleText(DramaTextSanitizer.normalizeSpokenText(update.getSubtitleText().trim()));
+                storyboard.setUserLockedSubtitle(true);
+            }
+        }
+        if (update.getTtsText() != null) {
+            if (!hasText(update.getTtsText())) {
+                storyboard.setTtsText(null);
+                storyboard.setUserLockedTts(false);
+            } else {
+                storyboard.setTtsText(DramaTextSanitizer.normalizeSpokenText(update.getTtsText().trim()));
+                storyboard.setUserLockedTts(true);
+            }
+        }
+        if (update.getUserLockedSubtitle() != null) {
+            storyboard.setUserLockedSubtitle(update.getUserLockedSubtitle());
+        }
+        if (update.getUserLockedTts() != null) {
+            storyboard.setUserLockedTts(update.getUserLockedTts());
+        }
+        DramaTextSanitizer.applyToStoryboard(storyboard, stripDialogueSpeakerPrefix, stripNarrationSpeakerPrefix, dedupeDialogueNarration);
         storyboardMapper.updateById(storyboard);
+        enrichResolvedStoryboardFields(storyboard);
         return storyboard;
     }
 
     private void updateTask(TaskRecord task, String status, int progress, String message) {
-        log.debug("Task update: taskId={}, taskType={}, status={}, progress={}, message={}",
+        log.debug("任务状态更新: taskId={}, taskType={}, status={}, progress={}, message={}",
             task.getId(), task.getTaskType(), status, progress, message);
         task.setStatus(status);
         task.setProgress(progress);
@@ -1488,7 +1565,7 @@ if (isStream) {
             root.set("calls", calls);
             return objectMapper.writeValueAsString(root);
         } catch (Exception e) {
-            log.warn("Failed to serialize AI task trace result", e);
+            log.warn("序列化 AI 任务追踪结果失败", e);
             return null;
         }
     }
@@ -1512,15 +1589,20 @@ if (isStream) {
 
                 # 语音风格锚点
                 %s
+
+                # 分集/整场节奏（与剧本大纲一致，拆镜时遵守镜头预算）
+                %s
                 
                 # 分镜拆解规范
                 请将剧本拆解为JSON格式的分镜列表，每个镜头包含以下字段：
                 - shotNo: 镜头序号（从1开始）
-                - description: 画面描述（详细到人物表情、肢体动作、环境光影、景深效果，用于AI精准生图）
+                - description: 极短镜头提示（景别/动线/光感即可）+ 生图仍靠 imagePrompt 写全细节
                 - cameraAngle: 镜头语言（close-up/medium/wide/overhead/pov/low-angle/high-angle/tracking）
-                - dialogue: 角色台词（如有，标注说话角色名）
-                - narration: 旁白（如有）
-                - duration: 镜头时长（秒，2-8秒，爽点镜头≤3秒加速节奏）
+                - dialogue: 角色口播台词（口语短句、一句一镜；不要写“角色名：”前缀，用 characterName 表示；无口播可留空；禁小说说明体与长心理）
+                - narration: 少用笔法；仅极少数 VO/OS 画外；与 dialogue 不重复；不要当小说旁白铺满
+                - subtitleText: 可选。上屏短句（无角色名/无情绪头）；默认可空，由系统从 dialogue 派生
+                - ttsText: 可选。更口语的念稿，可与上屏不同；默认可空，由旁白+对白派生
+                - duration: 镜头时长（秒，2-5 秒为主，超短爽点可更短，避免长镜念小说）
                 - characterName: 主要角色名（如有，用于角色一致性和图片复用）
                 - sceneName: 场景名称（用于场景复用优化）
                 - isDynamic: 是否为动态镜头（true=需要AI视频，false=静态图片即可）
@@ -1550,7 +1632,8 @@ if (isStream) {
                 ProjectStyleSupport.buildProjectIdentity(projectType, genre),
                 ProjectStyleSupport.buildTextCreationRules(projectType, genre),
                 ProjectStyleSupport.buildVisualCreationRules(projectType, genre),
-                ProjectStyleSupport.buildAudioPerformanceRules(projectType, genre));
+                ProjectStyleSupport.buildAudioPerformanceRules(projectType, genre),
+                ProjectStyleSupport.buildShortDramaBeatBlock());
     }
 
     private String buildStoryboardUserPrompt(String scriptContent) {
@@ -1633,16 +1716,21 @@ if (isStream) {
                 shot.setCameraAngle(shotNode.path("cameraAngle").asText("medium"));
                 shot.setDialogue(shotNode.path("dialogue").asText(null));
                 shot.setNarration(shotNode.path("narration").asText(null));
-                shot.setDuration(shotNode.path("duration").asInt(5));
+                shot.setSubtitleText(textOrNull(shotNode, "subtitleText"));
+                shot.setTtsText(textOrNull(shotNode, "ttsText"));
+                int rawDur = shotNode.path("duration").asInt(5);
+                shot.setDuration(Math.min(Math.max(rawDur, 1), 5));
+                shot.setUserLockedSubtitle(false);
+                shot.setUserLockedTts(false);
                 shot.setStatus("draft");
                 String characterName = textOrNull(shotNode, "characterName");
                 Character resolvedCharacter = resolveCharacterByName(request.getProjectId(), characterName);
                 if (resolvedCharacter != null) {
                     shot.setCharacterId(resolvedCharacter.getId());
-                    log.debug("Storyboard shot character resolved: projectId={}, scriptId={}, shotNo={}, characterName={}, characterId={}",
+                    log.debug("分镜角色匹配成功: projectId={}, scriptId={}, shotNo={}, characterName={}, characterId={}",
                             request.getProjectId(), request.getScriptId(), shot.getShotNo(), characterName, resolvedCharacter.getId());
                 } else if (hasText(characterName)) {
-                    log.debug("Storyboard shot character unresolved: projectId={}, scriptId={}, shotNo={}, characterName={}",
+                    log.debug("分镜角色未匹配: projectId={}, scriptId={}, shotNo={}, characterName={}",
                             request.getProjectId(), request.getScriptId(), shot.getShotNo(), characterName);
                 }
                 shot.setImagePrompt(textOrNull(shotNode, "imagePrompt"));
@@ -1651,13 +1739,20 @@ if (isStream) {
                 }
                 shot.setVideoPrompt(textOrNull(shotNode, "videoPrompt"));
                 applyDynamicRecommendation(shot, shotNode, project);
+                DramaTextSanitizer.applyToStoryboard(shot, stripDialogueSpeakerPrefix, stripNarrationSpeakerPrefix, dedupeDialogueNarration);
+                if (hasText(shot.getSubtitleText())) {
+                    shot.setSubtitleText(DramaTextSanitizer.normalizeSpokenText(shot.getSubtitleText().trim()));
+                }
+                if (hasText(shot.getTtsText())) {
+                    shot.setTtsText(DramaTextSanitizer.normalizeSpokenText(shot.getTtsText().trim()));
+                }
                 shots.add(shot);
             }
         } catch (Exception e) {
             if (strict) {
                 throw new BusinessException("分镜预览解析失败，请检查 JSON 结构和字段名称");
             }
-            log.warn("Failed to parse storyboard JSON, creating placeholder shots. Error: {}", e.getMessage());
+            log.warn("分镜 JSON 解析失败，改为生成占位分镜: {}", e.getMessage());
             // Create a placeholder shot if parsing fails
             Storyboard placeholder = new Storyboard();
             placeholder.setProjectId(request.getProjectId());
@@ -1834,6 +1929,56 @@ if (isStream) {
             case "high", "medium", "low" -> normalized;
             default -> "low";
         };
+    }
+
+    /**
+     * 分镜落库前：统一清洗对白/旁白，可选走一遍「台词短打」二遍（仅在有 userId 的保存路径上启用）。
+     */
+    private void applyDramaTextProcessing(Storyboard shot, Long userId, Project project, String jsonCharacterNameHint) {
+        if (shot == null) {
+            return;
+        }
+        DramaTextSanitizer.applyToStoryboard(shot, stripDialogueSpeakerPrefix, stripNarrationSpeakerPrefix, dedupeDialogueNarration);
+        if (!lineDoctorEnabled || userId == null || !hasText(shot.getDialogue()) || project == null) {
+            return;
+        }
+        String chLabel = jsonCharacterNameHint;
+        if (!hasText(chLabel) && shot.getCharacterId() != null) {
+            Character c = characterMapper.selectById(shot.getCharacterId());
+            if (c != null) {
+                chLabel = c.getName();
+            }
+        }
+        String polished = maybePolishDialogueLine(userId, project, shot.getDialogue(), chLabel);
+        if (hasText(polished)) {
+            shot.setDialogue(polished);
+            DramaTextSanitizer.applyToStoryboard(shot, stripDialogueSpeakerPrefix, false, dedupeDialogueNarration);
+        }
+    }
+
+    private String maybePolishDialogueLine(Long userId, Project project, String dialogue, String characterLabel) {
+        try {
+            TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
+            String system = """
+                    你是短剧口语台词编辑。只输出一行最终台词，不要引号、不要解释、不要前后缀。
+                    要求：8-22 个汉字为宜，口语、可一口气念完；尽量去掉“因为/所以/其实/也就是说”等说明腔。
+                    若原句已足够口语，可只做微调。只输出这一行，不要换行。
+                    """;
+            String user = String.format("题材：%s %s\n角色：%s\n原句：%s",
+                    resolveProjectType(project),
+                    resolveGenre(project),
+                    hasText(characterLabel) ? characterLabel : "（未指定）",
+                    dialogue);
+            String out = textProvider.chat(system, user);
+            if (!hasText(out)) {
+                return dialogue;
+            }
+            String oneLine = out.trim().split("\\R", 2)[0].trim();
+            return hasText(oneLine) ? oneLine : dialogue;
+        } catch (Exception e) {
+            log.warn("台词二遍润色失败，保留原句: {}", e.getMessage());
+            return dialogue;
+        }
     }
 
     private String textOrNull(JsonNode node, String fieldName) {

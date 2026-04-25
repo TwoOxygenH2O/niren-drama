@@ -41,6 +41,8 @@ public class CharacterService {
         character.setAge(request.getAge());
         character.setVoiceId(request.getVoiceId());
         character.setVoiceName(request.getVoiceName());
+        character.setSpeechRate(request.getSpeechRate());
+        character.setTtsNote(request.getTtsNote());
         characterMapper.insert(character);
         return character;
     }
@@ -68,6 +70,8 @@ public class CharacterService {
         if (request.getAge() != null) character.setAge(request.getAge());
         if (request.getVoiceId() != null) character.setVoiceId(request.getVoiceId());
         if (request.getVoiceName() != null) character.setVoiceName(request.getVoiceName());
+        if (request.getSpeechRate() != null) character.setSpeechRate(request.getSpeechRate());
+        if (request.getTtsNote() != null) character.setTtsNote(request.getTtsNote());
         characterMapper.updateById(character);
         return character;
     }

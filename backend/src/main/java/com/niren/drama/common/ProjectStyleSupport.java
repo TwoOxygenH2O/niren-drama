@@ -55,11 +55,41 @@ public final class ProjectStyleSupport {
                 - 题材：%s
                 - 类型约束：%s
                 - 题材约束：%s
+                - 台词与旁白（短剧可演性，必须遵守）：
+                %s
                 """,
                 resolvedType,
                 resolvedGenre,
                 buildTextTypeRule(resolvedType),
-                buildGenreStoryRule(resolvedGenre));
+                buildGenreStoryRule(resolvedGenre),
+                buildDramaDialogueRules());
+    }
+
+    /**
+     * 写进分集大纲/剧本/分镜提示中，统一约束「真短剧」台词腔与字段职责，避免小说说明体与伪换行。
+     */
+    public static String buildDramaDialogueRules() {
+        return """
+                1) 禁止小说体：大段心理、环境散文、“他开口说道/冷冷地看着/心里一沉”等说明不要写进 dialogue。镜头调度与站位只写进 description 一句短提示。
+                2) dialogue 只写角色嘴里的口语，短句、能一口气念完；一句台词一个镜头、整句时长约等于本镜 duration；单镜尽量不超过 5 秒、单句别超过约 20 个汉字（金句可略长）。
+                3) 角色名与情绪/音色不写在会「上屏读出来」的旁白里；导演与情绪可写在 ttsText（更口语的念稿）或让系统用 characterName+演绎指令处理；默认上屏用 subtitleText 或干净对白（不要读角色名+情绪头）。
+                4) 短剧优先少旁白；narration 仅用于极少数 VO/OS、系统提示类画外，不要拿 narration 当小说解说；不要与 dialogue 同句重复；若可合并则只留 dialogue。
+                5) 两人/多人对话拆成多镜短句，一来一回，不要一镜堆长段台词。
+                6) 不要在 dialogue 里写“角色名：”前缀；说话人用 characterName 字段，避免上屏/配音再念人名。
+                7) 不要输出字面量换行符 \\n；停顿用短句与标点。
+                """;
+    }
+
+    /**
+     * 分集/单集剧作层面的竖屏短剧节拍，用于控节奏与成本（少拍废镜）。
+     */
+    public static String buildShortDramaBeatBlock() {
+        return """
+                ## 短剧黄金节拍与体量（每集须内化，数值为目标而非秒表硬卡）
+                - 约 3 秒内要出现钩子/悬念/冲击点；约 10 秒内需出现可见冲突；约每 30 秒有爽点/反转或信息升级；单集 1-2 分钟、节奏密、告别小说朗读体。
+                - 开场 0-15 秒强钩子，不要长铺垫；集末 20-30 秒强悬念，利于续看。
+                - 单场 2-5 个视觉节拍；整集镜头数 20-45 个区间较省成本，不堆无意义分镜；单镜时长默认 2-5 秒（与一句口语对齐）。
+                """;
     }
 
     public static String buildVisualCreationRules(String projectType, String genre) {

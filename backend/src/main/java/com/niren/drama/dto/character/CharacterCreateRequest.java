@@ -17,4 +17,8 @@ public class CharacterCreateRequest {
     private String age;
     private String voiceId;
     private String voiceName;
+    /** 语速，100=1.0x，可空 */
+    private Integer speechRate;
+    /** 合并进 TTS 导演说明 */
+    private String ttsNote;
 }

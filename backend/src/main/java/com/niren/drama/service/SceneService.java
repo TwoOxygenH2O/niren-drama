@@ -108,7 +108,7 @@ public class SceneService {
             taskRecordMapper.updateById(task);
 
         } catch (Exception e) {
-            log.error("Scene image generation failed for task {}", taskId, e);
+            log.error("场景图片生成失败: taskId={}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("场景图片生成失败: " + e.getMessage());
             taskRecordMapper.updateById(task);

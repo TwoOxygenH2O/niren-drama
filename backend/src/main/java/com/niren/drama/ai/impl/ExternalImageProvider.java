@@ -127,7 +127,7 @@ public class ExternalImageProvider implements ImageAiProvider {
             if (!hasText(error)) {
                 error = e.getMessage();
             }
-            log.error("External image generation failed", e);
+            log.error("外部图片生成失败", e);
             throw new RuntimeException("Image generation failed: " + e.getMessage(), e);
         } finally {
             AiTraceSupport.record(
@@ -211,7 +211,7 @@ public class ExternalImageProvider implements ImageAiProvider {
         }
 
         if (!hasText(uploadPath) || !hasText(publicBaseUrl)) {
-            log.debug("External image API returned base64 payload but upload path/base URL is not configured, returning data URL directly");
+            log.debug("外部图片接口返回 base64，但未配置上传路径/基础URL，直接返回 data URL");
             return buildDataUrl(imageData);
         }
 
@@ -223,7 +223,7 @@ public class ExternalImageProvider implements ImageAiProvider {
         Files.write(imageFile, imageData.bytes());
 
         String savedUrl = normalizePublicBaseUrl(publicBaseUrl) + "/generated-images/" + fileName;
-        log.debug("External image API returned base64 payload, saved generated image to {}", savedUrl);
+        log.debug("外部图片接口返回 base64，已保存生成图片: {}", savedUrl);
         return savedUrl;
     }
 

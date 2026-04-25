@@ -22,7 +22,7 @@ public class GlobalExceptionHandler {
     public Result<Object> handleBusinessException(BusinessException e, HttpServletRequest request) {
     Object errorData = e.getData();
         String message = sanitizeErrorMessage(e.getMessage(), request.getRequestURI());
-    log.warn("Business exception: code={}, message={}, dataType={}",
+    log.warn("业务异常: code={}, message={}, dataType={}",
         e.getCode(),
                 message,
         errorData == null ? "null" : errorData.getClass().getName());
@@ -72,7 +72,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception e, HttpServletRequest request) {
-        log.error("Unexpected exception", e);
+        log.error("未处理异常", e);
         String message = sanitizeErrorMessage(e.getMessage(), request.getRequestURI());
         if (!message.equals(e.getMessage())) {
             return Result.fail(message);

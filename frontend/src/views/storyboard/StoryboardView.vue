@@ -78,6 +78,53 @@
           <div v-if="shot.narration" class="shot-narration">
             <el-icon size="12"><Reading /></el-icon> {{ shot.narration }}
           </div>
+          <div class="shot-text-panel">
+            <div class="text-field">
+              <div class="text-field-head">
+                <span>上屏字幕</span>
+                <el-switch
+                  v-model="shot.userLockedSubtitle"
+                  size="small"
+                  active-text="锁定"
+                  @change="saveShotTextFields(shot)"
+                />
+              </div>
+              <el-input
+                v-model="shot.subtitleText"
+                type="textarea"
+                :rows="2"
+                placeholder="留空则按对白/旁白与合成配置生成"
+              />
+              <div v-if="shot.resolvedSubtitle" class="text-resolved">生效预览：{{ shot.resolvedSubtitle }}</div>
+            </div>
+            <div class="text-field">
+              <div class="text-field-head">
+                <span>配音稿</span>
+                <el-switch
+                  v-model="shot.userLockedTts"
+                  size="small"
+                  active-text="锁定"
+                  @change="saveShotTextFields(shot)"
+                />
+              </div>
+              <el-input
+                v-model="shot.ttsText"
+                type="textarea"
+                :rows="2"
+                placeholder="留空则由旁白+口播派生"
+              />
+              <div v-if="shot.resolvedTts" class="text-resolved">生效预览：{{ shot.resolvedTts }}</div>
+            </div>
+            <div v-if="shot.duration && shot.duration > 5" class="duration-warn">镜头时长 &gt;5s，短剧建议拆句或改时长</div>
+            <el-button
+              type="primary"
+              size="small"
+              :loading="textSaveLoadingId === shot.id"
+              @click="saveShotTextFields(shot)"
+            >
+              保存字幕与配音
+            </el-button>
+          </div>
           <div class="shot-status">
             <span :class="`status-badge status-${shot.status}`">{{ shotStatusLabel(shot.status) }}</span>
           </div>
@@ -326,6 +373,34 @@ function extractStoryboardPreviewErrorData(error: any): StoryboardPreviewErrorDa
 async function loadStoryboards() {
   const res = await storyboardApi.listByProject(projectId as string)
   storyboards.value = res.data.data || []
+  for (const s of storyboards.value) {
+    s.userLockedSubtitle = !!s.userLockedSubtitle
+    s.userLockedTts = !!s.userLockedTts
+  }
+}
+
+const textSaveLoadingId = ref<string | number | null>(null)
+async function saveShotTextFields(shot: any) {
+  if (!shot?.id || textSaveLoadingId.value === shot.id) return
+  textSaveLoadingId.value = shot.id
+  try {
+    await storyboardApi.update(shot.id, {
+      subtitleText: shot.subtitleText ?? '',
+      ttsText: shot.ttsText ?? '',
+      userLockedSubtitle: !!shot.userLockedSubtitle,
+      userLockedTts: !!shot.userLockedTts,
+    })
+    const res = await storyboardApi.get(shot.id)
+    const u = res.data.data
+    if (u) {
+      shot.resolvedSubtitle = u.resolvedSubtitle
+      shot.resolvedTts = u.resolvedTts
+    }
+  } catch {
+    ElMessage.error('保存字幕/配音失败')
+  } finally {
+    if (textSaveLoadingId.value === shot.id) textSaveLoadingId.value = null
+  }
 }
 
 async function handleDynamicToggle(shot: any, dynamicSelected: boolean | string | number) {
@@ -576,6 +651,23 @@ onMounted(async () => {
   gap: 6px;
   align-items: flex-start;
 }
+
+.shot-text-panel {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed #e2e8f0;
+}
+.text-field { margin-bottom: 10px; }
+.text-field-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+.text-resolved { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+.duration-warn { font-size: 12px; color: #b45309; margin-top: 8px; }
 
 .shot-status {
   margin-top: 12px;

@@ -57,7 +57,7 @@ public class OpenAiTtsProvider implements TtsProvider {
                              String instruction,
                              String languageType) {
         String endpoint = normalizeBaseUrl(baseUrl) + "/audio/speech";
-        log.debug("Start OpenAI-compatible TTS synthesize: provider={}, model={}, voiceId={}, textLength={}, speed={}, pitch={}, hasInstruction={}, languageType={}",
+        log.debug("开始 OpenAI 兼容 TTS 合成: provider={}, model={}, voiceId={}, textLength={}, speed={}, pitch={}, hasInstruction={}, languageType={}",
             providerName,
             model,
             voiceId != null && !voiceId.isBlank() ? voiceId : "alloy",
@@ -98,11 +98,11 @@ public class OpenAiTtsProvider implements TtsProvider {
                 String errorBody = new String(responseBytes);
                 responseBody = errorBody;
                 error = "TTS API returned status " + response.statusCode() + ": " + errorBody;
-                log.error("TTS API error (status {}): {}", response.statusCode(), errorBody);
+                log.error("语音合成接口异常: 状态码={}, 响应体={}", response.statusCode(), errorBody);
                 throw new RuntimeException(error);
             }
 
-                log.debug("OpenAI-compatible TTS synthesize success: provider={}, voice={}, textLength={}, audioSize={} bytes",
+                log.debug("兼容 TTS 合成成功: provider={}, voice={}, textLength={}, audioSize={} 字节",
                     providerName,
                     voice, text.length(), responseBytes.length);
             return responseBytes;
@@ -110,7 +110,7 @@ public class OpenAiTtsProvider implements TtsProvider {
             if (!AiTraceSupport.hasText(error)) {
                 error = e.getMessage();
             }
-            log.error("OpenAI TTS API call failed", e);
+            log.error("兼容 TTS 接口调用失败", e);
             throw new RuntimeException("TTS synthesis failed: " + e.getMessage(), e);
         } finally {
             AiTraceSupport.record(
@@ -154,7 +154,7 @@ public class OpenAiTtsProvider implements TtsProvider {
                 new VoiceInfo("zh_female_tianmei", "甜美女声", "female", "zh-CN", "甜美可爱的女声（火山引擎/MiniMax）"),
                 new VoiceInfo("zh_male_mochen", "磁性男声", "male", "zh-CN", "磁性深沉的男声（火山引擎/MiniMax）")
         );
-        log.debug("OpenAI-compatible TTS voices loaded: provider={}, count={}", providerName, voices.size());
+        log.debug("兼容 TTS 音色加载完成: provider={}, count={}", providerName, voices.size());
         return voices;
     }
 }

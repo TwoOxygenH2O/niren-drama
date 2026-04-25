@@ -46,6 +46,16 @@ request.interceptors.response.use(
       const userStore = useUserStore()
       userStore.logout()
       window.location.href = '/login'
+    } else if (error.response?.status === 403) {
+      const userStore = useUserStore()
+      const payload = error.response?.data
+      const message = normalizeApiErrorMessage(payload?.message || error.message, requestUrl)
+      ElMessage.error(message || '无权限访问')
+      userStore.logout()
+      window.location.href = '/login'
+      if (payload?.message) {
+        return Promise.reject(createBusinessError({ ...payload, message }, requestUrl))
+      }
     } else {
       const payload = error.response?.data
       const message = normalizeApiErrorMessage(payload?.message || error.message, requestUrl)
