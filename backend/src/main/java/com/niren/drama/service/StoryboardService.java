@@ -117,6 +117,14 @@ public class StoryboardService {
     /** Enable image reuse for same scene+character+angle combinations */
     @Value("${niren.cost.image-reuse-enabled:true}")
     private boolean imageReuseEnabled;
+    @Value("${niren.recommend.dynamic.enabled:true}")
+    private boolean dynamicRecommendEnabled;
+    @Value("${niren.recommend.dynamic.max-ratio-per-episode:0.2}")
+    private double dynamicRecommendMaxRatioPerEpisode;
+    @Value("${niren.recommend.dynamic.max-count-per-episode:10}")
+    private int dynamicRecommendMaxCountPerEpisode;
+    @Value("${niren.recommend.dynamic.min-score-to-recommend:60}")
+    private int dynamicRecommendMinScoreToRecommend;
     @Value("${niren.image.retry.max-attempts:3}")
     private int imageRetryMaxAttempts;
     @Value("${niren.image.retry.backoff-ms:900}")
@@ -1430,6 +1438,8 @@ if (isStream) {
                 .eq(Storyboard::getProjectId, projectId)
                 .orderByAsc(Storyboard::getEpisodeNo)
                 .orderByAsc(Storyboard::getShotNo));
+        Project project = resolveProjectById(projectId);
+        recomputeDynamicRecommendations(list, project);
         enrichResolvedStoryboardFields(list);
         return list;
     }
@@ -1438,6 +1448,10 @@ if (isStream) {
         List<Storyboard> list = storyboardMapper.selectList(new LambdaQueryWrapper<Storyboard>()
                 .eq(Storyboard::getScriptId, scriptId)
                 .orderByAsc(Storyboard::getShotNo));
+        if (!list.isEmpty()) {
+            Project project = resolveProjectById(list.get(0).getProjectId());
+            recomputeDynamicRecommendations(list, project);
+        }
         enrichResolvedStoryboardFields(list);
         return list;
     }
@@ -1902,9 +1916,9 @@ if (isStream) {
     }
 
     private void applyDynamicRecommendation(Storyboard shot, JsonNode shotNode, Project project) {
-        boolean aiDynamic = shotNode.path("isDynamic").asBoolean(false);
-        String aiReason = textOrNull(shotNode, "dynamicReason");
-        String motionLevel = normalizeMotionLevel(textOrNull(shotNode, "motionLevel"));
+        boolean aiDynamic = shotNode != null && shotNode.path("isDynamic").asBoolean(false);
+        String aiReason = shotNode != null ? textOrNull(shotNode, "dynamicReason") : null;
+        String motionLevel = normalizeMotionLevel(shotNode != null ? textOrNull(shotNode, "motionLevel") : null);
         int score = 0;
         LinkedHashSet<String> reasons = new LinkedHashSet<>();
 
@@ -1924,6 +1938,11 @@ if (isStream) {
             score += 26;
             reasons.add("画面存在动作变化，适合加入动态表现");
         }
+        if (containsKeyword(description, new String[]{"突然", "猛地", "反手", "爆发", "撕扯", "冲上前"})
+                || containsKeyword(dialogue, new String[]{"你敢", "闭嘴", "住手", "不可能", "你输了", "给我停下"})) {
+            score += 16;
+            reasons.add("冲突情绪明显，动态镜头更能放大戏剧张力");
+        }
 
         if (containsKeyword(description, TRANSITION_KEYWORDS)
                 || containsKeyword(narration, TRANSITION_KEYWORDS)) {
@@ -1936,11 +1955,16 @@ if (isStream) {
             reasons.add("镜头语言更适合做运动或推进");
         }
 
-        if (shot.getDuration() != null && shot.getDuration() >= 6) {
-            score += 8;
+        if (shot.getDuration() != null && shot.getDuration() >= 4) {
+            score += 6;
+            reasons.add("镜头接近时长上限，适合加入轻动态避免画面停滞");
         }
 
-        if (hasText(dialogue) && !containsKeyword(description, ACTION_KEYWORDS) && !containsKeyword(narration, ACTION_KEYWORDS)) {
+        boolean highEmotionDialogue = containsKeyword(dialogue, new String[]{"！", "?", "？", "滚", "杀", "不行", "别碰", "马上"});
+        if (hasText(dialogue)
+                && !containsKeyword(description, ACTION_KEYWORDS)
+                && !containsKeyword(narration, ACTION_KEYWORDS)
+                && !highEmotionDialogue) {
             score -= 14;
             reasons.add("该镜头更偏静态对白，保留图片即可");
         }
@@ -1956,7 +1980,7 @@ if (isStream) {
         }
 
         score = Math.max(0, Math.min(score, 100));
-        boolean recommended = score >= 55;
+        boolean recommended = score >= dynamicRecommendMinScoreToRecommend;
 
         if (!hasText(shot.getVideoPrompt())) {
             shot.setVideoPrompt(buildVideoPrompt(shot, motionLevel, project));
@@ -1968,6 +1992,50 @@ if (isStream) {
         shot.setDynamicScore(score);
         shot.setDynamicReason(buildDynamicReason(reasons, recommended));
         shot.setRenderMode("image");
+    }
+
+    private void recomputeDynamicRecommendations(List<Storyboard> shots, Project project) {
+        if (!dynamicRecommendEnabled || shots == null || shots.isEmpty()) {
+            return;
+        }
+        for (Storyboard shot : shots) {
+            applyDynamicRecommendation(shot, null, project);
+        }
+        Map<Integer, List<Storyboard>> byEpisode = new HashMap<>();
+        for (Storyboard shot : shots) {
+            Integer ep = shot.getEpisodeNo() != null ? shot.getEpisodeNo() : 1;
+            byEpisode.computeIfAbsent(ep, k -> new ArrayList<>()).add(shot);
+        }
+        for (Map.Entry<Integer, List<Storyboard>> entry : byEpisode.entrySet()) {
+            Integer ep = entry.getKey();
+            List<Storyboard> episodeShots = entry.getValue();
+            int total = episodeShots.size();
+            int maxByRatio = (int) Math.ceil(total * Math.max(0.05d, dynamicRecommendMaxRatioPerEpisode));
+            int allowed = Math.max(1, Math.min(Math.max(1, dynamicRecommendMaxCountPerEpisode), maxByRatio));
+            List<Storyboard> candidates = episodeShots.stream()
+                    .filter(shot -> (shot.getDynamicScore() != null ? shot.getDynamicScore() : 0) >= dynamicRecommendMinScoreToRecommend)
+                    .sorted((a, b) -> Integer.compare(
+                            b.getDynamicScore() != null ? b.getDynamicScore() : 0,
+                            a.getDynamicScore() != null ? a.getDynamicScore() : 0))
+                    .toList();
+            int kept = 0;
+            for (Storyboard shot : episodeShots) {
+                shot.setDynamicRecommended(false);
+            }
+            for (Storyboard shot : candidates) {
+                if (kept >= allowed) {
+                    break;
+                }
+                shot.setDynamicRecommended(true);
+                kept++;
+            }
+            int trimmed = Math.max(0, candidates.size() - kept);
+            int avgScore = candidates.isEmpty()
+                    ? 0
+                    : (int) Math.round(candidates.stream().mapToInt(s -> s.getDynamicScore() != null ? s.getDynamicScore() : 0).average().orElse(0));
+            log.debug("动态推荐统计: episodeNo={}, totalShots={}, candidateCount={}, kept={}, trimmed={}, avgScore={}",
+                    ep, total, candidates.size(), kept, trimmed, avgScore);
+        }
     }
 
     private String resolveMotionLevel(String aiMotionLevel, int score) {

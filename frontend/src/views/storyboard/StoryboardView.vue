@@ -39,6 +39,28 @@
       </div>
 
       <div class="recommend-actions">
+        <el-input-number
+          v-model="recommendFilter.minScore"
+          :min="0"
+          :max="100"
+          :step="5"
+          size="small"
+          controls-position="right"
+          placeholder="最低分"
+        />
+        <el-input-number
+          v-model="recommendFilter.maxApply"
+          :min="1"
+          :max="200"
+          size="small"
+          controls-position="right"
+          placeholder="最多应用"
+        />
+        <el-switch
+          v-model="recommendFilter.onlyCurrentEpisode"
+          size="small"
+          active-text="仅当前剧本"
+        />
         <el-button size="small" @click="applyRecommendations" :loading="selectionLoading" :disabled="recommendedCount === 0">
           应用推荐
         </el-button>
@@ -249,6 +271,11 @@ const recommendedCount = computed(() => storyboards.value.filter((shot) => !!sho
 const selectedCount = computed(() => storyboards.value.filter((shot) => !!shot.dynamicSelected).length)
 const selectedScript = computed(() => scripts.value.find((script) => String(script.id) === String(genForm.value.scriptId)))
 const selectedScriptLabel = computed(() => selectedScript.value?.title || (selectedScript.value ? `第${selectedScript.value.episodeNo}集` : '未选择剧本'))
+const recommendFilter = ref({
+  minScore: 60,
+  maxApply: 10,
+  onlyCurrentEpisode: false,
+})
 const canRepairStoryboardPreview = computed(() => {
   const errorData = previewDialog.value.errorData
   const hasLegacyParseError = previewDialog.value.error.includes('分镜预览解析失败')
@@ -435,7 +462,16 @@ async function handleDynamicToggle(shot: any, dynamicSelected: boolean | string 
 }
 
 async function applyRecommendations() {
-  const targets = storyboards.value.filter((shot) => !!shot.dynamicRecommended && !shot.dynamicSelected)
+  const currentEpisodeNo = selectedScript.value?.episodeNo
+  const filtered = storyboards.value.filter((shot) => {
+    if (!shot.dynamicRecommended || shot.dynamicSelected) return false
+    if ((shot.dynamicScore || 0) < recommendFilter.value.minScore) return false
+    if (recommendFilter.value.onlyCurrentEpisode && currentEpisodeNo != null && shot.episodeNo !== currentEpisodeNo) return false
+    return true
+  })
+  const targets = filtered
+    .sort((a, b) => (b.dynamicScore || 0) - (a.dynamicScore || 0))
+    .slice(0, Math.max(1, recommendFilter.value.maxApply))
   if (!targets.length) {
     return
   }

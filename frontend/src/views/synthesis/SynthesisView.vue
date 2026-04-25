@@ -145,6 +145,23 @@
         :stroke-width="10"
       />
       <div class="task-message">{{ currentTask.message }}</div>
+      <div v-if="hasTaskDiagnostics" class="task-diagnostics">
+        <div v-if="currentTask.totalElapsedMs != null">
+          总耗时：{{ formatMs(currentTask.totalElapsedMs) }}
+        </div>
+        <div v-if="currentTask.externalApiCallCount != null">
+          外部调用：{{ currentTask.externalApiCallCount }} 次
+          <span v-if="currentTask.externalApiErrorRatio != null">
+            ，错误占比 {{ formatRatio(currentTask.externalApiErrorRatio) }}
+          </span>
+        </div>
+        <div v-if="failureDistributionText">
+          失败类型分布：{{ failureDistributionText }}
+        </div>
+        <div v-if="stepDurationText">
+          步骤耗时：{{ stepDurationText }}
+        </div>
+      </div>
       <div v-if="taskTrace" class="task-trace-panel">
         <div class="task-trace-header">
           <div>
@@ -420,6 +437,26 @@ const selectedShotIds = computed(() => {
 })
 
 const taskTrace = computed(() => parseTaskTrace(currentTask.value?.result))
+const hasTaskDiagnostics = computed(() => {
+  const task = currentTask.value || {}
+  return task.totalElapsedMs != null
+    || task.externalApiCallCount != null
+    || task.externalApiErrorRatio != null
+    || (task.failureTypeDistribution && Object.keys(task.failureTypeDistribution).length > 0)
+    || (task.stepDurationMs && Object.keys(task.stepDurationMs).length > 0)
+})
+const failureDistributionText = computed(() => {
+  const dist = currentTask.value?.failureTypeDistribution
+  if (!dist || typeof dist !== 'object') return ''
+  return Object.entries(dist).map(([k, v]) => `${k}:${v}`).join('，')
+})
+const stepDurationText = computed(() => {
+  const steps = currentTask.value?.stepDurationMs
+  if (!steps || typeof steps !== 'object') return ''
+  return Object.entries(steps)
+    .map(([k, v]) => `${k}:${formatMs(Number(v || 0))}`)
+    .join('，')
+})
 const asyncTaskDetails = computed(() => {
   const items = taskTrace.value?.summary?.asyncTasks
   return Array.isArray(items) ? items : []
@@ -755,6 +792,21 @@ function normalizeTaskState(value: any) {
   return typeof value === 'string' ? value.trim().toLowerCase() : ''
 }
 
+function formatMs(value: number) {
+  if (!Number.isFinite(value) || value < 0) return '-'
+  if (value < 1000) return `${Math.round(value)}ms`
+  const seconds = value / 1000
+  if (seconds < 60) return `${seconds.toFixed(1)}s`
+  const mins = Math.floor(seconds / 60)
+  const rem = Math.round(seconds % 60)
+  return `${mins}m${rem}s`
+}
+
+function formatRatio(value: number) {
+  if (!Number.isFinite(value)) return '-'
+  return `${(Math.max(0, Math.min(1, value)) * 100).toFixed(1)}%`
+}
+
 function isTaskItemSuccess(item: any) {
   const state = normalizeTaskState(item?.taskStatus || item?.renderStatus)
   return ['success', 'succeeded', 'completed', 'done', 'finished', 'video_generated'].includes(state)
@@ -942,6 +994,17 @@ onUnmounted(() => {
   margin-top: 8px;
   font-size: 13px;
   color: var(--text-secondary);
+}
+.task-diagnostics {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  display: grid;
+  gap: 4px;
 }
 .task-trace-panel {
   margin-top: 16px;

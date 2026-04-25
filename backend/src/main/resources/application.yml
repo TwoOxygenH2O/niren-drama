@@ -95,6 +95,15 @@ niren:
     poll:
       base-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_BASE_SECONDS:5}
       max-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_MAX_SECONDS:30}
+  recommend:
+    dynamic:
+      enabled: ${NIREN_DYNAMIC_RECOMMEND_ENABLED:true}
+      # 目标动态配比：20/70≈0.286，默认取 0.29
+      max-ratio-per-episode: ${NIREN_DYNAMIC_RECOMMEND_MAX_RATIO_PER_EPISODE:0.29}
+      # 每集最多推荐动态镜头数（与你当前目标一致）
+      max-count-per-episode: ${NIREN_DYNAMIC_RECOMMEND_MAX_COUNT_PER_EPISODE:20}
+      # 推荐最低分阈值：55 更容易凑齐20个；太高会推荐不足
+      min-score-to-recommend: ${NIREN_DYNAMIC_RECOMMEND_MIN_SCORE:55}
   ffmpeg:
     path: ${FFMPEG_PATH:D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffmpeg.exe}
     ffprobe-path: ${FFPROBE_PATH:D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffprobe.exe}
