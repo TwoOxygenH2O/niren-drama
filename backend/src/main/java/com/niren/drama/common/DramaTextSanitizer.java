@@ -29,6 +29,8 @@ public final class DramaTextSanitizer {
                 .replace("\\n", " ")
                 .replace("\\r", " ")
                 .replaceAll("\\s+", " ")
+                // 中文相邻字符之间不保留空格，避免出现“母亲。 女儿”这类不自然显示
+                .replaceAll("(?<=[\\p{IsHan}])\\s+(?=[\\p{IsHan}])", "")
                 .trim();
         return s.isEmpty() ? null : s;
     }
@@ -188,6 +190,29 @@ public final class DramaTextSanitizer {
         return lines.isEmpty() ? null : String.join("\n", lines.subList(0, Math.min(3, lines.size())));
     }
 
+    /**
+     * 语义优先断句：优先按标点切分，再做宽度兜底换行。
+     */
+    public static String wrapSubtitleLinesSemantic(String text) {
+        String normalized = normalizeSpokenText(text);
+        if (StringUtils.isBlank(normalized)) {
+            return null;
+        }
+        String[] chunks = normalized.split("(?<=[，。！？；：,.!?;:])");
+        StringBuilder merged = new StringBuilder();
+        for (String chunk : chunks) {
+            String part = StringUtils.trimToEmpty(chunk);
+            if (part.isEmpty()) {
+                continue;
+            }
+            if (!merged.isEmpty()) {
+                merged.append("\n");
+            }
+            merged.append(part);
+        }
+        return wrapSubtitleLines(merged.isEmpty() ? normalized : merged.toString());
+    }
+
     public static String resolveEffectiveWrappedSubtitle(Storyboard shot,
                                                        boolean includeNarration,
                                                        boolean stripDialogue,
@@ -197,8 +222,8 @@ public final class DramaTextSanitizer {
         }
         if (StringUtils.isNotBlank(shot.getSubtitleText())) {
             String n = normalizeSpokenText(shot.getSubtitleText().trim());
-            return wrapSubtitleLines(n != null ? n : "");
+            return wrapSubtitleLinesSemantic(n != null ? n : "");
         }
-        return wrapSubtitleLines(deriveRawSubtitle(shot, includeNarration, stripDialogue, stripNarration));
+        return wrapSubtitleLinesSemantic(deriveRawSubtitle(shot, includeNarration, stripDialogue, stripNarration));
     }
 }

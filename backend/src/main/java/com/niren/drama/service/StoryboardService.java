@@ -26,7 +26,6 @@ import com.niren.drama.mapper.StoryboardMapper;
 import com.niren.drama.mapper.TaskRecordMapper;
 import com.niren.drama.ai.AiOutputTruncatedException;
 import com.niren.drama.ai.ChatMessage;
-import com.niren.drama.dto.storyboard.StoryboardPreviewRepairRequest;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.regex.Matcher;
@@ -42,9 +41,6 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -73,8 +69,6 @@ public class StoryboardService {
     private final ObjectMapper objectMapper;
     private final ObjectProvider<StoryboardService> selfProvider;
 
-    /** Portrait image size for vertical (9:16) storyboard images */
-    private static final String PORTRAIT_IMAGE_SIZE = "1024x1792";
     /** Image generation style */
     private static final String PORTRAIT_IMAGE_STYLE = "vivid";
         private static final String DEFAULT_IMAGE_NEGATIVE_PROMPT = String.join("，",
@@ -100,6 +94,12 @@ public class StoryboardService {
     private static final int STORYBOARD_SCENE_BATCH_TARGET_CHARS = 200;
     private static final int STORYBOARD_SCENE_BATCH_MIN_CHARS = 50;
     private static final int STORYBOARD_SCENE_BATCH_MAX_LINES = 4;
+    private static final int IMAGE_PROMPT_MAX_CHARS = 620;
+    private static final int IMAGE_NEGATIVE_MAX_CHARS = 220;
+    private static final int VIDEO_PROMPT_MAX_CHARS = 360;
+    private static final int TTS_INSTRUCTION_MAX_CHARS = 280;
+    private static final int TASK_RESULT_MAX_CHARS = 15000;
+    private static final int TASK_RESULT_MAX_CALLS = 8;
 
     @Value("${niren.drama.line-doctor.enabled:false}")
     private boolean lineDoctorEnabled;
@@ -117,6 +117,12 @@ public class StoryboardService {
     /** Enable image reuse for same scene+character+angle combinations */
     @Value("${niren.cost.image-reuse-enabled:true}")
     private boolean imageReuseEnabled;
+    @Value("${niren.image.retry.max-attempts:3}")
+    private int imageRetryMaxAttempts;
+    @Value("${niren.image.retry.backoff-ms:900}")
+    private long imageRetryBackoffMs;
+    @Value("${niren.image.retry.concurrency-throttle-ms:120}")
+    private long imageRetryThrottleMs;
 
     public TaskRecord startGenerateStoryboard(Long userId, StoryboardGenerateRequest request) {
         log.debug("创建分镜任务: userId={}, projectId={}, scriptId={}",
@@ -656,6 +662,10 @@ if (isStream) {
                 8. dialogue 只写口播，短句、口语化；不要写“角色名：”前缀，用 characterName 标说话人；无口播可留空。
                 9. 若本段有两人交锋，请拆成多个镜头用短句形成一来一回，不要写成长段说明文。
                 10. 台词风格示例（仅示意语气，勿照抄）：「你再说一遍试试？」「试就试，你以为我不敢？」
+                11. 返回前执行自检，不满足则重写：
+                    - duration 必须 1-5 秒；
+                    - subtitleText 若有值不得含角色名/情绪头；
+                    - narration 仅 VO/OS 且不与 dialogue 同句重复。
                 """,
                 projectType,
                 genre,
@@ -696,6 +706,7 @@ if (isStream) {
         generateRequest.setScriptId(request.getScriptId());
 
         List<Storyboard> shots = parseStoryboardJson(request.getContent(), generateRequest, true);
+        validateStoryboardShotsSoft(shots, "preview-save");
     log.debug("分镜预览解析完成: projectId={}, scriptId={}, shotCount={}",
         request.getProjectId(), request.getScriptId(), shots.size());
         storyboardMapper.delete(new LambdaQueryWrapper<Storyboard>()
@@ -852,12 +863,13 @@ if (isStream) {
                     } else {
                         // Use smart resolution based on camera angle
                         String imageSize = costEstimationService.getOptimalImageSize(shot.getCameraAngle());
-                        String imageUrl = imageProvider.generateImage(
-                            generationPrompt,
+                        String imageUrl = generateImageWithRetry(
+                                imageProvider,
+                                generationPrompt,
                                 imageSize,
-                                PORTRAIT_IMAGE_STYLE,
-                            referenceImageUrls,
-                            negativePrompt);
+                                referenceImageUrls,
+                                negativePrompt,
+                                shot);
                         if (imageUrl == null || imageUrl.isBlank()) {
                             throw new BusinessException("图片接口未返回有效图片地址");
                         }
@@ -906,13 +918,13 @@ if (isStream) {
                     task.setMessage(String.format("分镜图片生成完成，共处理%d个镜头，新增%d张，复用%d张，覆盖%d张", total, generated, reused, replacedExisting));
                 }
             }
-            task.setResult(buildTaskTraceResult("image", projectId, traceCalls, omittedTraceCalls,
+            task.setResult(safeTaskResult(buildTaskTraceResult("image", projectId, traceCalls, omittedTraceCalls,
                     Map.of(
                             "total", total,
                             "generated", generated,
                             "reused", reused,
                             "replacedExisting", replacedExisting,
-                            "failed", failed)));
+                            "failed", failed))));
             taskRecordMapper.updateById(task);
                 log.debug("分镜图片生成完成: taskId={}, projectId={}, total={}, generated={}, reused={}, replacedExisting={}, failed={}",
                     taskId, projectId, total, generated, reused, replacedExisting, failed);
@@ -921,8 +933,8 @@ if (isStream) {
             log.error("分镜图片生成失败: taskId={}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("分镜图片生成失败: " + e.getMessage());
-            task.setResult(buildTaskTraceResult("image", projectId, traceCalls, omittedTraceCalls,
-                    Map.of("error", e.getMessage())));
+            task.setResult(safeTaskResult(buildTaskTraceResult("image", projectId, traceCalls, omittedTraceCalls,
+                    Map.of("error", e.getMessage()))));
             taskRecordMapper.updateById(task);
         }
     }
@@ -960,10 +972,6 @@ if (isStream) {
                 angle != null ? angle : "medium");
     }
 
-    private List<String> collectReferenceImageUrls(Storyboard shot) {
-        return collectReferenceImageUrls(shot, null);
-    }
-
     private List<String> collectReferenceImageUrls(Storyboard shot, Character resolvedCharacter) {
         Set<String> referenceImageUrls = new LinkedHashSet<>();
         Character character = resolvedCharacter != null ? resolvedCharacter : resolveShotCharacter(shot);
@@ -994,21 +1002,6 @@ if (isStream) {
                 && (imageUrl.startsWith("http://") || imageUrl.startsWith("https://"))) {
             referenceImageUrls.add(imageUrl);
         }
-    }
-
-    /**
-     * Pre-populate image cache from existing shots that already have images.
-     */
-    private void buildImageCache(Map<String, String> cache, List<Storyboard> shots) {
-        for (Storyboard shot : shots) {
-            if (shot.getImageUrl() != null && !shot.getImageUrl().isBlank()) {
-                String key = buildImageCacheKey(shot);
-                if (key != null) {
-                    cache.put(key, shot.getImageUrl());
-                }
-            }
-        }
-        log.debug("分镜图片缓存初始化完成: entries={}", cache.size());
     }
 
     /**
@@ -1136,13 +1129,13 @@ if (isStream) {
                     task.setMessage(String.format("分镜配音处理完成：新增%d个，覆盖%d个，无文本%d个", generated, replacedExisting, skippedNoText));
                 }
             }
-            task.setResult(buildTaskTraceResult("audio", projectId, traceCalls, omittedTraceCalls,
+            task.setResult(safeTaskResult(buildTaskTraceResult("audio", projectId, traceCalls, omittedTraceCalls,
                     Map.of(
                             "total", total,
                             "generated", generated,
                             "replacedExisting", replacedExisting,
                             "skippedNoText", skippedNoText,
-                            "failed", failed)));
+                            "failed", failed))));
             taskRecordMapper.updateById(task);
             log.debug("分镜音频生成完成: taskId={}, projectId={}, total={}, generated={}, replacedExisting={}, skippedNoText={}, failed={}",
                     taskId, projectId, total, generated, replacedExisting, skippedNoText, failed);
@@ -1151,8 +1144,8 @@ if (isStream) {
             log.error("分镜音频生成失败: taskId={}", taskId, e);
             task.setStatus("FAILED");
             task.setMessage("分镜配音生成失败: " + e.getMessage());
-            task.setResult(buildTaskTraceResult("tts", projectId, traceCalls, omittedTraceCalls,
-                    Map.of("error", e.getMessage())));
+            task.setResult(safeTaskResult(buildTaskTraceResult("tts", projectId, traceCalls, omittedTraceCalls,
+                    Map.of("error", e.getMessage()))));
             taskRecordMapper.updateById(task);
         }
     }
@@ -1399,9 +1392,11 @@ if (isStream) {
         }
         directives.add("避免机械朗读、避免夸张做作，保证情绪自然递进");
 
-        String instruction = String.join("；", directives);
-        if (instruction.length() > 280) {
-            return instruction.substring(0, 280);
+        String instruction = String.join("；", directives.stream()
+                .map(item -> trimPromptSegment(item, 80))
+                .toList());
+        if (instruction.length() > TTS_INSTRUCTION_MAX_CHARS) {
+            return instruction.substring(0, TTS_INSTRUCTION_MAX_CHARS);
         }
         return instruction;
     }
@@ -1559,15 +1554,94 @@ if (isStream) {
             ObjectNode root = objectMapper.createObjectNode();
             root.put("mediaType", mediaType);
             root.put("projectId", projectId);
-            root.put("storedCalls", calls.size());
+            ArrayNode storedCalls = objectMapper.createArrayNode();
+            int copied = 0;
+            for (JsonNode call : calls) {
+                if (copied >= TASK_RESULT_MAX_CALLS) {
+                    omittedTraceCalls++;
+                    continue;
+                }
+                storedCalls.add(call);
+                copied++;
+            }
+            root.put("storedCalls", storedCalls.size());
             root.put("omittedCalls", omittedTraceCalls);
             root.set("summary", objectMapper.valueToTree(summary));
-            root.set("calls", calls);
+            root.set("calls", storedCalls);
             return objectMapper.writeValueAsString(root);
         } catch (Exception e) {
             log.warn("序列化 AI 任务追踪结果失败", e);
             return null;
         }
+    }
+
+    private String safeTaskResult(String payload) {
+        if (!hasText(payload)) {
+            return payload;
+        }
+        if (payload.length() <= TASK_RESULT_MAX_CHARS) {
+            return payload;
+        }
+        return payload.substring(0, TASK_RESULT_MAX_CHARS) + "...(truncated)";
+    }
+
+    private String generateImageWithRetry(ImageAiProvider imageProvider,
+                                          String generationPrompt,
+                                          String imageSize,
+                                          List<String> referenceImageUrls,
+                                          String negativePrompt,
+                                          Storyboard shot) {
+        RuntimeException lastException = null;
+        int maxAttempts = Math.max(1, imageRetryMaxAttempts);
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                if (imageRetryThrottleMs > 0L) {
+                    Thread.sleep(imageRetryThrottleMs);
+                }
+                return imageProvider.generateImage(
+                        generationPrompt,
+                        imageSize,
+                        PORTRAIT_IMAGE_STYLE,
+                        referenceImageUrls,
+                        negativePrompt);
+            } catch (RuntimeException e) {
+                lastException = e;
+                if (!isRetryableImageError(e) || attempt >= maxAttempts) {
+                    break;
+                }
+                long backoff = Math.max(100L, imageRetryBackoffMs) * (1L << (attempt - 1));
+                log.warn("分镜图片生成重试: shotNo={}, attempt={}/{}, reason={}, backoffMs={}",
+                        shot != null ? shot.getShotNo() : null, attempt, maxAttempts, e.getMessage(), backoff);
+                try {
+                    Thread.sleep(backoff);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("图片生成重试被中断", ie);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("图片生成节流等待被中断", e);
+            }
+        }
+        if (lastException != null) {
+            throw lastException;
+        }
+        throw new RuntimeException("图片生成失败：未知错误");
+    }
+
+    private boolean isRetryableImageError(Throwable throwable) {
+        if (throwable == null) {
+            return false;
+        }
+        String msg = lower(throwable.getMessage());
+        return msg.contains("502")
+                || msg.contains("503")
+                || msg.contains("504")
+                || msg.contains("timeout")
+                || msg.contains("timed out")
+                || msg.contains("connection reset")
+                || msg.contains("stream disconnected")
+                || msg.contains("internal_server_error");
     }
 
     private String buildStoryboardSystemPrompt(Project project) {
@@ -1591,6 +1665,9 @@ if (isStream) {
                 %s
 
                 # 分集/整场节奏（与剧本大纲一致，拆镜时遵守镜头预算）
+                %s
+
+                # 禁用词与替代示例
                 %s
                 
                 # 分镜拆解规范
@@ -1622,10 +1699,14 @@ if (isStream) {
                 8. videoPrompt 只描述基于关键帧的动作和镜头运动，不重复画面基础描述
                 9. 如果镜头更适合静态图，isDynamic 必须为 false，并给出 dynamicReason
                 10. 集末镜头组要形成明确悬念或情绪收束，服务下一集衔接
+                11. 若 subtitleText 为空，必须保证 dialogue/narration 至少一个可用于派生；不得三者全空
+                12. 若 ttsText 包含角色或情绪标签，必须放在可剥离前缀里（如【角色|情绪】），正文保持可直接朗读
                 
                 # imagePrompt 模板
                 每个 imagePrompt 应包含以下要素：
                 "竖版9:16构图，[镜头类型]，[人物主体描述含外貌服装表情动作]，[场景环境描述]，[光影氛围]，电影级质感，高清4K，[风格关键词如：戏剧性光影/高饱和度/冷色调/暖色调]"
+
+                %s
                 
                 返回格式：{"shots": [...]}
                 """.formatted(
@@ -1633,26 +1714,9 @@ if (isStream) {
                 ProjectStyleSupport.buildTextCreationRules(projectType, genre),
                 ProjectStyleSupport.buildVisualCreationRules(projectType, genre),
                 ProjectStyleSupport.buildAudioPerformanceRules(projectType, genre),
-                ProjectStyleSupport.buildShortDramaBeatBlock());
-    }
-
-    private String buildStoryboardUserPrompt(String scriptContent) {
-        return String.format("""
-                请将以下短剧剧本精准拆解为分镜脚本，以JSON格式返回。
-                
-                ## 拆解要求
-                1. 严格按剧本场景顺序拆解，不遗漏任何场景和对白
-                2. 每个场景拆为3-8个镜头（根据场景重要性调整）
-                3. 爽点场景加密镜头（快切+特写），平叙场景精简镜头
-                4. imagePrompt 需详细到可以直接用于AI生图，包含人物外貌、表情、场景、光影
-                5. 保持角色外貌描述一致性：同一角色在不同镜头的外貌描述必须统一
-                6. 这是保底级付费短剧分镜,红果短剧、抖音短剧标准，爽点密集，适合平台保底S+评级
-                
-                ## 剧本内容
-                %s
-                
-                注意：画面描述需要足够详细，便于AI高质量生图。每个imagePrompt至少50字。
-                """, scriptContent);
+                ProjectStyleSupport.buildShortDramaBeatBlock(),
+                ProjectStyleSupport.buildNovelToneBlacklistFewShot(),
+                ProjectStyleSupport.buildStoryboardSelfCheckBlock());
     }
 
     private String normalizeStoryboardPreviewContent(String content) {
@@ -1748,6 +1812,7 @@ if (isStream) {
                 }
                 shots.add(shot);
             }
+            validateStoryboardShotsSoft(shots, strict ? "parse-strict" : "parse-loose");
         } catch (Exception e) {
             if (strict) {
                 throw new BusinessException("分镜预览解析失败，请检查 JSON 结构和字段名称");
@@ -1776,6 +1841,42 @@ if (isStream) {
         return shots;
     }
 
+    private void validateStoryboardShotsSoft(List<Storyboard> shots, String source) {
+        if (shots == null || shots.isEmpty()) {
+            return;
+        }
+        int overDuration = 0;
+        int novelTone = 0;
+        int narrationCount = 0;
+        int badSubtitle = 0;
+        int noDerive = 0;
+        for (Storyboard shot : shots) {
+            if (shot.getDuration() != null && shot.getDuration() > 5) {
+                overDuration++;
+            }
+            if (hasText(shot.getNarration())) {
+                narrationCount++;
+            }
+            String dialogue = lower(shot.getDialogue());
+            if (containsKeyword(dialogue, new String[]{"冷冷地看着", "心里一沉", "开口说道", "在心里", "空气仿佛"})) {
+                novelTone++;
+            }
+            if (hasText(shot.getSubtitleText()) && shot.getSubtitleText().matches(".*[：:].*")) {
+                badSubtitle++;
+            }
+            if (!hasText(shot.getSubtitleText()) && !hasText(shot.getDialogue()) && !hasText(shot.getNarration())) {
+                noDerive++;
+            }
+        }
+        int total = shots.size();
+        if (overDuration > 0 || novelTone > 0 || badSubtitle > 0 || noDerive > 0) {
+            log.warn("分镜软校验: source={}, total={}, overDuration={}, novelTone={}, badSubtitle={}, noDerive={}, narrationRatio={}/{}",
+                    source, total, overDuration, novelTone, badSubtitle, noDerive, narrationCount, total);
+        } else {
+            log.debug("分镜软校验通过: source={}, total={}, narrationRatio={}/{}", source, total, narrationCount, total);
+        }
+    }
+
     private Script requireScript(Long scriptId, Long projectId) {
         Script script = scriptMapper.selectById(scriptId);
         if (script == null) {
@@ -1785,14 +1886,6 @@ if (isStream) {
             throw new BusinessException("剧本与项目不匹配");
         }
         return script;
-    }
-
-    private String buildImagePrompt(Storyboard shot) {
-        return buildImagePrompt(shot, resolveShotCharacter(shot), resolveProjectById(shot != null ? shot.getProjectId() : null));
-    }
-
-    private String buildImagePrompt(Storyboard shot, Character character) {
-        return buildImagePrompt(shot, character, resolveProjectById(shot != null ? shot.getProjectId() : null));
     }
 
     private String buildImagePrompt(Storyboard shot, Character character, Project project) {
@@ -1899,10 +1992,6 @@ if (isStream) {
         return String.join("；", topReasons);
     }
 
-    private String buildVideoPrompt(Storyboard shot, String motionLevel) {
-        return buildVideoPrompt(shot, motionLevel, resolveProjectById(shot != null ? shot.getProjectId() : null));
-    }
-
     private String buildVideoPrompt(Storyboard shot, String motionLevel, Project project) {
         String motionInstruction = switch (normalizeMotionLevel(motionLevel)) {
             case "high" -> "镜头快速推进，人物动作幅度大且连贯，情绪变化强烈，画面张力十足";
@@ -1910,14 +1999,14 @@ if (isStream) {
             default -> "保持关键帧主体不变，仅做极轻微的镜头缓推和自然微动（呼吸感/发丝飘动/光影变化）";
         };
 
-        String sceneContext = hasText(shot.getDescription()) ? shot.getDescription() : "保持剧情镜头连续性";
+        String sceneContext = hasText(shot.getDescription()) ? trimPromptSegment(shot.getDescription(), 90) : "保持剧情镜头连续性";
         String projectVisualGuide = compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project)));
-        return String.format(
+        return clampPromptLength(String.format(
                 "基于该关键帧生成%ds竖屏9:16动态镜头。%s。项目视觉约束：%s。画面主体保持一致，避免角色面部和场景漂移变形。场景：%s。确保动态自然流畅，符合短剧叙事节奏。",
                 shot.getDuration() != null ? shot.getDuration() : 5,
                 motionInstruction,
                 projectVisualGuide,
-                sceneContext);
+                sceneContext), VIDEO_PROMPT_MAX_CHARS);
     }
 
     private String normalizeMotionLevel(String motionLevel) {
@@ -2067,11 +2156,12 @@ if (isStream) {
     }
 
     private String buildImageGenerationPrompt(String originalPrompt, Character character, List<String> referenceImageUrls, Project project) {
+        String promptCore = trimPromptSegment(originalPrompt, 260);
         if (character == null) {
-            return "项目视觉约束："
+            return clampPromptLength("项目视觉约束："
                     + compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project)))
                     + "。当前镜头要求："
-                    + originalPrompt;
+                    + promptCore, IMAGE_PROMPT_MAX_CHARS);
         }
         StringBuilder builder = new StringBuilder();
         builder.append("项目视觉约束：")
@@ -2100,8 +2190,8 @@ if (isStream) {
             builder.append("已提供该角色参考图，必须严格保持与参考图为同一人物，不得改变年龄感、五官、发型和服装识别特征。");
         }
 
-        builder.append("当前镜头要求：").append(originalPrompt);
-        return builder.toString();
+        builder.append("当前镜头要求：").append(promptCore);
+        return clampPromptLength(builder.toString(), IMAGE_PROMPT_MAX_CHARS);
     }
 
     private boolean hasCharacterReferenceImage(Character character, List<String> referenceImageUrls) {
@@ -2137,7 +2227,29 @@ if (isStream) {
                 negativeTerms.add("年龄偏大");
             }
         }
-        return String.join("，", negativeTerms);
+        return clampPromptLength(String.join("，", negativeTerms), IMAGE_NEGATIVE_MAX_CHARS);
+    }
+
+    private String trimPromptSegment(String text, int maxLen) {
+        if (!hasText(text)) {
+            return "";
+        }
+        String compact = text.replaceAll("\\s+", " ").trim();
+        if (compact.length() <= maxLen) {
+            return compact;
+        }
+        return compact.substring(0, Math.max(32, maxLen - 1)) + "…";
+    }
+
+    private String clampPromptLength(String text, int maxLen) {
+        if (!hasText(text)) {
+            return "";
+        }
+        String compact = text.replaceAll("\\s+", " ").trim();
+        if (compact.length() <= maxLen) {
+            return compact;
+        }
+        return compact.substring(0, Math.max(40, maxLen - 1)) + "…";
     }
 
     private String resolveProjectType(Project project) {

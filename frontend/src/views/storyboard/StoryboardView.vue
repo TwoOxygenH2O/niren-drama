@@ -45,6 +45,12 @@
         <el-button size="small" @click="clearDynamicSelection" :loading="selectionLoading" :disabled="selectedCount === 0">
           清空动态选择
         </el-button>
+        <el-button size="small" @click="applyDerivedTexts" :loading="selectionLoading" :disabled="!storyboards.length">
+          一键应用派生文案
+        </el-button>
+        <el-button size="small" @click="clearTextOverrides" :loading="selectionLoading" :disabled="!storyboards.length">
+          一键清空覆盖恢复自动派生
+        </el-button>
         <el-button size="small" type="primary" @click="$router.push(`/projects/${route.params.id}/synthesis`)">
           前往合成导出 <el-icon class="ml-1"><ArrowRight /></el-icon>
         </el-button>
@@ -465,6 +471,46 @@ async function clearDynamicSelection() {
   } catch {
     await loadStoryboards()
     ElMessage.error('清空动态镜头选择失败')
+  } finally {
+    selectionLoading.value = false
+  }
+}
+
+async function applyDerivedTexts() {
+  if (!storyboards.value.length) return
+  selectionLoading.value = true
+  try {
+    await Promise.all(storyboards.value.map((shot) => storyboardApi.update(shot.id, {
+      subtitleText: shot.resolvedSubtitle || '',
+      ttsText: shot.resolvedTts || '',
+      userLockedSubtitle: true,
+      userLockedTts: true,
+    })))
+    await loadStoryboards()
+    ElMessage.success('已批量应用派生文案并锁定')
+  } catch {
+    await loadStoryboards()
+    ElMessage.error('批量应用派生文案失败')
+  } finally {
+    selectionLoading.value = false
+  }
+}
+
+async function clearTextOverrides() {
+  if (!storyboards.value.length) return
+  selectionLoading.value = true
+  try {
+    await Promise.all(storyboards.value.map((shot) => storyboardApi.update(shot.id, {
+      subtitleText: '',
+      ttsText: '',
+      userLockedSubtitle: false,
+      userLockedTts: false,
+    })))
+    await loadStoryboards()
+    ElMessage.success('已清空覆盖，恢复自动派生')
+  } catch {
+    await loadStoryboards()
+    ElMessage.error('批量清空覆盖失败')
   } finally {
     selectionLoading.value = false
   }

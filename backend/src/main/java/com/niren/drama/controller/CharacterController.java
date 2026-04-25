@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 
 
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "角色管理", description = "角色创建、编辑、AI生成角色图像")
 @RestController
@@ -66,6 +67,16 @@ public class CharacterController {
                                             @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = getUserId(userDetails);
         return Result.success(characterService.startGenerateCharacterImage(userId, id));
+    }
+
+    @Operation(summary = "角色TTS预听")
+    @PostMapping("/{id}/preview-tts")
+    public Result<Map<String, Object>> previewTts(@PathVariable Long id,
+                                                  @RequestBody(required = false) Map<String, String> body,
+                                                  @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        String text = body != null ? body.get("text") : null;
+        return Result.success(characterService.previewTts(userId, id, text));
     }
 
     private Long getUserId(UserDetails userDetails) {

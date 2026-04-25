@@ -10,6 +10,8 @@ export interface CharacterCreateParams {
   age?: string
   voiceId?: string
   voiceName?: string
+  speechRate?: number
+  ttsNote?: string
 }
 
 export const characterApi = {
@@ -30,4 +32,7 @@ export const characterApi = {
 
   generateImage: (id: number | string) =>
     request.post(`/characters/${id}/generate-image`),
+
+  previewTts: (id: number | string, text?: string) =>
+    request.post(`/characters/${id}/preview-tts`, { text }),
 }

@@ -86,6 +86,12 @@ public class SchemaMigrationRunner implements ApplicationRunner {
             "tts_note",
             "ALTER TABLE drama_character ADD COLUMN tts_note VARCHAR(500) COMMENT 'TTS导演补充（并入 instruction）' AFTER speech_rate"
         );
+        ensureColumnTypeContains(
+                "drama_task_record",
+                "result",
+                "longtext",
+                "ALTER TABLE drama_task_record MODIFY COLUMN result LONGTEXT COMMENT '任务结果（JSON）'"
+        );
     }
 
     private void ensureColumnExists(String tableName, String columnName, String ddl) {
@@ -117,6 +123,20 @@ public class SchemaMigrationRunner implements ApplicationRunner {
         }
 
         log.info("执行数据库迁移: 在 {} 新增索引 {}", tableName, indexName);
+        jdbcTemplate.execute(ddl);
+    }
+
+    private void ensureColumnTypeContains(String tableName, String columnName, String expectedTypeKeyword, String ddl) {
+        String dataType = jdbcTemplate.queryForObject(
+                "SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1",
+                String.class,
+                tableName,
+                columnName
+        );
+        if (dataType != null && dataType.toLowerCase().contains(expectedTypeKeyword.toLowerCase())) {
+            return;
+        }
+        log.info("执行数据库迁移: 修正字段类型 {}.{} -> {}", tableName, columnName, expectedTypeKeyword);
         jdbcTemplate.execute(ddl);
     }
 }

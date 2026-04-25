@@ -25,9 +25,19 @@
             <span v-if="char.speechRate" class="char-rate"> · 语速 {{ char.speechRate }}%</span>
           </div>
           <div v-if="char.ttsNote" class="char-tts-note">{{ char.ttsNote }}</div>
+          <audio
+            v-if="previewAudio.id === char.id && previewAudio.url"
+            :id="`preview-audio-${char.id}`"
+            :src="previewAudio.url"
+            controls
+            class="char-audio"
+          />
           <div class="char-actions">
             <el-button size="small" type="primary" :loading="generatingId === char.id" @click="generateImage(char)">
               AI生成图像
+            </el-button>
+            <el-button size="small" :loading="previewingId === char.id" @click="previewVoice(char)">
+              预听
             </el-button>
             <el-popconfirm title="确认删除？" @confirm="deleteChar(char.id)">
               <template #reference>
@@ -100,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
@@ -123,6 +133,8 @@ const voices = ref<VoiceOption[]>([])
 const showCreate = ref(false)
 const submitting = ref(false)
 const generatingId = ref<any>(null)
+const previewingId = ref<any>(null)
+const previewAudio = ref<{ id: number | null; url: string; text: string }>({ id: null, url: '', text: '' })
 
 const form = ref({
   name: '', gender: 'male', age: '', personality: '', appearance: '', description: '', voiceId: '', voiceName: '',
@@ -177,6 +189,30 @@ async function generateImage(char: any) {
   }
 }
 
+async function previewVoice(char: any) {
+  previewingId.value = char.id
+  try {
+    const text = `${char.name || '角色'}，这句是语音预听，用来确认音色、语速和情绪是否匹配。`
+    const res = await characterApi.previewTts(char.id, text)
+    const data = res.data.data || {}
+    if (!data.audioUrl) {
+      ElMessage.error('预听失败：未返回音频')
+      return
+    }
+    previewAudio.value = { id: char.id, url: data.audioUrl, text: data.text || text }
+    await nextTick()
+    const audio = document.getElementById(`preview-audio-${char.id}`) as HTMLAudioElement | null
+    if (audio) {
+      audio.currentTime = 0
+      await audio.play()
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '预听失败')
+  } finally {
+    previewingId.value = null
+  }
+}
+
 async function deleteChar(id: number) {
   await characterApi.delete(id)
   ElMessage.success('删除成功')
@@ -224,6 +260,7 @@ onMounted(async () => {
 .char-voice { font-size: 12px; color: #6366f1; display: flex; align-items: center; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
 .char-rate { color: #64748b; font-weight: 500; }
 .char-tts-note { font-size: 11px; color: #64748b; margin-bottom: 12px; line-height: 1.4; }
+.char-audio { width: 100%; margin-bottom: 10px; }
 .field-hint { margin-left: 8px; font-size: 12px; color: #94a3b8; }
 .char-actions { display: flex; gap: 8px; }
 .voice-tip { margin-top: 8px; font-size: 12px; line-height: 1.5; color: #64748b; }

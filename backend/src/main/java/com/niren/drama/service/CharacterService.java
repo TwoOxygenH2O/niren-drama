@@ -3,6 +3,7 @@ package com.niren.drama.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.ImageAiProvider;
+import com.niren.drama.ai.TtsProvider;
 import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.dto.character.CharacterCreateRequest;
 import com.niren.drama.entity.Character;
@@ -17,7 +18,10 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -28,6 +32,7 @@ public class CharacterService {
     private final TaskRecordMapper taskRecordMapper;
     private final AiProviderFactory aiProviderFactory;
     private final ProjectService projectService;
+    private final PublicAssetStorageService publicAssetStorageService;
     private final ObjectProvider<CharacterService> selfProvider;
 
     public Character createCharacter(CharacterCreateRequest request) {
@@ -78,6 +83,39 @@ public class CharacterService {
 
     public void deleteCharacter(Long id) {
         characterMapper.deleteById(id);
+    }
+
+    public Map<String, Object> previewTts(Long userId, Long characterId, String text) {
+        Character character = getCharacter(characterId);
+        String previewText = text != null && !text.isBlank()
+                ? text.trim()
+                : buildDefaultPreviewText(character);
+        String voiceId = character.getVoiceId();
+        if (voiceId == null || voiceId.isBlank()) {
+            throw new BusinessException("该角色还未配置音色，请先选择 voiceId");
+        }
+
+        TtsProvider ttsProvider = aiProviderFactory.getTtsProvider(userId);
+        float speed = resolveSpeechSpeed(character);
+        String instruction = buildPreviewInstruction(character);
+        byte[] audio = ttsProvider.synthesize(previewText, voiceId, speed, 1.0f, instruction, "Chinese");
+        if (audio == null || audio.length <= 100) {
+            throw new BusinessException("预听失败，TTS 未返回有效音频");
+        }
+
+        String filename = "tts_preview_" + characterId + "_" + UUID.randomUUID().toString().replace("-", "") + ".mp3";
+        String url;
+        try {
+            url = publicAssetStorageService.storeBytes(audio, "audios/preview", filename, "audio/mpeg", "mp3").publicUrl();
+        } catch (Exception e) {
+            throw new BusinessException("预听音频保存失败: " + e.getMessage());
+        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("audioUrl", url);
+        result.put("text", previewText);
+        result.put("voiceId", voiceId);
+        result.put("speechRate", character.getSpeechRate());
+        return result;
     }
 
     public TaskRecord startGenerateCharacterImage(Long userId, Long characterId) {
@@ -145,5 +183,27 @@ public class CharacterService {
                 character.getName(), gender, age,
                 projectType, genre, appearance, personality,
                 ProjectStyleSupport.buildVisualCreationRules(projectType, genre).replace("\n", " ").replace("- ", " "));
+    }
+
+    private float resolveSpeechSpeed(Character character) {
+        if (character == null || character.getSpeechRate() == null) {
+            return 1.0f;
+        }
+        float rate = character.getSpeechRate() / 100f;
+        return Math.max(0.5f, Math.min(1.5f, rate));
+    }
+
+    private String buildPreviewInstruction(Character character) {
+        StringBuilder sb = new StringBuilder("中文短剧口语演绎，吐字清楚，避免播音腔");
+        if (character != null && character.getTtsNote() != null && !character.getTtsNote().isBlank()) {
+            sb.append("；导演补充：").append(character.getTtsNote().trim());
+        }
+        String out = sb.toString();
+        return out.length() > 260 ? out.substring(0, 260) : out;
+    }
+
+    private String buildDefaultPreviewText(Character character) {
+        String name = character != null && character.getName() != null ? character.getName() : "角色";
+        return name + "，这句是语音预听，用来确认音色、语速和情绪是否匹配。";
     }
 }

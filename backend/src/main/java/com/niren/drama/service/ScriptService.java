@@ -40,6 +40,7 @@ import java.util.regex.Pattern;
 public class ScriptService {
 
     private static final int OUTLINE_CHUNK_SIZE = 4;
+    private static final int OUTLINE_CHUNK_MIN = 2;
     private static final int OUTLINE_CHUNK_RETRY_ATTEMPTS = 3;
     private static final int COMMON_INFO_RETRY_ATTEMPTS = 2;
     private static final int CHARACTER_EXTRACTION_RETRY_ATTEMPTS = 3;
@@ -144,8 +145,9 @@ public class ScriptService {
         log.debug("大纲流式通用信息已就绪: projectId={}, commonInfoLength={}",
                 request.getProjectId(), commonInfo.length());
         chunkConsumer.accept(formatProjectCommonInfoBlock(commonInfo));
-        for (int chunkStart = 1; chunkStart <= totalEpisodes; chunkStart += OUTLINE_CHUNK_SIZE) {
-            int chunkEnd = Math.min(totalEpisodes, chunkStart + OUTLINE_CHUNK_SIZE - 1);
+        int chunkSize = resolveAdaptiveOutlineChunkSize(request, totalEpisodes, episodeDuration);
+        for (int chunkStart = 1; chunkStart <= totalEpisodes; chunkStart += chunkSize) {
+            int chunkEnd = Math.min(totalEpisodes, chunkStart + chunkSize - 1);
             log.debug("大纲流式分片开始: projectId={}, startEpisode={}, endEpisode={}",
                     request.getProjectId(), chunkStart, chunkEnd);
             chunkConsumer.accept("\n\n");
@@ -308,8 +310,9 @@ public class ScriptService {
                     taskId, request.getProjectId(), commonInfo.length());
 
             int generatedCount = 0;
-            for (int chunkStart = 1; chunkStart <= totalEpisodes; chunkStart += OUTLINE_CHUNK_SIZE) {
-                int chunkEnd = Math.min(totalEpisodes, chunkStart + OUTLINE_CHUNK_SIZE - 1);
+            int chunkSize = resolveAdaptiveOutlineChunkSize(request, totalEpisodes, episodeDuration);
+            for (int chunkStart = 1; chunkStart <= totalEpisodes; chunkStart += chunkSize) {
+                int chunkEnd = Math.min(totalEpisodes, chunkStart + chunkSize - 1);
                 int progress = 20 + Math.min(75, (int) (((chunkEnd * 1.0) / totalEpisodes) * 75));
                 updateTask(task, "RUNNING", progress,
                         String.format("正在生成并保存第 %d-%d 集分集大纲...", chunkStart, chunkEnd));
@@ -486,6 +489,7 @@ public class ScriptService {
         script.setEpisodeNo(request.getEpisodeNo());
         script.setTitle(request.getTitle());
         script.setContent(request.getContent());
+        emitScriptSoftValidation(script.getContent(), "saveScript", request.getProjectId(), request.getEpisodeNo());
         if (request.getSummary() != null) {
             script.setSummary(request.getSummary());
         }
@@ -508,7 +512,10 @@ public class ScriptService {
 
     public Script updateScript(Long id, String content, String title, String summary) {
         Script script = getScript(id);
-        if (content != null) script.setContent(content);
+        if (content != null) {
+            script.setContent(content);
+            emitScriptSoftValidation(content, "updateScript", script.getProjectId(), script.getEpisodeNo());
+        }
         if (title != null) script.setTitle(title);
         if (summary != null) script.setSummary(summary);
         script.setStatus("reviewed");
@@ -625,7 +632,6 @@ public class ScriptService {
         SceneBudget sceneBudget = resolveSceneBudget(materials.project());
                 String projectType = resolveProjectType(materials.project());
                 String genre = resolveGenre(materials.project(), request);
-                String styleGuide = ProjectStyleSupport.buildTextCreationRules(projectType, genre);
         StringBuilder outlines = new StringBuilder();
         for (int ep = startEpisode; ep <= endEpisode; ep++) {
             Script script = materials.scriptsByEpisode().get(ep);
@@ -641,9 +647,6 @@ public class ScriptService {
                 项目类型：%s
                 题材：%s
                 单集时长：约 %d 秒
-
-                项目风格约束：
-                %s
 
                 项目通用信息（人物小传/世界观/关系线/长期伏笔）：
                 %s
@@ -666,9 +669,12 @@ public class ScriptService {
                      6) 剧本必须为后续分镜拆解服务，每场都要写清时间、地点、出场角色、动作与情绪。
                      7) 场景格式统一：
                    第N场 [场景/时间/地点]
-                   角色名：（动作/表情）“台词”
+                   角色：角色名
+                   台词：口语短句（不写“角色名：”前缀）
+                   可选旁白：仅 VO/OS 且不与台词重复
                      8) 连续集剧情要有承接，但每一集都要有明确钩子。
                      9) 角色语言和行为必须严格符合项目通用信息中的人物小传。
+                    10) 禁止小说腔表达（如“他冷冷地看着/心里一沉/开口说道”）。
                 """,
                 startEpisode,
                 endEpisode,
@@ -677,7 +683,6 @@ public class ScriptService {
                 projectType,
                 genre,
                 resolveEpisodeDuration(materials.project()),
-                styleGuide,
                 materials.commonInfo(),
                 outlines,
                 formatOptionalAdjustment(request.getIdea()),
@@ -757,7 +762,7 @@ public class ScriptService {
                 %s
 
                 %s
-                """, projectType, genreText, styleText, styleGuide, beatBlock);
+                """, projectType, genreText, styleText, styleGuide, beatBlock, ProjectStyleSupport.buildScriptSelfCheckBlock());
     }
 
     private String buildScriptSystemPrompt(Project project, String genre, String style) {
@@ -779,15 +784,11 @@ public class ScriptService {
                 - 不涉及未成年人恋爱/暴力情节
                 
                 # 爆款方法论
-                ## 钩子设计（黄金3秒 + 30秒法则）
-                - 第1秒：视觉冲击或悬念台词（如"三年前你亲手毁了我，三年后我带着十亿回来了"）
-                - 前30秒：必须出现核心冲突事件，让用户停不下来
-                - 每集结尾：必须设置强悬念钩子（反转/新危机/身份揭露），驱动付费解锁下一集
-                
-                ## 爽点节奏模板（每集必须包含）
-                - 每2分钟一个小爽点（打脸/逆袭/甜蜜暴击/身份揭露）
-                - 每集至少3个大爽点（核心冲突升级/重大反转/高燃台词）
-                - 集末反转：必须在最后30秒制造新的强悬念
+                ## 钩子与冲突节奏（统一口径）
+                - 开场约3秒内出现钩子（悬念/冲击台词/危机画面）
+                - 约10秒内出现可见冲突，不做慢热铺垫
+                - 约每30秒出现一次爽点/反转或信息升级
+                - 结尾必须留强钩子（反转/新危机/身份揭露）
                 
                 ## 人物弧光设计
                 - 主角必须有清晰的成长弧线：从低谷 → 觉醒 → 反击 → 逆袭
@@ -823,7 +824,13 @@ public class ScriptService {
                 %s
 
                 %s
-                """, projectType, genreText, styleText, styleGuide, beatBlock);
+
+                %s
+
+                %s
+                """, projectType, genreText, styleText, styleGuide, beatBlock,
+                ProjectStyleSupport.buildNovelToneBlacklistFewShot(),
+                ProjectStyleSupport.buildScriptSelfCheckBlock());
     }
 
     private String generateProjectCommonInfoWithRetry(TextAiProvider textProvider,
@@ -979,7 +986,8 @@ public class ScriptService {
                      4) 大纲里要明确本集要回收什么、埋什么钩子，保证整季递进。
                      5) 每集必须和项目通用信息严格一致，不允许临时新增关键设定。
                      6) 每集大纲请尽量控制在 220-350 字，信息密度高，不要扩写成完整剧本。
-                     7) 不要使用 Markdown 代码块，不要输出 ```。
+                    7) 不要使用 Markdown 代码块，不要输出 ```。
+                    8) 若检测到输出长度过大或结构漂移风险，请优先保证标记完整与每集要点，不要写冗余修饰句。
                      %s
                      """,
                      startEpisode,
@@ -1054,6 +1062,34 @@ public class ScriptService {
             throw new BusinessException(String.format("第 %d 集大纲解析失败，请重试；若仍失败请缩短创意描述或减少设定长度", startEpisode));
         }
 
+        Map<Integer, EpisodeOutline> partial = parseMarkedEpisodeOutlines(lastResponse, startEpisode, endEpisode);
+        if (!partial.isEmpty()) {
+            List<Integer> missing = new ArrayList<>();
+            for (int ep = startEpisode; ep <= endEpisode; ep++) {
+                if (!partial.containsKey(ep)) {
+                    missing.add(ep);
+                }
+            }
+            if (!missing.isEmpty() && missing.size() <= 2) {
+                for (Integer miss : missing) {
+                    Map<Integer, EpisodeOutline> repaired = generateEpisodeOutlineChunk(
+                            textProvider,
+                            systemPrompt,
+                            project,
+                            request,
+                            commonInfo,
+                            miss,
+                            miss,
+                            totalEpisodes,
+                            episodeDuration);
+                    partial.putAll(repaired);
+                }
+                if (partial.size() == (endEpisode - startEpisode + 1)) {
+                    return partial;
+                }
+            }
+        }
+
         int midEpisode = (startEpisode + endEpisode) / 2;
         log.debug("重试后拆分大纲分片: projectId={}, startEpisode={}, midEpisode={}, endEpisode={}",
             project.getId(), startEpisode, midEpisode, endEpisode);
@@ -1121,7 +1157,6 @@ public class ScriptService {
           SceneBudget sceneBudget = resolveSceneBudget(materials.project());
                     String projectType = resolveProjectType(materials.project());
                     String genre = resolveGenre(materials.project(), request);
-                    String styleGuide = ProjectStyleSupport.buildTextCreationRules(projectType, genre);
           Script currentScript = materials.scriptsByEpisode().get(episodeNo);
         return String.format("""
                      请根据以下项目通用信息和分集大纲，生成第 %d 集完整剧本（共 %d 集中的当前集）。
@@ -1132,9 +1167,6 @@ public class ScriptService {
                      - 题材：%s
                      - 总集数：%d
                      - 单集时长：约 %d 秒
-                                         - 项目风格约束：
-                                         %s
-                
                      ## 项目通用信息
                      %s
                 
@@ -1163,17 +1195,16 @@ public class ScriptService {
                 
                 第X场 [场景名称/时间/地点]
                 （场景描述：环境氛围、光线、人物站位，需包含镜头建议如"特写/中景/全景"）
-                
-                角色名：（表情+动作）"对白"
-                
-                旁白：旁白内容
-                
-                [镜头指示：推/拉/摇/移/特写 等]
+                角色：角色名
+                台词：口语短句（不写“角色名：”前缀）
+                可选旁白：仅 VO/OS 且不与台词重复
+                镜头提示：推/拉/摇/移/特写（极短）
                 
                 要求：
                 - 包含 %d-%d 个场景
                 - 开场 30 秒内进入冲突
                 - 结尾留强钩子
+                - 禁用小说腔表达
                 """,
                 episodeNo,
                 totalEpisodes,
@@ -1182,7 +1213,6 @@ public class ScriptService {
                 genre,
                 totalEpisodes,
                 resolveEpisodeDuration(materials.project()),
-                styleGuide,
                 materials.commonInfo(),
                 StringUtils.defaultIfBlank(currentScript.getTitle(), "第" + episodeNo + "集"),
                 StringUtils.defaultString(currentScript.getSummary()).trim(),
@@ -1751,6 +1781,7 @@ public class ScriptService {
         }
 
         script.setContent(content.trim());
+        emitScriptSoftValidation(script.getContent(), "upsertGeneratedScript", projectId, episodeNo);
         if (StringUtils.isBlank(script.getTitle())) {
             script.setTitle("第" + episodeNo + "集");
         }
@@ -1769,6 +1800,37 @@ public class ScriptService {
                     projectId, episodeNo, StringUtils.length(script.getContent()));
         }
         return script;
+    }
+
+    private void emitScriptSoftValidation(String content, String source, Long projectId, Integer episodeNo) {
+        String text = StringUtils.trimToEmpty(content);
+        if (text.isBlank()) {
+            return;
+        }
+        int novelToneHits = 0;
+        for (String keyword : new String[]{"冷冷地看着", "心里一沉", "开口说道", "在心里", "空气仿佛"} ) {
+            if (text.contains(keyword)) {
+                novelToneHits++;
+            }
+        }
+        int longLineCount = 0;
+        int dialogueLineCount = 0;
+        for (String line : text.split("\\R")) {
+            String one = StringUtils.trimToEmpty(line);
+            if (one.startsWith("台词：")) {
+                dialogueLineCount++;
+                if (one.length() > 28) {
+                    longLineCount++;
+                }
+            }
+        }
+        if (novelToneHits > 0 || longLineCount > 0) {
+            log.warn("剧本软校验: source={}, projectId={}, episodeNo={}, novelToneHits={}, longDialogueLines={}, dialogueLines={}",
+                    source, projectId, episodeNo, novelToneHits, longLineCount, dialogueLineCount);
+        } else {
+            log.debug("剧本软校验通过: source={}, projectId={}, episodeNo={}, dialogueLines={}",
+                    source, projectId, episodeNo, dialogueLineCount);
+        }
     }
 
     private Script findScriptByProjectAndEpisode(Long projectId, Integer episodeNo) {
@@ -1795,7 +1857,19 @@ public class ScriptService {
         if (project.getEpisodeDuration() != null && project.getEpisodeDuration() > 0) {
             return project.getEpisodeDuration();
         }
-        return 180;
+        return 120;
+    }
+
+    private int resolveAdaptiveOutlineChunkSize(ScriptGenerateRequest request, int totalEpisodes, int episodeDuration) {
+        int chunkSize = OUTLINE_CHUNK_SIZE;
+        String idea = request != null ? StringUtils.trimToEmpty(request.getIdea()) : "";
+        if (totalEpisodes >= 24 || episodeDuration >= 150 || idea.length() >= 900) {
+            chunkSize = 3;
+        }
+        if (totalEpisodes >= 40 || idea.length() >= 1800) {
+            chunkSize = OUTLINE_CHUNK_MIN;
+        }
+        return Math.max(OUTLINE_CHUNK_MIN, Math.min(OUTLINE_CHUNK_SIZE, chunkSize));
     }
 
     private String resolveCreativeSeed(Project project, ScriptGenerateRequest request, boolean required) {

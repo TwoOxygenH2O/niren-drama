@@ -54,11 +54,11 @@ import java.util.UUID;
 public class VideoCompositionService {
 
     private static final int MAX_TASK_TRACE_CALLS = 20;
-    private static final Duration DYNAMIC_VIDEO_TASK_TIMEOUT = Duration.ofMinutes(10);
-    private static final long DYNAMIC_VIDEO_POLL_DELAY_SECONDS = 5L;
     private static final double DEFAULT_SHOT_DURATION_SECONDS = 5.0d;
     private static final double MIN_SHOT_DURATION_SECONDS = 2.5d;
     private static final double DEFAULT_BGM_FADE_OUT_SECONDS = 1.2d;
+    private static final double MIN_VOICE_DRIVEN_PAUSE_SECONDS = 0.2d;
+    private static final double MAX_VOICE_DRIVEN_PAUSE_SECONDS = 0.5d;
     /** Output video width (vertical 9:16) */
     private static final int VIDEO_WIDTH = 1080;
     /** Output video height (vertical 9:16) */
@@ -128,6 +128,12 @@ public class VideoCompositionService {
 
     @Value("${niren.compose.transition-sfx.source:}")
     private String composeTransitionSfxSource;
+    @Value("${niren.compose.transition-sfx.conflict-source:}")
+    private String composeTransitionConflictSfxSource;
+    @Value("${niren.compose.transition-sfx.lyrical-source:}")
+    private String composeTransitionLyricalSfxSource;
+    @Value("${niren.compose.transition-sfx.follow-emotion-enabled:true}")
+    private boolean composeTransitionSfxFollowEmotion;
 
     @Value("${niren.compose.transition-sfx.volume:0.18}")
     private double composeTransitionSfxVolume;
@@ -137,6 +143,24 @@ public class VideoCompositionService {
 
     @Value("${niren.compose.audio.between-shots-seconds:0.28}")
     private double composeAudioBetweenShotsSeconds;
+    @Value("${niren.compose.sync.voice-driven-enabled:true}")
+    private boolean composeVoiceDrivenSyncEnabled;
+    @Value("${niren.compose.sync.pause-seconds:0.28}")
+    private double composeSyncPauseSeconds;
+    @Value("${niren.compose.sync.max-overrun-seconds:1.25}")
+    private double composeSyncMaxOverrunSeconds;
+    @Value("${niren.compose.audio.voice-loudnorm-enabled:true}")
+    private boolean composeVoiceLoudnormEnabled;
+    @Value("${niren.compose.audio.ducking-enabled:true}")
+    private boolean composeAudioDuckingEnabled;
+    @Value("${niren.compose.audio.ducking-threshold:0.035}")
+    private double composeAudioDuckingThreshold;
+    @Value("${niren.compose.audio.ducking-ratio:10.0}")
+    private double composeAudioDuckingRatio;
+    @Value("${niren.compose.audio.ducking-attack:15}")
+    private int composeAudioDuckingAttack;
+    @Value("${niren.compose.audio.ducking-release:280}")
+    private int composeAudioDuckingRelease;
 
     @Value("${niren.compose.transition.conflict-seconds:0.2}")
     private double composeTransitionConflictSeconds;
@@ -149,13 +173,50 @@ public class VideoCompositionService {
 
     @Value("${niren.compose.ambient.volume:0.1}")
     private double composeAmbientVolume;
+    @Value("${niren.compose.rhythm.auto-micro-motion-enabled:true}")
+    private boolean composeAutoMicroMotionEnabled;
+    @Value("${niren.compose.rhythm.max-static-seconds:10}")
+    private double composeRhythmMaxStaticSeconds;
+    @Value("${niren.compose.rhythm.max-static-shots:3}")
+    private int composeRhythmMaxStaticShots;
+    @Value("${niren.compose.export.profile:publish}")
+    private String composeExportProfile;
+    @Value("${niren.compose.export.preview.preset:veryfast}")
+    private String composePreviewPreset;
+    @Value("${niren.compose.export.preview.crf:24}")
+    private int composePreviewCrf;
+    @Value("${niren.compose.export.preview.audio-bitrate:128k}")
+    private String composePreviewAudioBitrate;
+    @Value("${niren.compose.export.publish.preset:slow}")
+    private String composePublishPreset;
+    @Value("${niren.compose.export.publish.crf:19}")
+    private int composePublishCrf;
+    @Value("${niren.compose.export.publish.audio-bitrate:192k}")
+    private String composePublishAudioBitrate;
+    @Value("${niren.dynamic-video.timeout-minutes:20}")
+    private long dynamicVideoTimeoutMinutes;
+    @Value("${niren.dynamic-video.poll.base-seconds:5}")
+    private long dynamicVideoPollBaseSeconds;
+    @Value("${niren.dynamic-video.poll.max-seconds:20}")
+    private long dynamicVideoPollMaxSeconds;
+    @Value("${niren.compose.segmented.enabled:true}")
+    private boolean composeSegmentedEnabled;
+    @Value("${niren.compose.segmented.max-shots-per-segment:24}")
+    private int composeMaxShotsPerSegment;
 
     private volatile String resolvedFfmpegExecutable;
     private volatile String resolvedFfprobeExecutable;
 
-    private static final String SHOT_VIDEO_DIR = "shot-videos";
+    private enum TransitionMood {
+        DEFAULT,
+        CONFLICT,
+        LYRICAL
+    }
 
-    private record ShotRenderPlan(double contentDuration, double clipDuration, String subtitleText) {}
+    private record ShotRenderPlan(double contentDuration,
+                                  double clipDuration,
+                                  double subtitleVisibleDuration,
+                                  String subtitleText) {}
 
     private record ShotSegment(Path videoPath, double clipDuration, Storyboard shot) {}
 
@@ -250,7 +311,7 @@ public class VideoCompositionService {
             if (pendingCount > 0) {
                 log.info("恢复动态视频轮询任务: taskId={}, projectId={}, pendingShots={}",
                         task.getId(), task.getProjectId(), pendingCount);
-                scheduleDynamicVideoPoll(task.getUserId(), task.getProjectId(), task.getId(), DYNAMIC_VIDEO_POLL_DELAY_SECONDS);
+                scheduleDynamicVideoPoll(task.getUserId(), task.getProjectId(), task.getId(), dynamicVideoPollBaseSeconds);
             }
         }
     }
@@ -284,12 +345,18 @@ public class VideoCompositionService {
                     workDir.resolve("compose_bgm" + resolveAssetExtension(composeBgmSource, ".mp3")));
             Path transitionSfxPath = prepareComposeAsset(composeTransitionSfxSource,
                     workDir.resolve("transition_sfx" + resolveAssetExtension(composeTransitionSfxSource, ".mp3")));
+            Path transitionConflictSfxPath = prepareComposeAsset(composeTransitionConflictSfxSource,
+                    workDir.resolve("transition_sfx_conflict" + resolveAssetExtension(composeTransitionConflictSfxSource, ".mp3")));
+            Path transitionLyricalSfxPath = prepareComposeAsset(composeTransitionLyricalSfxSource,
+                    workDir.resolve("transition_sfx_lyrical" + resolveAssetExtension(composeTransitionLyricalSfxSource, ".mp3")));
             Path ambientPath = prepareComposeAsset(composeAmbientSource,
                     workDir.resolve("compose_ambient" + resolveAssetExtension(composeAmbientSource, ".mp3")));
 
             // Step 1: Download images to local files
             List<ShotSegment> shotVideos = new ArrayList<>();
             int total = renderableShots.size();
+            int consecutiveStaticShots = 0;
+            double consecutiveStaticSeconds = 0d;
 
             for (int index = 0; index < renderableShots.size(); index++) {
                 Storyboard shot = renderableShots.get(index);
@@ -325,15 +392,21 @@ public class VideoCompositionService {
                         audioDuration,
                         hasNext ? transitionToNext : 0d);
                 Path shotVideo = workDir.resolve("shot_" + shot.getShotNo() + ".mp4");
+                boolean dynamicSource = shouldUseDynamicVideo(shot) && hasText(shot.getVideoUrl());
+                boolean applyMicroMotion = shouldApplyMicroMotion(shot, dynamicSource, consecutiveStaticShots, consecutiveStaticSeconds);
 
-                if (shouldUseDynamicVideo(shot) && hasText(shot.getVideoUrl())) {
+                if (dynamicSource) {
                     Path sourceVideo = workDir.resolve("source_shot_" + shot.getShotNo() + ".mp4");
                     downloadFile(shot.getVideoUrl(), sourceVideo);
                     composeDynamicShot(sourceVideo, audioPath, shotVideo, renderPlan, shot);
+                    consecutiveStaticShots = 0;
+                    consecutiveStaticSeconds = 0d;
                 } else {
                     Path imagePath = workDir.resolve("shot_" + shot.getShotNo() + ".jpg");
                     downloadFile(shot.getImageUrl(), imagePath);
-                    composeSingleShot(imagePath, audioPath, shotVideo, renderPlan, shot);
+                    composeSingleShot(imagePath, audioPath, shotVideo, renderPlan, shot, applyMicroMotion);
+                    consecutiveStaticShots++;
+                    consecutiveStaticSeconds += renderPlan.contentDuration();
                 }
 
                 if (Files.exists(shotVideo) && Files.size(shotVideo) > 0) {
@@ -352,7 +425,7 @@ public class VideoCompositionService {
             // Step 2: Concatenate all shot videos
             String outputFilename = UUID.randomUUID().toString().replace("-", "") + ".mp4";
             Path finalVideo = videoDir.resolve(outputFilename);
-            concatenateVideos(shotVideos, finalVideo, bgmPath, transitionSfxPath, ambientPath);
+            concatenateVideosSmart(shotVideos, finalVideo, workDir, bgmPath, transitionSfxPath, transitionConflictSfxPath, transitionLyricalSfxPath, ambientPath);
 
             if (!Files.exists(finalVideo) || Files.size(finalVideo) == 0) {
                 throw new BusinessException("视频拼接失败");
@@ -486,7 +559,7 @@ public class VideoCompositionService {
                 task.setMessage(buildDynamicVideoRunningMessage(generated, failed, pending));
                 task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls, summary));
                 taskRecordMapper.updateById(task);
-                scheduleDynamicVideoPoll(userId, projectId, taskId, DYNAMIC_VIDEO_POLL_DELAY_SECONDS);
+                scheduleDynamicVideoPoll(userId, projectId, taskId, resolveDynamicPollDelaySeconds(task));
                 return;
             }
 
@@ -581,7 +654,7 @@ public class VideoCompositionService {
                 task.setMessage(buildDynamicVideoRunningMessage(generated, failed, pending));
                 task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls, summary));
                 taskRecordMapper.updateById(task);
-                scheduleDynamicVideoPoll(userId, projectId, taskId, DYNAMIC_VIDEO_POLL_DELAY_SECONDS);
+                scheduleDynamicVideoPoll(userId, projectId, taskId, resolveDynamicPollDelaySeconds(task));
                 return;
             }
 
@@ -605,7 +678,8 @@ public class VideoCompositionService {
                                    Path audioPath,
                                    Path outputPath,
                                    ShotRenderPlan renderPlan,
-                                   Storyboard shot) throws IOException, InterruptedException {
+                                   Storyboard shot,
+                                   boolean microMotionEnabled) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
         cmd.add(ffmpegPath);
         cmd.add("-y"); // overwrite
@@ -629,7 +703,7 @@ public class VideoCompositionService {
         cmd.add("-map"); cmd.add("0:v:0");
         cmd.add("-map"); cmd.add("1:a:0");
 
-        String videoFilter = buildStillShotFilter(shot, renderPlan);
+        String videoFilter = buildStillShotFilter(shot, renderPlan, microMotionEnabled);
         cmd.add("-vf");
         cmd.add(videoFilter);
         cmd.add("-af");
@@ -698,41 +772,9 @@ public class VideoCompositionService {
         executeFFmpeg(cmd);
     }
 
-    private void renderDynamicShotVideo(Path imagePath, Path outputPath, int duration, String motionLevel) throws IOException, InterruptedException {
-        List<String> cmd = new ArrayList<>();
-        cmd.add(ffmpegPath);
-        cmd.add("-y");
-        cmd.add("-loop"); cmd.add("1");
-        cmd.add("-i"); cmd.add(imagePath.toAbsolutePath().toString());
-        cmd.add("-vf"); cmd.add(buildDynamicVideoFilter(duration, motionLevel));
-        cmd.add("-c:v"); cmd.add("libx264");
-        cmd.add("-preset"); cmd.add("fast");
-        cmd.add("-pix_fmt"); cmd.add("yuv420p");
-        cmd.add("-r"); cmd.add(String.valueOf(FRAME_RATE));
-        cmd.add("-t"); cmd.add(String.valueOf(duration));
-        cmd.add("-an");
-        cmd.add(outputPath.toAbsolutePath().toString());
-        executeFFmpeg(cmd);
-    }
-
-    /**
-     * Build FFmpeg video filter for Ken Burns zoom effect on a still image.
-     */
-    private String buildVideoFilter(int durationSeconds) {
-        int totalFrames = durationSeconds * FRAME_RATE;
-        return String.format(
-                "scale=%d:%d:force_original_aspect_ratio=decrease," +
-                "pad=%d:%d:(ow-iw)/2:(oh-ih)/2," +
-                "zoompan=z='min(zoom+0.001,1.3)':d=%d:s=%dx%d:fps=%d",
-                VIDEO_WIDTH, VIDEO_HEIGHT,
-                VIDEO_WIDTH, VIDEO_HEIGHT,
-                totalFrames, VIDEO_WIDTH, VIDEO_HEIGHT, FRAME_RATE
-        );
-    }
-
-    private String buildStillShotFilter(Storyboard shot, ShotRenderPlan renderPlan) {
-        String filter = buildStillMotionFilter(shot, renderPlan.clipDuration());
-        String subtitleFilter = buildSubtitleFilter(renderPlan.subtitleText(), renderPlan.contentDuration());
+    private String buildStillShotFilter(Storyboard shot, ShotRenderPlan renderPlan, boolean microMotionEnabled) {
+        String filter = buildStillMotionFilter(shot, renderPlan.clipDuration(), microMotionEnabled);
+        String subtitleFilter = buildSubtitleFilter(renderPlan.subtitleText(), renderPlan.subtitleVisibleDuration());
         return hasText(subtitleFilter) ? filter + "," + subtitleFilter : filter;
     }
 
@@ -745,11 +787,11 @@ public class VideoCompositionService {
                 VIDEO_WIDTH,
                 VIDEO_HEIGHT,
                 ffmpegNumber(renderPlan.clipDuration()));
-        String subtitleFilter = buildSubtitleFilter(renderPlan.subtitleText(), renderPlan.contentDuration());
+        String subtitleFilter = buildSubtitleFilter(renderPlan.subtitleText(), renderPlan.subtitleVisibleDuration());
         return hasText(subtitleFilter) ? filter + "," + subtitleFilter : filter;
     }
 
-    private String buildStillMotionFilter(Storyboard shot, double durationSeconds) {
+    private String buildStillMotionFilter(Storyboard shot, double durationSeconds, boolean microMotionEnabled) {
         int totalFrames = Math.max(1, (int) Math.ceil(durationSeconds * FRAME_RATE));
         double zoomStep = 0.0011d;
         double zoomMax = 1.24d;
@@ -759,6 +801,12 @@ public class VideoCompositionService {
         if (isHighMotion(shot)) {
             zoomStep = 0.0016d;
             zoomMax = 1.30d;
+        }
+        if (microMotionEnabled) {
+            zoomStep = Math.max(zoomStep, 0.0019d);
+            zoomMax = Math.max(zoomMax, 1.36d);
+            xExpr = "iw/2-(iw/zoom/2)+sin(on/14)*16";
+            yExpr = "ih/2-(ih/zoom/2)+cos(on/16)*10";
         }
         switch (cameraAngle) {
             case "close-up", "closeup" -> {
@@ -882,37 +930,6 @@ public class VideoCompositionService {
                 .replace("'", "\\'");
     }
 
-    private String buildDynamicVideoFilter(int durationSeconds, String motionLevel) {
-        int totalFrames = durationSeconds * FRAME_RATE;
-        double zoomStep;
-        double zoomMax;
-
-        switch (motionLevel == null ? "low" : motionLevel.toLowerCase()) {
-            case "high" -> {
-                zoomStep = 0.0018;
-                zoomMax = 1.34;
-            }
-            case "medium" -> {
-                zoomStep = 0.0012;
-                zoomMax = 1.24;
-            }
-            default -> {
-                zoomStep = 0.0008;
-                zoomMax = 1.16;
-            }
-        }
-
-        return String.format(
-                "scale=%d:%d:force_original_aspect_ratio=decrease," +
-                "pad=%d:%d:(ow-iw)/2:(oh-ih)/2," +
-                "zoompan=z='min(zoom+%.4f,%.2f)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=%d",
-                VIDEO_WIDTH, VIDEO_HEIGHT,
-                VIDEO_WIDTH, VIDEO_HEIGHT,
-                zoomStep, zoomMax,
-                totalFrames, VIDEO_WIDTH, VIDEO_HEIGHT, FRAME_RATE
-        );
-    }
-
     /**
      * Compose the final vertical short drama video with cinematic transitions and optional BGM/SFX.
      */
@@ -920,6 +937,8 @@ public class VideoCompositionService {
                                    Path outputPath,
                                    Path bgmPath,
                                    Path transitionSfxPath,
+                                   Path transitionConflictSfxPath,
+                                   Path transitionLyricalSfxPath,
                                    Path ambientPath) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
         cmd.add(ffmpegPath);
@@ -945,6 +964,18 @@ public class VideoCompositionService {
             cmd.add("-i");
             cmd.add(transitionSfxPath.toAbsolutePath().toString());
         }
+        int transitionConflictSfxInputIndex = -1;
+        if (transitionConflictSfxPath != null && Files.exists(transitionConflictSfxPath) && videos.size() > 1) {
+            transitionConflictSfxInputIndex = cmd.stream().filter("-i"::equals).toArray().length;
+            cmd.add("-i");
+            cmd.add(transitionConflictSfxPath.toAbsolutePath().toString());
+        }
+        int transitionLyricalSfxInputIndex = -1;
+        if (transitionLyricalSfxPath != null && Files.exists(transitionLyricalSfxPath) && videos.size() > 1) {
+            transitionLyricalSfxInputIndex = cmd.stream().filter("-i"::equals).toArray().length;
+            cmd.add("-i");
+            cmd.add(transitionLyricalSfxPath.toAbsolutePath().toString());
+        }
 
         int ambientInputIndex = -1;
         if (ambientPath != null && Files.exists(ambientPath) && videos.size() > 0) {
@@ -956,17 +987,18 @@ public class VideoCompositionService {
         }
 
         cmd.add("-filter_complex");
-        cmd.add(buildFinalCompositionFilter(videos, bgmInputIndex, transitionSfxInputIndex, ambientInputIndex));
+        cmd.add(buildFinalCompositionFilter(videos, bgmInputIndex, transitionSfxInputIndex, transitionConflictSfxInputIndex, transitionLyricalSfxInputIndex, ambientInputIndex));
         cmd.add("-map");
         cmd.add("[vout]");
         cmd.add("-map");
         cmd.add("[aout]");
         cmd.add("-c:v");
         cmd.add("libx264");
+        ComposeExportProfile exportProfile = resolveComposeExportProfile();
         cmd.add("-preset");
-        cmd.add("slow");
+        cmd.add(exportProfile.preset());
         cmd.add("-crf");
-        cmd.add("19");
+        cmd.add(String.valueOf(exportProfile.crf()));
         cmd.add("-pix_fmt");
         cmd.add("yuv420p");
         cmd.add("-r");
@@ -974,7 +1006,7 @@ public class VideoCompositionService {
         cmd.add("-c:a");
         cmd.add("aac");
         cmd.add("-b:a");
-        cmd.add("192k");
+        cmd.add(exportProfile.audioBitrate());
         cmd.add("-ar");
         cmd.add("44100");
         cmd.add("-ac");
@@ -986,12 +1018,42 @@ public class VideoCompositionService {
         executeFFmpeg(cmd);
     }
 
+    private void concatenateVideosSmart(List<ShotSegment> videos,
+                                        Path outputPath,
+                                        Path workDir,
+                                        Path bgmPath,
+                                        Path transitionSfxPath,
+                                        Path transitionConflictSfxPath,
+                                        Path transitionLyricalSfxPath,
+                                        Path ambientPath) throws IOException, InterruptedException {
+        int maxPerSegment = Math.max(8, composeMaxShotsPerSegment);
+        if (!composeSegmentedEnabled || videos.size() <= maxPerSegment) {
+            concatenateVideos(videos, outputPath, bgmPath, transitionSfxPath, transitionConflictSfxPath, transitionLyricalSfxPath, ambientPath);
+            return;
+        }
+        List<ShotSegment> segments = new ArrayList<>();
+        int segmentIndex = 0;
+        for (int i = 0; i < videos.size(); i += maxPerSegment) {
+            int end = Math.min(videos.size(), i + maxPerSegment);
+            List<ShotSegment> subList = videos.subList(i, end);
+            Path segmentFile = workDir.resolve("segment_" + segmentIndex + ".mp4");
+            concatenateVideos(subList, segmentFile, null, null, null, null, null);
+            double segmentDuration = subList.stream().mapToDouble(ShotSegment::clipDuration).sum();
+            segments.add(new ShotSegment(segmentFile, segmentDuration, subList.get(0).shot()));
+            segmentIndex++;
+        }
+        concatenateVideos(segments, outputPath, bgmPath, transitionSfxPath, transitionConflictSfxPath, transitionLyricalSfxPath, ambientPath);
+    }
+
     private String buildFinalCompositionFilter(List<ShotSegment> segments,
                                                int bgmInputIndex,
                                                int transitionSfxInputIndex,
+                                               int transitionConflictSfxInputIndex,
+                                               int transitionLyricalSfxInputIndex,
                                                int ambientInputIndex) {
         List<String> filterSteps = new ArrayList<>();
         List<Double> transitionMarkers = new ArrayList<>();
+        List<TransitionMood> transitionMoods = new ArrayList<>();
         for (int i = 0; i < segments.size(); i++) {
             filterSteps.add(String.format(Locale.ROOT,
                     "[%d:v]settb=AVTB,setpts=PTS-STARTPTS[v%d]",
@@ -1016,6 +1078,7 @@ public class VideoCompositionService {
                 }
                 double offset = Math.max(currentDuration - transitionDuration, 0d);
                 transitionMarkers.add(offset);
+                transitionMoods.add(resolveTransitionMood(segments.get(i - 1).shot(), segments.get(i).shot()));
                 String videoOut = "vxf" + i;
                 String audioOut = "axf" + i;
                 filterSteps.add(String.format(Locale.ROOT,
@@ -1038,7 +1101,14 @@ public class VideoCompositionService {
             }
         }
 
-        String mixedAudio = currentAudio;
+        String voiceAudio = currentAudio;
+        if (composeVoiceLoudnormEnabled) {
+            filterSteps.add(String.format(Locale.ROOT,
+                    "[%s]loudnorm=I=-16:LRA=7:TP=-1.5[voicenorm]",
+                    currentAudio));
+            voiceAudio = "voicenorm";
+        }
+        String mixedAudio = voiceAudio;
         if (bgmInputIndex >= 0) {
             double bgmFadeDuration = Math.min(DEFAULT_BGM_FADE_OUT_SECONDS, currentDuration);
             double bgmFadeStart = Math.max(currentDuration - bgmFadeDuration, 0d);
@@ -1049,12 +1119,22 @@ public class VideoCompositionService {
                     ffmpegNumber(resolveBgmVolume()),
                     ffmpegNumber(bgmFadeStart),
                     ffmpegNumber(bgmFadeDuration)));
-            filterSteps.add(String.format(Locale.ROOT,
-                    "[bgm0][%s]sidechaincompress=threshold=0.035:ratio=10:attack=15:release=280[bgmduck]",
-                    currentAudio));
-            filterSteps.add(String.format(Locale.ROOT,
-                    "[%s][bgmduck]amix=inputs=2:duration=first:weights='1 0.28':normalize=0[amixbgm]",
-                    currentAudio));
+            if (composeAudioDuckingEnabled) {
+                filterSteps.add(String.format(Locale.ROOT,
+                        "[bgm0][%s]sidechaincompress=threshold=%s:ratio=%s:attack=%d:release=%d[bgmduck]",
+                        voiceAudio,
+                        ffmpegNumber(Math.min(Math.max(composeAudioDuckingThreshold, 0.005d), 1.0d)),
+                        ffmpegNumber(Math.min(Math.max(composeAudioDuckingRatio, 1.0d), 20.0d)),
+                        Math.max(1, composeAudioDuckingAttack),
+                        Math.max(10, composeAudioDuckingRelease)));
+                filterSteps.add(String.format(Locale.ROOT,
+                        "[%s][bgmduck]amix=inputs=2:duration=first:weights='1 0.28':normalize=0[amixbgm]",
+                        voiceAudio));
+            } else {
+                filterSteps.add(String.format(Locale.ROOT,
+                        "[%s][bgm0]amix=inputs=2:duration=first:weights='1 0.28':normalize=0[amixbgm]",
+                        voiceAudio));
+            }
             mixedAudio = "amixbgm";
         }
 
@@ -1071,41 +1151,48 @@ public class VideoCompositionService {
             mixedAudio = "amixamb";
         }
 
-        if (transitionSfxInputIndex >= 0 && !transitionMarkers.isEmpty()) {
-            filterSteps.add(String.format(Locale.ROOT,
-                    "[%d:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=0.8,asetpts=PTS-STARTPTS,volume=%s[sfxsrc]",
-                    transitionSfxInputIndex,
-                    ffmpegNumber(resolveTransitionSfxVolume())));
-            if (transitionMarkers.size() == 1) {
-                int delayMs = (int) Math.round(Math.max(transitionMarkers.get(0) - 0.05d, 0d) * 1000d);
+        int resolvedConflictInput = transitionConflictSfxInputIndex >= 0
+                ? transitionConflictSfxInputIndex
+                : transitionSfxInputIndex;
+        int resolvedLyricalInput = transitionLyricalSfxInputIndex >= 0
+                ? transitionLyricalSfxInputIndex
+                : transitionSfxInputIndex;
+        if ((transitionSfxInputIndex >= 0 || resolvedConflictInput >= 0 || resolvedLyricalInput >= 0)
+                && !transitionMarkers.isEmpty()) {
+            List<String> delayedSfxTracks = new ArrayList<>();
+            for (int i = 0; i < transitionMarkers.size(); i++) {
+                int sourceIndex = resolveTransitionSfxInputIndex(
+                        transitionMoods.get(i),
+                        transitionSfxInputIndex,
+                        resolvedConflictInput,
+                        resolvedLyricalInput);
+                if (sourceIndex < 0) {
+                    continue;
+                }
+                String baseLabel = "sfxsrc" + i;
                 filterSteps.add(String.format(Locale.ROOT,
-                        "[sfxsrc]adelay=%d|%d[sfxd0]",
+                        "[%d:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=0.8,asetpts=PTS-STARTPTS,volume=%s[%s]",
+                        sourceIndex,
+                        ffmpegNumber(resolveTransitionSfxVolume()),
+                        baseLabel));
+                int delayMs = (int) Math.round(Math.max(transitionMarkers.get(i) - 0.05d, 0d) * 1000d);
+                String delayed = "sfxd" + i;
+                filterSteps.add(String.format(Locale.ROOT,
+                        "[%s]adelay=%d|%d[%s]",
+                        baseLabel,
                         delayMs,
-                        delayMs));
-                filterSteps.add(String.format(Locale.ROOT,
-                        "[%s][sfxd0]amix=inputs=2:duration=first:normalize=0[aout]",
-                        mixedAudio));
+                        delayMs,
+                        delayed));
+                delayedSfxTracks.add(delayed);
+            }
+            if (delayedSfxTracks.isEmpty()) {
+                filterSteps.add(String.format(Locale.ROOT, "[%s]anull[aout]", mixedAudio));
             } else {
-                StringBuilder split = new StringBuilder("[sfxsrc]asplit=")
-                        .append(transitionMarkers.size());
-                for (int i = 0; i < transitionMarkers.size(); i++) {
-                    split.append("[sfx").append(i).append("]");
-                }
-                filterSteps.add(split.toString());
                 StringBuilder mixInputs = new StringBuilder("[").append(mixedAudio).append("]");
-                for (int i = 0; i < transitionMarkers.size(); i++) {
-                    int delayMs = (int) Math.round(Math.max(transitionMarkers.get(i) - 0.05d, 0d) * 1000d);
-                    filterSteps.add(String.format(Locale.ROOT,
-                            "[sfx%d]adelay=%d|%d[sfxd%d]",
-                            i,
-                            delayMs,
-                            delayMs,
-                            i));
-                    mixInputs.append("[sfxd").append(i).append("]");
-                }
+                delayedSfxTracks.forEach(label -> mixInputs.append("[").append(label).append("]"));
                 filterSteps.add(mixInputs + String.format(Locale.ROOT,
                         "amix=inputs=%d:duration=first:normalize=0[aout]",
-                        transitionMarkers.size() + 1));
+                        delayedSfxTracks.size() + 1));
             }
         } else {
             filterSteps.add(String.format(Locale.ROOT, "[%s]anull[aout]", mixedAudio));
@@ -1401,23 +1488,42 @@ public class VideoCompositionService {
         double requestedDuration = shot.getDuration() != null && shot.getDuration() > 0
                 ? Math.min(shot.getDuration(), cap)
                 : Math.min(DEFAULT_SHOT_DURATION_SECONDS, cap);
-        double contentDuration = Math.max(
-                requestedDuration,
-                audioDuration + Math.max(0.1d, composeAudioTailPadding) + Math.max(0d, composeAudioBetweenShotsSeconds));
+        double contentDuration;
+        if (composeVoiceDrivenSyncEnabled && audioDuration > 0.01d) {
+            double pauseSeconds = Math.min(Math.max(composeSyncPauseSeconds, MIN_VOICE_DRIVEN_PAUSE_SECONDS), MAX_VOICE_DRIVEN_PAUSE_SECONDS);
+            double voiceDrivenTarget = audioDuration
+                    + Math.max(0.1d, composeAudioTailPadding)
+                    + Math.max(0d, composeAudioBetweenShotsSeconds)
+                    + pauseSeconds;
+            double maxAllowedByOverrun = requestedDuration + Math.max(0d, composeSyncMaxOverrunSeconds);
+            contentDuration = Math.max(requestedDuration, Math.min(voiceDrivenTarget, maxAllowedByOverrun));
+        } else {
+            contentDuration = Math.max(
+                    requestedDuration,
+                    audioDuration + Math.max(0.1d, composeAudioTailPadding) + Math.max(0d, composeAudioBetweenShotsSeconds));
+        }
         contentDuration = Math.min(contentDuration, cap);
         contentDuration = Math.max(contentDuration, MIN_SHOT_DURATION_SECONDS);
         double clipDuration = contentDuration + Math.max(0d, transitionTail);
-        return new ShotRenderPlan(contentDuration, clipDuration, resolveSubtitleText(shot));
+        return new ShotRenderPlan(contentDuration, clipDuration, resolveSubtitleVisibleDuration(shot, contentDuration), resolveSubtitleText(shot));
     }
 
     private String resolveSubtitleText(Storyboard shot) {
         if (hasText(shot.getSubtitleText())) {
-            return DramaTextSanitizer.wrapSubtitleLines(
+            return DramaTextSanitizer.wrapSubtitleLinesSemantic(
                     DramaTextSanitizer.normalizeSpokenText(shot.getSubtitleText().trim()));
         }
         String raw = DramaTextSanitizer.deriveRawSubtitle(shot, composeSubtitleIncludeNarration,
                 composeSubtitleStripSpeakerPrefix, composeSubtitleStripSpeakerPrefix);
-        return DramaTextSanitizer.wrapSubtitleLines(raw);
+        return DramaTextSanitizer.wrapSubtitleLinesSemantic(raw);
+    }
+
+    private double resolveSubtitleVisibleDuration(Storyboard shot, double contentDuration) {
+        double base = Math.max(0.9d, contentDuration);
+        if (contentDuration <= 3.1d || isConflictTone(coalesceMoodText(shot))) {
+            return Math.max(0.8d, base - 0.18d);
+        }
+        return base;
     }
 
     private double resolvePairTransitionDuration(Storyboard previous, Storyboard next) {
@@ -1493,6 +1599,64 @@ public class VideoCompositionService {
 
     private double resolveTransitionSfxVolume() {
         return Math.min(Math.max(composeTransitionSfxVolume, 0.02d), 1.0d);
+    }
+
+    private TransitionMood resolveTransitionMood(Storyboard previous, Storyboard next) {
+        String text = (previous != null ? coalesceMoodText(previous) : "")
+                + (next != null ? coalesceMoodText(next) : "");
+        if (isConflictTone(text)) {
+            return TransitionMood.CONFLICT;
+        }
+        if (isLyricalTone(text)) {
+            return TransitionMood.LYRICAL;
+        }
+        return TransitionMood.DEFAULT;
+    }
+
+    private int resolveTransitionSfxInputIndex(TransitionMood mood,
+                                               int defaultInputIndex,
+                                               int conflictInputIndex,
+                                               int lyricalInputIndex) {
+        if (!composeTransitionSfxFollowEmotion) {
+            return defaultInputIndex;
+        }
+        if (mood == TransitionMood.CONFLICT && conflictInputIndex >= 0) {
+            return conflictInputIndex;
+        }
+        if (mood == TransitionMood.LYRICAL && lyricalInputIndex >= 0) {
+            return lyricalInputIndex;
+        }
+        return defaultInputIndex >= 0 ? defaultInputIndex : (conflictInputIndex >= 0 ? conflictInputIndex : lyricalInputIndex);
+    }
+
+    private boolean shouldApplyMicroMotion(Storyboard shot,
+                                           boolean dynamicSource,
+                                           int consecutiveStaticShots,
+                                           double consecutiveStaticSeconds) {
+        if (!composeAutoMicroMotionEnabled || dynamicSource || shot == null) {
+            return false;
+        }
+        if (shouldUseDynamicVideo(shot) || isHighMotion(shot)) {
+            return false;
+        }
+        return consecutiveStaticShots >= Math.max(1, composeRhythmMaxStaticShots)
+                || consecutiveStaticSeconds >= Math.max(4d, composeRhythmMaxStaticSeconds);
+    }
+
+    private record ComposeExportProfile(String preset, int crf, String audioBitrate) {}
+
+    private ComposeExportProfile resolveComposeExportProfile() {
+        String normalized = hasText(composeExportProfile) ? composeExportProfile.trim().toLowerCase(Locale.ROOT) : "publish";
+        if ("preview".equals(normalized)) {
+            return new ComposeExportProfile(
+                    hasText(composePreviewPreset) ? composePreviewPreset.trim() : "veryfast",
+                    Math.min(Math.max(composePreviewCrf, 16), 34),
+                    hasText(composePreviewAudioBitrate) ? composePreviewAudioBitrate.trim() : "128k");
+        }
+        return new ComposeExportProfile(
+                hasText(composePublishPreset) ? composePublishPreset.trim() : "slow",
+                Math.min(Math.max(composePublishCrf, 14), 30),
+                hasText(composePublishAudioBitrate) ? composePublishAudioBitrate.trim() : "192k");
     }
 
     private String resolveTransitionName(Storyboard previous, Storyboard next, int index) {
@@ -1601,7 +1765,24 @@ public class VideoCompositionService {
 
     private boolean isDynamicVideoTaskTimedOut(TaskRecord task) {
         LocalDateTime createTime = task.getCreateTime();
-        return createTime != null && Duration.between(createTime, LocalDateTime.now()).compareTo(DYNAMIC_VIDEO_TASK_TIMEOUT) >= 0;
+        Duration timeout = Duration.ofMinutes(Math.max(5L, dynamicVideoTimeoutMinutes));
+        return createTime != null && Duration.between(createTime, LocalDateTime.now()).compareTo(timeout) >= 0;
+    }
+
+    private long resolveDynamicPollDelaySeconds(TaskRecord task) {
+        long base = Math.max(2L, dynamicVideoPollBaseSeconds);
+        long max = Math.max(base, dynamicVideoPollMaxSeconds);
+        if (task == null || task.getCreateTime() == null) {
+            return base;
+        }
+        long elapsed = Duration.between(task.getCreateTime(), LocalDateTime.now()).getSeconds();
+        if (elapsed < 60) {
+            return base;
+        }
+        if (elapsed < 180) {
+            return Math.min(max, base * 2);
+        }
+        return max;
     }
 
     private boolean isPendingDynamicVideoShot(Storyboard shot) {
