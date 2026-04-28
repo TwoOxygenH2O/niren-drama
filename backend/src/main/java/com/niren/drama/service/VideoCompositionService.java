@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.niren.drama.ai.AiProviderFactory;
+import com.niren.drama.ai.TtsProvider;
 import com.niren.drama.ai.trace.AiCallTrace;
 import com.niren.drama.ai.trace.AiTraceContext;
 import com.niren.drama.entity.Project;
@@ -79,6 +81,7 @@ public class VideoCompositionService {
     private final ProjectMapper projectMapper;
     private final TaskRecordMapper taskRecordMapper;
     private final AiVideoGenerationService aiVideoGenerationService;
+    private final AiProviderFactory aiProviderFactory;
     private final PublicAssetStorageService publicAssetStorageService;
     private final ObjectMapper objectMapper;
     private final ObjectProvider<VideoCompositionService> selfProvider;
@@ -203,6 +206,28 @@ public class VideoCompositionService {
     private boolean composeSegmentedEnabled;
     @Value("${niren.compose.segmented.max-shots-per-segment:24}")
     private int composeMaxShotsPerSegment;
+    @Value("${niren.compose.narration.enabled:true}")
+    private boolean composeNarrationEnabled;
+    @Value("${niren.compose.narration.volume:0.22}")
+    private double composeNarrationVolume;
+    @Value("${niren.compose.narration.ducking-when-dialogue:true}")
+    private boolean composeNarrationDuckingWhenDialogue;
+    @Value("${niren.compose.narration.max-segment-seconds:3.5}")
+    private double composeNarrationMaxSegmentSeconds;
+    @Value("${niren.compose.narration.pause-on-conflict:true}")
+    private boolean composeNarrationPauseOnConflict;
+    @Value("${niren.compose.mix.dialogue-priority:true}")
+    private boolean composeDialoguePriority;
+    @Value("${niren.compose.mix.narration-recover-ms:280}")
+    private int composeNarrationRecoverMs;
+    @Value("${niren.compose.mix.dialogue-threshold:0.035}")
+    private double composeDialogueThreshold;
+    @Value("${niren.dynamic-priority.target-dynamic-ratio:0.99}")
+    private double targetDynamicRatio;
+    @Value("${niren.dynamic-priority.force-dynamic-by-default:true}")
+    private boolean forceDynamicByDefault;
+    @Value("${niren.dynamic-priority.quality-max-retry:1}")
+    private int dynamicQualityMaxRetry;
 
     private volatile String resolvedFfmpegExecutable;
     private volatile String resolvedFfprobeExecutable;
@@ -219,6 +244,7 @@ public class VideoCompositionService {
                                   String subtitleText) {}
 
     private record ShotSegment(Path videoPath, double clipDuration, Storyboard shot) {}
+    private record NarrationSegment(long startMs, String text, double maxSeconds) {}
 
     /**
      * Start the video composition process for a project.
@@ -399,6 +425,12 @@ public class VideoCompositionService {
                     Path sourceVideo = workDir.resolve("source_shot_" + shot.getShotNo() + ".mp4");
                     downloadFile(shot.getVideoUrl(), sourceVideo);
                     composeDynamicShot(sourceVideo, audioPath, shotVideo, renderPlan, shot);
+                    int retry = 0;
+                    while (retry < Math.max(0, dynamicQualityMaxRetry) && !isDynamicClipQualityAcceptable(shotVideo)) {
+                        retry++;
+                        log.debug("动态镜头质量未达阈值，触发重编码: taskId={}, shotNo={}, retry={}", taskId, shot.getShotNo(), retry);
+                        composeDynamicShot(sourceVideo, audioPath, shotVideo, renderPlan, shot);
+                    }
                     consecutiveStaticShots = 0;
                     consecutiveStaticSeconds = 0d;
                 } else {
@@ -425,7 +457,8 @@ public class VideoCompositionService {
             // Step 2: Concatenate all shot videos
             String outputFilename = UUID.randomUUID().toString().replace("-", "") + ".mp4";
             Path finalVideo = videoDir.resolve(outputFilename);
-            concatenateVideosSmart(shotVideos, finalVideo, workDir, bgmPath, transitionSfxPath, transitionConflictSfxPath, transitionLyricalSfxPath, ambientPath);
+            Path narrationTrack = generateGlobalNarrationTrack(userId, shotVideos, workDir);
+            concatenateVideosSmart(shotVideos, finalVideo, workDir, bgmPath, transitionSfxPath, transitionConflictSfxPath, transitionLyricalSfxPath, ambientPath, narrationTrack);
 
             if (!Files.exists(finalVideo) || Files.size(finalVideo) == 0) {
                 throw new BusinessException("视频拼接失败");
@@ -450,7 +483,7 @@ public class VideoCompositionService {
             task.setStatus("SUCCESS");
             task.setProgress(100);
             task.setMessage("视频合成完成！");
-            task.setResult(videoUrl);
+            task.setResult(buildComposeTaskResult(videoUrl, shotVideos, narrationTrack));
             taskRecordMapper.updateById(task);
             log.debug("视频合成完成: taskId={}, projectId={}, output={}, composedShots={}",
                     taskId, projectId, videoUrl, shotVideos.size());
@@ -939,7 +972,8 @@ public class VideoCompositionService {
                                    Path transitionSfxPath,
                                    Path transitionConflictSfxPath,
                                    Path transitionLyricalSfxPath,
-                                   Path ambientPath) throws IOException, InterruptedException {
+                                   Path ambientPath,
+                                   Path narrationPath) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
         cmd.add(ffmpegPath);
         cmd.add("-y");
@@ -985,9 +1019,16 @@ public class VideoCompositionService {
             cmd.add("-i");
             cmd.add(ambientPath.toAbsolutePath().toString());
         }
+        int narrationInputIndex = -1;
+        if (narrationPath != null && Files.exists(narrationPath)) {
+            narrationInputIndex = cmd.stream().filter("-i"::equals).toArray().length;
+            cmd.add("-i");
+            cmd.add(narrationPath.toAbsolutePath().toString());
+        }
 
         cmd.add("-filter_complex");
-        cmd.add(buildFinalCompositionFilter(videos, bgmInputIndex, transitionSfxInputIndex, transitionConflictSfxInputIndex, transitionLyricalSfxInputIndex, ambientInputIndex));
+        cmd.add(buildFinalCompositionFilter(videos, bgmInputIndex, transitionSfxInputIndex, transitionConflictSfxInputIndex,
+                transitionLyricalSfxInputIndex, ambientInputIndex, narrationInputIndex));
         cmd.add("-map");
         cmd.add("[vout]");
         cmd.add("-map");
@@ -1025,10 +1066,11 @@ public class VideoCompositionService {
                                         Path transitionSfxPath,
                                         Path transitionConflictSfxPath,
                                         Path transitionLyricalSfxPath,
-                                        Path ambientPath) throws IOException, InterruptedException {
+                                        Path ambientPath,
+                                        Path narrationPath) throws IOException, InterruptedException {
         int maxPerSegment = Math.max(8, composeMaxShotsPerSegment);
         if (!composeSegmentedEnabled || videos.size() <= maxPerSegment) {
-            concatenateVideos(videos, outputPath, bgmPath, transitionSfxPath, transitionConflictSfxPath, transitionLyricalSfxPath, ambientPath);
+            concatenateVideos(videos, outputPath, bgmPath, transitionSfxPath, transitionConflictSfxPath, transitionLyricalSfxPath, ambientPath, narrationPath);
             return;
         }
         List<ShotSegment> segments = new ArrayList<>();
@@ -1037,12 +1079,12 @@ public class VideoCompositionService {
             int end = Math.min(videos.size(), i + maxPerSegment);
             List<ShotSegment> subList = videos.subList(i, end);
             Path segmentFile = workDir.resolve("segment_" + segmentIndex + ".mp4");
-            concatenateVideos(subList, segmentFile, null, null, null, null, null);
+            concatenateVideos(subList, segmentFile, null, null, null, null, null, null);
             double segmentDuration = subList.stream().mapToDouble(ShotSegment::clipDuration).sum();
             segments.add(new ShotSegment(segmentFile, segmentDuration, subList.get(0).shot()));
             segmentIndex++;
         }
-        concatenateVideos(segments, outputPath, bgmPath, transitionSfxPath, transitionConflictSfxPath, transitionLyricalSfxPath, ambientPath);
+        concatenateVideos(segments, outputPath, bgmPath, transitionSfxPath, transitionConflictSfxPath, transitionLyricalSfxPath, ambientPath, narrationPath);
     }
 
     private String buildFinalCompositionFilter(List<ShotSegment> segments,
@@ -1050,7 +1092,8 @@ public class VideoCompositionService {
                                                int transitionSfxInputIndex,
                                                int transitionConflictSfxInputIndex,
                                                int transitionLyricalSfxInputIndex,
-                                               int ambientInputIndex) {
+                                               int ambientInputIndex,
+                                               int narrationInputIndex) {
         List<String> filterSteps = new ArrayList<>();
         List<Double> transitionMarkers = new ArrayList<>();
         List<TransitionMood> transitionMoods = new ArrayList<>();
@@ -1149,6 +1192,26 @@ public class VideoCompositionService {
                     "[%s][ambloop]amix=inputs=2:duration=first:weights='1 0.2':normalize=0[amixamb]",
                     mixedAudio));
             mixedAudio = "amixamb";
+        }
+
+        if (narrationInputIndex >= 0) {
+            double narrationVol = Math.min(Math.max(composeNarrationVolume, 0.05d), 0.5d);
+            filterSteps.add(String.format(Locale.ROOT,
+                    "[%d:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=%s,asetpts=PTS-STARTPTS,volume=%s[nar0]",
+                    narrationInputIndex, ffmpegNumber(currentDuration), ffmpegNumber(narrationVol)));
+            String narrationTrack = "nar0";
+            if (composeDialoguePriority && composeNarrationDuckingWhenDialogue) {
+                filterSteps.add(String.format(Locale.ROOT,
+                        "[nar0][%s]sidechaincompress=threshold=%s:ratio=12:attack=10:release=%d[narduck]",
+                        voiceAudio,
+                        ffmpegNumber(Math.min(Math.max(composeDialogueThreshold, 0.005d), 1.0d)),
+                        Math.max(80, composeNarrationRecoverMs)));
+                narrationTrack = "narduck";
+            }
+            filterSteps.add(String.format(Locale.ROOT,
+                    "[%s][%s]amix=inputs=2:duration=first:weights='1 0.22':normalize=0[amixnar]",
+                    mixedAudio, narrationTrack));
+            mixedAudio = "amixnar";
         }
 
         int resolvedConflictInput = transitionConflictSfxInputIndex >= 0
@@ -1968,8 +2031,163 @@ public class VideoCompositionService {
         }
     }
 
+    private String buildComposeTaskResult(String videoUrl, List<ShotSegment> shotVideos, Path narrationTrack) {
+        if (!hasText(videoUrl)) {
+            return videoUrl;
+        }
+        try {
+            ObjectNode root = objectMapper.createObjectNode();
+            root.put("videoUrl", videoUrl);
+            int total = shotVideos != null ? shotVideos.size() : 0;
+            long dynamicCount = shotVideos == null ? 0 : shotVideos.stream()
+                    .filter(segment -> segment.shot() != null && shouldUseDynamicVideo(segment.shot()))
+                    .count();
+            root.put("totalShots", total);
+            root.put("dynamicShots", dynamicCount);
+            root.put("dynamicRatio", total <= 0 ? 0d : dynamicCount * 1.0d / total);
+            root.put("globalNarrationEnabled", narrationTrack != null && Files.exists(narrationTrack));
+            if (narrationTrack != null && Files.exists(narrationTrack)) {
+                root.put("globalNarrationDurationSeconds", measureMediaDurationSeconds(narrationTrack));
+            }
+            return objectMapper.writeValueAsString(root);
+        } catch (Exception e) {
+            return videoUrl;
+        }
+    }
+
+    private Path generateGlobalNarrationTrack(Long userId, List<ShotSegment> shotVideos, Path workDir) {
+        if (!composeNarrationEnabled || shotVideos == null || shotVideos.isEmpty()) {
+            return null;
+        }
+        try {
+            List<NarrationSegment> segments = buildNarrationTimeline(shotVideos);
+            if (segments.isEmpty()) {
+                return null;
+            }
+            TtsProvider ttsProvider = aiProviderFactory.getTtsProvider(userId);
+            List<Path> segmentAudios = new ArrayList<>();
+            List<Long> delays = new ArrayList<>();
+            List<Double> durations = new ArrayList<>();
+            int index = 0;
+            for (NarrationSegment segment : segments) {
+                byte[] audio = ttsProvider.synthesize(segment.text(), "Cherry", 1.0f, 1.0f,
+                        "旁白短句，克制平稳，避免抢对白", "Chinese");
+                if (audio == null || audio.length <= 100) {
+                    continue;
+                }
+                Path segmentPath = workDir.resolve("narration_seg_" + index + ".mp3");
+                Files.write(segmentPath, audio);
+                segmentAudios.add(segmentPath);
+                delays.add(Math.max(0L, segment.startMs()));
+                durations.add(Math.max(0.6d, Math.min(segment.maxSeconds(), measureMediaDurationSeconds(segmentPath))));
+                index++;
+            }
+            if (segmentAudios.isEmpty()) {
+                return null;
+            }
+            double totalDuration = shotVideos.stream().mapToDouble(ShotSegment::clipDuration).sum() + 0.2d;
+            Path output = workDir.resolve("global_narration.m4a");
+            List<String> cmd = new ArrayList<>();
+            cmd.add(ffmpegPath);
+            cmd.add("-y");
+            cmd.add("-f");
+            cmd.add("lavfi");
+            cmd.add("-i");
+            cmd.add("anullsrc=r=44100:cl=stereo:d=" + ffmpegNumber(totalDuration));
+            for (Path segmentAudio : segmentAudios) {
+                cmd.add("-i");
+                cmd.add(segmentAudio.toAbsolutePath().toString());
+            }
+            StringBuilder fc = new StringBuilder();
+            for (int i = 0; i < segmentAudios.size(); i++) {
+                if (i > 0) {
+                    fc.append(";");
+                }
+                int delay = Math.toIntExact(Math.min(Integer.MAX_VALUE, delays.get(i)));
+                fc.append(String.format(Locale.ROOT,
+                        "[%d:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=%s,adelay=%d|%d[n%d]",
+                        i + 1, ffmpegNumber(durations.get(i)), delay, delay, i));
+            }
+            StringBuilder mixInputs = new StringBuilder("[0:a]");
+            for (int i = 0; i < segmentAudios.size(); i++) {
+                mixInputs.append("[n").append(i).append("]");
+            }
+            fc.append(";").append(mixInputs)
+                    .append("amix=inputs=").append(segmentAudios.size() + 1)
+                    .append(":duration=first:normalize=0[aout]");
+            cmd.add("-filter_complex");
+            cmd.add(fc.toString());
+            cmd.add("-map");
+            cmd.add("[aout]");
+            cmd.add("-c:a");
+            cmd.add("aac");
+            cmd.add("-b:a");
+            cmd.add("128k");
+            cmd.add(output.toAbsolutePath().toString());
+            executeFFmpeg(cmd);
+            return Files.exists(output) ? output : null;
+        } catch (Exception e) {
+            log.warn("生成整集旁白轨失败，已回退无旁白: {}", buildFailureReason(e));
+            return null;
+        }
+    }
+
+    private List<NarrationSegment> buildNarrationTimeline(List<ShotSegment> shotVideos) {
+        List<NarrationSegment> segments = new ArrayList<>();
+        long cursor = 0L;
+        for (ShotSegment shotSegment : shotVideos) {
+            Storyboard shot = shotSegment.shot();
+            double clipDuration = Math.max(0.8d, shotSegment.clipDuration());
+            if (shot != null && hasText(shot.getNarration())) {
+                String narration = DramaTextSanitizer.normalizeSpokenText(shot.getNarration());
+                if (hasText(narration) && !(composeNarrationPauseOnConflict && isConflictTone(coalesceMoodText(shot)))) {
+                    boolean strongDialogue = hasText(shot.getDialogue()) && shot.getDialogue().length() >= 14;
+                    if (!strongDialogue) {
+                        segments.add(new NarrationSegment(
+                                cursor,
+                                trimNarrationSegment(narration),
+                                Math.min(composeNarrationMaxSegmentSeconds, clipDuration * 0.75d)));
+                    }
+                }
+            }
+            cursor += Math.round(clipDuration * 1000d);
+        }
+        return segments;
+    }
+
+    private String trimNarrationSegment(String narration) {
+        if (!hasText(narration)) {
+            return "";
+        }
+        String normalized = narration.replace("\n", " ").trim();
+        if (normalized.length() <= 38) {
+            return normalized;
+        }
+        return normalized.substring(0, 38);
+    }
+
+    private boolean isDynamicClipQualityAcceptable(Path shotVideo) {
+        return shotVideo != null && Files.exists(shotVideo);
+    }
+
     private boolean shouldUseDynamicVideo(Storyboard shot) {
-        return Boolean.TRUE.equals(shot.getDynamicSelected()) || "video".equalsIgnoreCase(shot.getRenderMode());
+        if (shot == null) {
+            return false;
+        }
+        if (forceDynamicByDefault) {
+            if ("image".equalsIgnoreCase(shot.getRenderMode()) && !Boolean.TRUE.equals(shot.getDynamicSelected())) {
+                return false;
+            }
+            return true;
+        }
+        if (Boolean.TRUE.equals(shot.getDynamicSelected()) || "video".equalsIgnoreCase(shot.getRenderMode())) {
+            return true;
+        }
+        if (targetDynamicRatio >= 0.95d) {
+            Integer score = shot.getDynamicScore();
+            return score == null || score >= 30;
+        }
+        return false;
     }
 
     private boolean hasText(String text) {
@@ -2097,8 +2315,9 @@ public class VideoCompositionService {
      * Get the physical path of the video file for download.
      */
     public Path getVideoFilePath(String videoUrl) {
-        if (videoUrl == null || !videoUrl.startsWith(baseUrl)) return null;
-        String relativePath = videoUrl.substring(baseUrl.length());
+        String resolvedUrl = extractVideoUrl(videoUrl);
+        if (resolvedUrl == null || !resolvedUrl.startsWith(baseUrl)) return null;
+        String relativePath = resolvedUrl.substring(baseUrl.length());
         if (relativePath.startsWith("/")) relativePath = relativePath.substring(1);
         return Paths.get(uploadPath, relativePath);
     }
@@ -2133,5 +2352,21 @@ public class VideoCompositionService {
             log.warn("导出后清理任务结果失败: taskId={}", taskId, e);
         }
         return deleted;
+    }
+
+    public String extractVideoUrl(String taskResult) {
+        if (!hasText(taskResult)) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(taskResult);
+            String videoUrl = node.path("videoUrl").asText("");
+            if (hasText(videoUrl)) {
+                return videoUrl;
+            }
+        } catch (Exception ignored) {
+            // old format: raw url string
+        }
+        return taskResult;
     }
 }

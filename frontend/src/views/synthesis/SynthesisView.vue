@@ -56,6 +56,22 @@
       </div>
     </div>
 
+    <el-card class="mix-config-card" shadow="never">
+      <template #header>
+        <div class="copy-check-header">
+          <span>动态主链路与旁白混音策略</span>
+        </div>
+      </template>
+      <div class="mix-config-grid">
+        <el-switch v-model="composeOptions.narrationEnabled" active-text="整集旁白轨" />
+        <el-switch v-model="composeOptions.dialoguePriority" active-text="对白优先混音" />
+        <div class="mix-volume">
+          <span>旁白音量</span>
+          <el-slider v-model="composeOptions.narrationVolume" :min="0.1" :max="0.5" :step="0.01" style="width: 180px" />
+        </div>
+      </div>
+    </el-card>
+
     <el-card v-if="shots.length" class="copy-check-card" shadow="hover">
       <template #header>
         <div class="copy-check-header">
@@ -160,6 +176,9 @@
         </div>
         <div v-if="stepDurationText">
           步骤耗时：{{ stepDurationText }}
+        </div>
+        <div v-if="composeSummaryText">
+          合成摘要：{{ composeSummaryText }}
         </div>
       </div>
       <div v-if="taskTrace" class="task-trace-panel">
@@ -414,6 +433,11 @@ const dynamicLoading = ref(false)
 const audioLoading = ref(false)
 const composeLoading = ref(false)
 const downloadLoading = ref(false)
+const composeOptions = ref({
+  narrationEnabled: true,
+  narrationVolume: 0.22,
+  dialoguePriority: true,
+})
 
 type DialogType = 'images' | 'dynamic' | 'audio' | 'compose'
 type DialogGroup = 'pending' | 'generated'
@@ -456,6 +480,18 @@ const stepDurationText = computed(() => {
   return Object.entries(steps)
     .map(([k, v]) => `${k}:${formatMs(Number(v || 0))}`)
     .join('，')
+})
+const composeSummaryText = computed(() => {
+  const payload = parseAnyTaskResult(currentTask.value?.result)
+  if (!payload) return ''
+  const total = Number(payload.totalShots || 0)
+  const dynamic = Number(payload.dynamicShots || 0)
+  const ratio = Number(payload.dynamicRatio || 0)
+  if (total <= 0) return ''
+  const narration = payload.globalNarrationEnabled
+    ? `旁白轨 ${Number(payload.globalNarrationDurationSeconds || 0).toFixed(1)}s`
+    : '无旁白轨'
+  return `动态 ${dynamic}/${total} (${formatRatio(ratio)})，${narration}`
 })
 const asyncTaskDetails = computed(() => {
   const items = taskTrace.value?.summary?.asyncTasks
@@ -597,7 +633,7 @@ const confirmGenerate = async () => {
       ElMessage.success('分镜配音生成任务已提交')
     } else if (dialogType.value === 'compose') {
       composeLoading.value = true
-      res = await videoApi.compose(projectId, shotIds)
+      res = await videoApi.compose(projectId, shotIds, composeOptions.value)
       ElMessage.success('视频合成任务已提交')
     }
     if (res && res.data && res.data.data) {
@@ -776,6 +812,15 @@ function parseTaskTrace(raw: any) {
   }
 }
 
+function parseAnyTaskResult(raw: any) {
+  if (!raw || typeof raw !== 'string') return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
 function formatTraceBody(value: any) {
   if (!value) return ''
   if (typeof value === 'string') {
@@ -854,6 +899,22 @@ onUnmounted(() => {
 
 .copy-check-card {
   margin-bottom: 20px;
+}
+.mix-config-card {
+  margin-bottom: 16px;
+}
+.mix-config-grid {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.mix-volume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 .copy-check-header {
   display: flex;

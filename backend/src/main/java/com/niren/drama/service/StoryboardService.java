@@ -125,6 +125,10 @@ public class StoryboardService {
     private int dynamicRecommendMaxCountPerEpisode;
     @Value("${niren.recommend.dynamic.min-score-to-recommend:60}")
     private int dynamicRecommendMinScoreToRecommend;
+    @Value("${niren.dynamic-priority.target-dynamic-ratio:0.99}")
+    private double targetDynamicRatio;
+    @Value("${niren.dynamic-priority.force-dynamic-by-default:true}")
+    private boolean forceDynamicByDefault;
     @Value("${niren.image.retry.max-attempts:3}")
     private int imageRetryMaxAttempts;
     @Value("${niren.image.retry.backoff-ms:900}")
@@ -2036,6 +2040,33 @@ if (isStream) {
             log.debug("动态推荐统计: episodeNo={}, totalShots={}, candidateCount={}, kept={}, trimmed={}, avgScore={}",
                     ep, total, candidates.size(), kept, trimmed, avgScore);
         }
+        if (forceDynamicByDefault) {
+            enforceDynamicTargetRatio(shots);
+        }
+    }
+
+    private void enforceDynamicTargetRatio(List<Storyboard> shots) {
+        if (shots == null || shots.isEmpty()) {
+            return;
+        }
+        int total = shots.size();
+        int target = Math.max(1, (int) Math.ceil(total * Math.max(0.5d, Math.min(1.0d, targetDynamicRatio))));
+        List<Storyboard> sorted = shots.stream()
+                .sorted((a, b) -> Integer.compare(
+                        b.getDynamicScore() != null ? b.getDynamicScore() : 0,
+                        a.getDynamicScore() != null ? a.getDynamicScore() : 0))
+                .toList();
+        int selected = 0;
+        for (Storyboard shot : sorted) {
+            boolean enable = selected < target;
+            shot.setDynamicSelected(enable);
+            shot.setRenderMode(enable ? "video" : "image");
+            if (enable) {
+                selected++;
+            }
+        }
+        log.debug("动态占比策略生效: totalShots={}, targetDynamicRatio={}, targetCount={}, selected={}",
+                total, targetDynamicRatio, target, selected);
     }
 
     private String resolveMotionLevel(String aiMotionLevel, int score) {

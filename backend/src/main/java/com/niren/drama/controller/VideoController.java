@@ -151,14 +151,15 @@ public class VideoController {
     @GetMapping("/download/{projectId}")
     public ResponseEntity<StreamingResponseBody> download(@PathVariable Long projectId) throws Exception {
         TaskRecord task = videoCompositionService.getLatestVideoTask(projectId);
-        if (task == null || !"SUCCESS".equals(task.getStatus()) || task.getResult() == null) {
+        String taskVideoUrl = task != null ? videoCompositionService.extractVideoUrl(task.getResult()) : null;
+        if (task == null || !"SUCCESS".equals(task.getStatus()) || taskVideoUrl == null) {
             return ResponseEntity.notFound().build();
         }
 
-        Path videoPath = videoCompositionService.getVideoFilePath(task.getResult());
-        if (videoPath == null && task.getResult().startsWith("http")) {
+        Path videoPath = videoCompositionService.getVideoFilePath(taskVideoUrl);
+        if (videoPath == null && taskVideoUrl.startsWith("http")) {
             return ResponseEntity.status(302)
-                    .header(HttpHeaders.LOCATION, task.getResult())
+                    .header(HttpHeaders.LOCATION, taskVideoUrl)
                     .build();
         }
         if (videoPath == null || !Files.exists(videoPath)) {
@@ -205,7 +206,9 @@ public class VideoController {
             .filter(s -> Boolean.TRUE.equals(s.getDynamicSelected()))
             .filter(s -> s.getVideoUrl() != null && !s.getVideoUrl().isBlank())
             .count();
-        String videoUrl = latestTask != null && "SUCCESS".equals(latestTask.getStatus()) ? latestTask.getResult() : null;
+        String videoUrl = latestTask != null && "SUCCESS".equals(latestTask.getStatus())
+                ? videoCompositionService.extractVideoUrl(latestTask.getResult())
+                : null;
 
         Map<String, Object> overview = Map.of(
                 "totalShots", totalShots,
