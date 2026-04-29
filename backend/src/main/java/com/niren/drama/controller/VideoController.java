@@ -202,6 +202,9 @@ public class VideoController {
         long audioReady = shots.stream().filter(s -> s.getAudioUrl() != null && !s.getAudioUrl().isBlank()).count();
         long dynamicRecommended = shots.stream().filter(s -> Boolean.TRUE.equals(s.getDynamicRecommended())).count();
         long dynamicSelected = shots.stream().filter(s -> Boolean.TRUE.equals(s.getDynamicSelected())).count();
+        long tierA = shots.stream().filter(s -> "A".equalsIgnoreCase(s.getMotionTier())).count();
+        long tierB = shots.stream().filter(s -> "B".equalsIgnoreCase(s.getMotionTier())).count();
+        long tierC = shots.stream().filter(s -> !("A".equalsIgnoreCase(s.getMotionTier()) || "B".equalsIgnoreCase(s.getMotionTier()))).count();
         long dynamicReady = shots.stream()
             .filter(s -> Boolean.TRUE.equals(s.getDynamicSelected()))
             .filter(s -> s.getVideoUrl() != null && !s.getVideoUrl().isBlank())
@@ -216,6 +219,9 @@ public class VideoController {
                 "audioReady", audioReady,
                 "dynamicRecommended", dynamicRecommended,
                 "dynamicSelected", dynamicSelected,
+                "tierA", tierA,
+                "tierB", tierB,
+                "tierC", tierC,
                 "dynamicReady", dynamicReady,
                 "videoUrl", videoUrl != null ? videoUrl : "",
                 "latestTask", latestTask != null ? latestTask : Map.of()

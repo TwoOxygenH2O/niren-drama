@@ -831,6 +831,22 @@ public class VideoCompositionService {
         String xExpr = "iw/2-(iw/zoom/2)";
         String yExpr = "ih/2-(ih/zoom/2)";
         String cameraAngle = normalizeCameraAngle(shot != null ? shot.getCameraAngle() : null);
+        String motionTier = resolveMotionTier(shot);
+        int motionPattern = shot != null && shot.getShotNo() != null ? Math.floorMod(shot.getShotNo(), 3) : 0;
+        if ("C".equalsIgnoreCase(motionTier)) {
+            zoomStep = 0.0006d;
+            zoomMax = 1.10d;
+        } else if ("B".equalsIgnoreCase(motionTier)) {
+            zoomStep = 0.0012d;
+            zoomMax = 1.22d;
+            if (motionPattern == 1) {
+                xExpr = "iw/2-(iw/zoom/2)+sin(on/16)*14";
+                yExpr = "ih/2-(ih/zoom/2)+cos(on/18)*8";
+            } else if (motionPattern == 2) {
+                xExpr = "iw/2-(iw/zoom/2)+sin(on/20)*10";
+                yExpr = "ih/2-(ih/zoom/2)-on*0.08";
+            }
+        }
         if (isHighMotion(shot)) {
             zoomStep = 0.0016d;
             zoomMax = 1.30d;
@@ -1723,8 +1739,14 @@ public class VideoCompositionService {
     }
 
     private String resolveTransitionName(Storyboard previous, Storyboard next, int index) {
-        if (shouldUseDynamicVideo(previous) || shouldUseDynamicVideo(next) || isHighMotion(previous) || isHighMotion(next)) {
+        String prevTier = resolveMotionTier(previous);
+        String nextTier = resolveMotionTier(next);
+        if ("A".equalsIgnoreCase(prevTier) || "A".equalsIgnoreCase(nextTier)
+                || shouldUseDynamicVideo(previous) || shouldUseDynamicVideo(next) || isHighMotion(previous) || isHighMotion(next)) {
             return index % 2 == 0 ? "smoothleft" : "smoothup";
+        }
+        if ("B".equalsIgnoreCase(prevTier) || "B".equalsIgnoreCase(nextTier)) {
+            return index % 2 == 0 ? "fade" : "wipeleft";
         }
         String nextAngle = normalizeCameraAngle(next != null ? next.getCameraAngle() : null);
         return switch (nextAngle) {
@@ -1898,12 +1920,19 @@ public class VideoCompositionService {
     }
 
     private Map<String, ?> buildDynamicVideoSummary(Long taskId, int total, int generated, int failed, int pending) {
+        List<Map<String, Object>> asyncItems = buildDynamicVideoTaskItems(taskId);
+        long tierA = asyncItems.stream().filter(item -> "A".equalsIgnoreCase(String.valueOf(item.get("motionTier")))).count();
+        long tierB = asyncItems.stream().filter(item -> "B".equalsIgnoreCase(String.valueOf(item.get("motionTier")))).count();
+        long tierC = asyncItems.stream().filter(item -> "C".equalsIgnoreCase(String.valueOf(item.get("motionTier")))).count();
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("total", total);
         summary.put("generated", generated);
         summary.put("failed", failed);
         summary.put("pending", pending);
-        summary.put("asyncTasks", buildDynamicVideoTaskItems(taskId));
+        summary.put("tierA", tierA);
+        summary.put("tierB", tierB);
+        summary.put("tierC", tierC);
+        summary.put("asyncTasks", asyncItems);
         return summary;
     }
 
@@ -1935,6 +1964,7 @@ public class VideoCompositionService {
             item.put("taskStatus", shot.getVideoTaskStatus());
             item.put("renderStatus", shot.getStatus());
             item.put("videoUrl", shot.getVideoUrl());
+            item.put("motionTier", hasText(shot.getMotionTier()) ? shot.getMotionTier() : "C");
             items.add(item);
         }
         return items;
@@ -2174,6 +2204,10 @@ public class VideoCompositionService {
         if (shot == null) {
             return false;
         }
+        String tier = resolveMotionTier(shot);
+        if (hasText(tier) && !"A".equalsIgnoreCase(tier) && !Boolean.TRUE.equals(shot.getDynamicSelected())) {
+            return false;
+        }
         if (forceDynamicByDefault) {
             if ("image".equalsIgnoreCase(shot.getRenderMode()) && !Boolean.TRUE.equals(shot.getDynamicSelected())) {
                 return false;
@@ -2188,6 +2222,17 @@ public class VideoCompositionService {
             return score == null || score >= 30;
         }
         return false;
+    }
+
+    private String resolveMotionTier(Storyboard shot) {
+        if (shot == null || !hasText(shot.getMotionTier())) {
+            return "C";
+        }
+        String normalized = shot.getMotionTier().trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "A", "B", "C" -> normalized;
+            default -> "C";
+        };
     }
 
     private boolean hasText(String text) {

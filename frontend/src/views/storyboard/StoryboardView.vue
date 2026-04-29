@@ -162,12 +162,14 @@
               <div class="dynamic-labels">
                 <span v-if="shot.dynamicRecommended" class="dynamic-badge recommended">推荐动态</span>
                 <span v-if="shot.dynamicSelected" class="dynamic-badge selected">已选动态</span>
+                <span class="dynamic-badge">{{ motionTierLabel(shot.motionTier) }}</span>
                 <span class="dynamic-score">{{ shot.dynamicScore || 0 }} 分</span>
               </div>
               <span class="dynamic-motion">{{ motionLevelLabel(shot.motionLevel) }}</span>
             </div>
 
             <div class="dynamic-reason">{{ shot.dynamicReason || '当前镜头更适合保留为静态图片' }}</div>
+            <div class="dynamic-reason subtle">{{ shot.motionTierReason || '按镜头语义自动分配动效档位' }}</div>
 
             <div class="dynamic-toggle-row">
               <div>
@@ -308,6 +310,7 @@ const shotStatusLabel = (status: string) => ({
 }[status] || status)
 
 const motionLevelLabel = (level: string) => ({ low: '轻动态', medium: '中动态', high: '强动态' }[level] || '轻动态')
+const motionTierLabel = (tier: string) => ({ A: 'A档 真i2v', B: 'B档 轻动态', C: 'C档 静帧' }[(tier || 'C').toUpperCase()] || 'C档 静帧')
 
 function resetPreviewDialog() {
   previewDialog.value.visible = false
@@ -797,6 +800,11 @@ onMounted(async () => {
   font-size: 12px;
   line-height: 1.6;
   color: #475569;
+}
+
+.dynamic-reason.subtle {
+  margin-top: 4px;
+  color: #64748b;
 }
 
 .dynamic-toggle-row {

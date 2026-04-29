@@ -102,6 +102,9 @@ niren:
     force-dynamic-by-default: ${NIREN_FORCE_DYNAMIC_BY_DEFAULT:true}
     # 动态镜头质量不理想时的最大重试次数（0=不重试）
     quality-max-retry: ${NIREN_DYNAMIC_QUALITY_MAX_RETRY:1}
+  motion-tier:
+    # 是否启用 A/B/C 分层动效策略（A=真i2v, B=轻动态, C=静帧基线）
+    enabled: ${NIREN_MOTION_TIER_ENABLED:true}
   recommend:
     dynamic:
       enabled: ${NIREN_DYNAMIC_RECOMMEND_ENABLED:true}
