@@ -62,7 +62,10 @@ niren:
       base-url: ${AI_TEXT_BASE_URL:https://api.openai.com/v1}
       api-key: ${AI_TEXT_API_KEY:}
       model: ${AI_TEXT_MODEL:gpt-4o}
-      max-tokens: ${AI_TEXT_MAX_TOKENS:8192}
+      max-tokens: ${AI_TEXT_MAX_TOKENS:16384}
+    sse:
+      # 将每个模型分片再拆成若干小片下发（按 Unicode 码点计，0 表示不拆、原样透传）
+      typewriter-code-points: ${NIREN_SSE_TYPEWRITER_CODE_POINTS:2}
     image:
       provider: ${AI_IMAGE_PROVIDER:aliyun}
       base-url: ${AI_IMAGE_BASE_URL:https://dashscope.aliyuncs.com/api/v1}

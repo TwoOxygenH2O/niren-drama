@@ -27,6 +27,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -213,19 +214,18 @@ public class VideoController {
                 ? videoCompositionService.extractVideoUrl(latestTask.getResult())
                 : null;
 
-        Map<String, Object> overview = Map.of(
-                "totalShots", totalShots,
-                "imagesReady", imagesReady,
-                "audioReady", audioReady,
-                "dynamicRecommended", dynamicRecommended,
-                "dynamicSelected", dynamicSelected,
-                "tierA", tierA,
-                "tierB", tierB,
-                "tierC", tierC,
-                "dynamicReady", dynamicReady,
-                "videoUrl", videoUrl != null ? videoUrl : "",
-                "latestTask", latestTask != null ? latestTask : Map.of()
-        );
+        Map<String, Object> overview = new LinkedHashMap<>();
+        overview.put("totalShots", totalShots);
+        overview.put("imagesReady", imagesReady);
+        overview.put("audioReady", audioReady);
+        overview.put("dynamicRecommended", dynamicRecommended);
+        overview.put("dynamicSelected", dynamicSelected);
+        overview.put("tierA", tierA);
+        overview.put("tierB", tierB);
+        overview.put("tierC", tierC);
+        overview.put("dynamicReady", dynamicReady);
+        overview.put("videoUrl", videoUrl != null ? videoUrl : "");
+        overview.put("latestTask", latestTask != null ? latestTask : Map.of());
         return Result.success(overview);
     }
 }

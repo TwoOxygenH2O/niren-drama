@@ -12,11 +12,13 @@ import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.service.ScriptService;
 import com.niren.drama.common.CurrentUserHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.niren.drama.common.sse.SseTextChunkFanout;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.http.MediaType;
@@ -41,6 +43,10 @@ public class ScriptController {
 
     @jakarta.annotation.Resource(name = "aiTaskExecutor")
     private java.util.concurrent.Executor sseExecutor;
+
+    /** 0 表示不按码点拆分，模型分片原样 SSE 下发 */
+    @Value("${niren.ai.sse.typewriter-code-points:2}")
+    private int typewriterCodePoints;
 
     @Operation(summary = "AI生成剧本（异步）")
     @PostMapping("/generate")
@@ -67,7 +73,9 @@ public class ScriptController {
 
         sseExecutor.execute(() -> {
             try {
-                scriptService.streamGenerateOutline(userId, request, chunk -> sendChunk(emitter, chunk));
+                // 空分片让部分代理/浏览器尽快开始消费响应，避免在模型首包前长时间「无任何事件」
+                sendChunk(emitter, "");
+                scriptService.streamGenerateOutline(userId, request, chunk -> sendContentChunk(emitter, chunk));
                 sendDone(emitter, "大纲预览生成完成");
                 emitter.complete();
             } catch (Exception e) {
@@ -100,7 +108,8 @@ public class ScriptController {
 
         sseExecutor.execute(() -> {
             try {
-                scriptService.streamGenerateScriptPreview(userId, request, chunk -> sendChunk(emitter, chunk));
+                sendChunk(emitter, "");
+                scriptService.streamGenerateScriptPreview(userId, request, chunk -> sendContentChunk(emitter, chunk));
                 sendDone(emitter, "剧本预览生成完成");
                 emitter.complete();
             } catch (Exception e) {
@@ -189,6 +198,24 @@ public class ScriptController {
         } catch (Exception e) {
             log.warn("SSE 发送分片失败: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 将模型返回的文本再拆成更小的片下发，使前端流式区域接近打字机效果；空串仍发一次以兼容连接 flush。
+     */
+    private void sendContentChunk(SseEmitter emitter, String chunk) {
+        if (chunk == null) {
+            return;
+        }
+        if (chunk.isEmpty()) {
+            sendChunk(emitter, "");
+            return;
+        }
+        if (typewriterCodePoints <= 0) {
+            sendChunk(emitter, chunk);
+            return;
+        }
+        SseTextChunkFanout.forEachCodePointSlice(chunk, typewriterCodePoints, sub -> sendChunk(emitter, sub));
     }
 
     private void sendDone(SseEmitter emitter, String message) {

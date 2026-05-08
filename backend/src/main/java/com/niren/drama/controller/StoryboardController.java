@@ -10,11 +10,13 @@ import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.service.StoryboardService;
 import com.niren.drama.common.CurrentUserHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.niren.drama.common.sse.SseTextChunkFanout;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -41,6 +43,9 @@ public class StoryboardController {
     @jakarta.annotation.Resource(name = "aiTaskExecutor")
     private java.util.concurrent.Executor sseExecutor;
 
+    @Value("${niren.ai.sse.typewriter-code-points:2}")
+    private int typewriterCodePoints;
+
     @Operation(summary = "AI生成分镜（异步）")
     @PostMapping("/generate")
     public Result<TaskRecord> generate(@RequestBody @Valid StoryboardGenerateRequest request,
@@ -59,7 +64,7 @@ public class StoryboardController {
         sseExecutor.execute(() -> {
             try {
                 storyboardService.streamGenerateStoryboard(userId, request,
-                        chunk -> sendChunk(emitter, chunk),
+                        chunk -> sendContentChunk(emitter, chunk),
                         progress -> sendProgress(emitter, progress));
                 sendDone(emitter, "分镜预览生成完成");
                 emitter.complete();
@@ -130,6 +135,21 @@ public class StoryboardController {
         } catch (Exception e) {
             log.warn("SSE 发送分片失败: {}", e.getMessage());
         }
+    }
+
+    private void sendContentChunk(SseEmitter emitter, String chunk) {
+        if (chunk == null) {
+            return;
+        }
+        if (chunk.isEmpty()) {
+            sendChunk(emitter, "");
+            return;
+        }
+        if (typewriterCodePoints <= 0) {
+            sendChunk(emitter, chunk);
+            return;
+        }
+        SseTextChunkFanout.forEachCodePointSlice(chunk, typewriterCodePoints, sub -> sendChunk(emitter, sub));
     }
 
     private void sendDone(SseEmitter emitter, String message) {

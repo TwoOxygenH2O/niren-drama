@@ -38,7 +38,10 @@ public class ProjectService {
                 .eq(Project::getUserId, userId)
                 .orderByDesc(Project::getCreateTime);
         if (StringUtils.isNotBlank(query.getKeyword())) {
-            wrapper.like(Project::getName, query.getKeyword());
+            String kw = query.getKeyword().trim();
+            wrapper.and(w -> w.like(Project::getName, kw)
+                    .or()
+                    .like(Project::getDescription, kw));
         }
         return projectMapper.selectPage(page, wrapper);
     }
@@ -87,6 +90,18 @@ public class ProjectService {
     public void updateCommonInfo(Long userId, Long id, String commonInfo) {
         Project project = getProject(userId, id);
         project.setCommonInfo(commonInfo);
+        projectMapper.updateById(project);
+    }
+
+    /**
+     * 将项目名称更新为通用信息中解析出的 AI 正式片名（非空且通过校验时写入）。
+     */
+    public void updateProjectName(Long userId, Long id, String name) {
+        if (StringUtils.isBlank(name)) {
+            return;
+        }
+        Project project = getProject(userId, id);
+        project.setName(name);
         projectMapper.updateById(project);
     }
 }

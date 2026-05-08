@@ -25,6 +25,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtUtils jwtUtils;
     private final UserDetailsService userDetailsService;
 
+    /**
+     * SSE 等异步请求在完成/出错时会再次以 ASYNC 方式派发到过滤器链；
+     * 默认 OncePerRequestFilter 会跳过 ASYNC 派次，导致 SecurityContext 为空、匿名用户触发 AccessDenied。
+     */
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {

@@ -1,63 +1,162 @@
 <template>
   <div class="layout-root">
-    <!-- Sidebar -->
-    <aside :class="['sidebar', { collapsed: isCollapsed }]">
-      <!-- Logo -->
-      <div class="sidebar-logo" @click="$router.push('/dashboard')">
-        <div class="logo-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path d="M15 10l4.553-2.843A1 1 0 0121 8.117v7.766a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <span v-if="!isCollapsed" class="logo-text">泥人剧场</span>
+    <aside v-if="!hideSidebar" class="sidebar-rail" aria-label="主导航">
+      <div class="rail-logo" @click="onRailLogoClick" title="泥人剧场">
+        <svg class="rail-logo-svg" width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <path
+            d="M8 6c0-1.1.9-2 2-2h6a6 6 0 016 6v4a4 4 0 01-4 4h-4a2 2 0 00-2 2v6a2 2 0 01-2 2H6a2 2 0 01-2-2V18c0-2.2 1.8-4 4-4h4a2 2 0 002-2V8a2 2 0 00-2-2H8z"
+            stroke="white"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M18 14h4a6 6 0 016 6v6a2 2 0 01-2 2h-4a2 2 0 01-2-2v-4a4 4 0 00-4-4h-2"
+            stroke="white"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
       </div>
 
-      <!-- Nav -->
-      <nav class="sidebar-nav">
-        <div class="nav-section-label" v-if="!isCollapsed">主功能</div>
-        <router-link to="/dashboard" class="nav-item" :class="{ active: activeMenu === '/dashboard' }">
-          <span class="nav-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="9 22 9 12 15 12 15 22" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </span>
-          <span v-if="!isCollapsed" class="nav-label">工作台</span>
-        </router-link>
-        <router-link to="/projects" class="nav-item" :class="{ active: activeMenu === '/projects' }">
-          <span class="nav-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="2" y="7" width="20" height="14" rx="2" ry="2" stroke="currentColor" stroke-width="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </span>
-          <span v-if="!isCollapsed" class="nav-label">项目管理</span>
-        </router-link>
-        <div class="nav-divider" />
-        <div class="nav-section-label" v-if="!isCollapsed">系统</div>
-        <router-link to="/settings" class="nav-item" :class="{ active: activeMenu === '/settings' }">
-          <span class="nav-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="2"/></svg>
-          </span>
-          <span v-if="!isCollapsed" class="nav-label">AI 配置</span>
-        </router-link>
-      </nav>
+      <div class="rail-center">
+        <nav class="rail-floating-nav" aria-label="功能入口">
+          <router-link
+            to="/dashboard"
+            class="rail-icon"
+            :class="{ 'rail-icon--active': isNavHome }"
+            title="首页"
+            @click="onRailHomeClick"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              <polyline points="9 22 9 12 15 12 15 22" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </router-link>
+          <router-link
+            to="/projects"
+            class="rail-icon"
+            :class="{ 'rail-icon--active': isNavSpace }"
+            title="我的空间"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </router-link>
+          <router-link
+            to="/library/subjects"
+            class="rail-icon"
+            :class="{ 'rail-icon--active': isNavLibrary }"
+            title="主体库"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="9" r="3.5" stroke="currentColor" stroke-width="1.8" />
+              <path d="M5 20v-1a5 5 0 015-5h2a5 5 0 015 5v1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <path d="M18.5 5.5l1.2 1.2M19.7 3.3l1.2 1.2M21 6h1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+            </svg>
+          </router-link>
+          <router-link
+            to="/settings"
+            class="rail-icon"
+            :class="{ 'rail-icon--active': isNavSettings }"
+            title="AI配置"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="8" r="3" stroke="currentColor" stroke-width="1.8" />
+              <path d="M6 20v-1a4 4 0 014-4h0a4 4 0 014 4v1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <path d="M17 11h3M18.5 9.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+            </svg>
+          </router-link>
+        </nav>
+      </div>
 
-      <!-- User area -->
-      <div class="sidebar-user" v-if="!isCollapsed">
-        <div class="user-avatar-letter">{{ (userStore.userInfo?.nickname || 'U').charAt(0).toUpperCase() }}</div>
-        <div class="user-meta">
-          <div class="user-name">{{ userStore.userInfo?.nickname || userStore.userInfo?.username }}</div>
-          <div class="user-role">{{ userStore.isAdmin ? '管理员' : '创作者' }}</div>
-        </div>
-        <button class="logout-btn" @click="handleLogout" title="退出登录">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+      <div class="rail-bottom">
+        <el-dropdown trigger="click" placement="right-start" @command="onUserCommand">
+          <div class="rail-user" title="人员信息" role="button" tabindex="0">
+            <div class="rail-avatar">{{ userInitial }}</div>
+          </div>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item disabled>{{ userDisplayName }}</el-dropdown-item>
+              <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+
+        <el-popover
+          v-model:visible="menuPopoverVisible"
+          placement="right-start"
+          :width="272"
+          trigger="click"
+          :show-arrow="false"
+          popper-class="rail-more-popover"
+          :offset="10"
+        >
+          <template #reference>
+            <button type="button" class="rail-menu-btn" title="菜单" aria-label="菜单">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <line x1="4" y1="8" x2="20" y2="8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                <line x1="4" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                <line x1="4" y1="16" x2="20" y2="16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+            </button>
+          </template>
+          <div class="rail-more-list" role="menu">
+            <button type="button" class="rail-more-item" role="menuitem" @click="openMore('/help/tutorial')">
+              <span class="rail-more-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 6.5a2 2 0 012-2h5v14H6a2 2 0 01-2-2v-10zM13 4.5h5a2 2 0 012 2v10a2 2 0 01-2 2h-5v-14z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                  <path d="M9 9h2M9 12h2M15 9h2M15 12h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                </svg>
+              </span>
+              <span class="rail-more-label">使用教程</span>
+            </button>
+            <button type="button" class="rail-more-item" role="menuitem" @click="openMore('/help/changelog')">
+              <span class="rail-more-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.6" />
+                  <path d="M12 16V8M9 11l3-3 3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </span>
+              <span class="rail-more-label">版本更新</span>
+            </button>
+            <button type="button" class="rail-more-item" role="menuitem" @click="openMore('/legal/terms')">
+              <span class="rail-more-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <rect x="7" y="3" width="10" height="18" rx="2" stroke="currentColor" stroke-width="1.6" />
+                  <path d="M10 7h4M10 11h4M10 15h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                </svg>
+              </span>
+              <span class="rail-more-label">用户协议</span>
+            </button>
+            <button type="button" class="rail-more-item" role="menuitem" @click="openMore('/legal/privacy')">
+              <span class="rail-more-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 3l7 4v5c0 5-3 9-7 11-4-2-7-6-7-11V7l7-4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+                  <circle cx="12" cy="11" r="2" stroke="currentColor" stroke-width="1.4" />
+                </svg>
+              </span>
+              <span class="rail-more-label">隐私政策</span>
+            </button>
+            <button type="button" class="rail-more-item" role="menuitem" @click="openMore('/about')">
+              <span class="rail-more-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <circle cx="8" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5" />
+                  <circle cx="16" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M4 20v-1a4 4 0 014-4h1M16 15h1a4 4 0 014 4v1M12 11c1.5 0 3 .5 4 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+              </span>
+              <span class="rail-more-label">关于我们</span>
+            </button>
+          </div>
+        </el-popover>
       </div>
     </aside>
 
-    <!-- Main -->
     <div class="layout-main">
-      <!-- Header -->
-      <header class="topbar">
+      <header v-if="!isFullBleed" class="topbar">
         <div class="topbar-left">
-          <button class="collapse-btn" @click="isCollapsed = !isCollapsed">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><line x1="3" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="3" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="3" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          </button>
           <nav class="breadcrumb" aria-label="breadcrumb">
             <span class="bc-item"><router-link to="/dashboard">首页</router-link></span>
             <span v-if="currentTitle" class="bc-sep">/</span>
@@ -72,11 +171,11 @@
         </div>
       </header>
 
-      <!-- Content -->
-      <main class="page-main">
+      <main :class="['page-main', { 'page-main--bleed': isFullBleed }]">
         <router-view />
       </main>
     </div>
+
   </div>
 </template>
 
@@ -84,27 +183,77 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { DASHBOARD_COLLAPSE_COMPOSER } from '@/constants/dashboard'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
-const isCollapsed = ref(false)
-const activeMenu = computed(() => {
-  const path = route.path
-  if (path.startsWith('/projects')) return '/projects'
-  return path
-})
+const menuPopoverVisible = ref(false)
+
 const currentTitle = computed(() => route.meta?.title as string | undefined)
+const isFullBleed = computed(() => route.meta.fullBleed === true)
+
+const userDisplayName = computed(
+  () => userStore.userInfo?.nickname || userStore.userInfo?.username || '用户',
+)
+const userInitial = computed(() => userDisplayName.value.charAt(0).toUpperCase())
+
+const path = computed(() => route.path)
+
+const isNavHome = computed(() => path.value === '/dashboard' || path.value === '/')
+
+const isNavSpace = computed(() => {
+  if (!path.value.startsWith('/projects')) return false
+  if (/^\/projects\/\d+\/characters/.test(path.value)) return false
+  return true
+})
+
+const isNavLibrary = computed(() => {
+  if (path.value.startsWith('/library')) return true
+  if (/^\/projects\/\d+\/characters/.test(path.value)) return true
+  return false
+})
+
+const isNavSettings = computed(() => path.value.startsWith('/settings'))
+
+const hideSidebar = computed(() => route.meta.hideSidebar === true)
 
 function handleLogout() {
   userStore.logout()
   router.push('/login')
 }
+
+function openMore(path: string) {
+  menuPopoverVisible.value = false
+  router.push(path)
+}
+
+function onUserCommand(cmd: string) {
+  if (cmd === 'logout') handleLogout()
+}
+
+function isOnDashboard() {
+  return path.value === '/dashboard' || path.value === '/'
+}
+
+function onRailLogoClick() {
+  if (isOnDashboard()) {
+    window.dispatchEvent(new CustomEvent(DASHBOARD_COLLAPSE_COMPOSER))
+    return
+  }
+  router.push('/dashboard')
+}
+
+function onRailHomeClick(e: MouseEvent) {
+  if (isOnDashboard()) {
+    e.preventDefault()
+    window.dispatchEvent(new CustomEvent(DASHBOARD_COLLAPSE_COMPOSER))
+  }
+}
 </script>
 
 <style scoped>
-/* ——— Root layout ——— */
 .layout-root {
   display: flex;
   height: 100vh;
@@ -112,151 +261,130 @@ function handleLogout() {
   background: var(--bg-page);
 }
 
-/* ——— Sidebar ——— */
-.sidebar {
-  width: 224px;
-  min-width: 224px;
-  background: var(--sidebar-bg);
+/* ——— Narrow rail sidebar ——— */
+.sidebar-rail {
+  width: 76px;
+  min-width: 76px;
   display: flex;
   flex-direction: column;
-  transition: width 0.28s cubic-bezier(.4,0,.2,1), min-width 0.28s;
-  border-right: 1px solid var(--sidebar-border);
-  position: relative;
+  align-items: center;
   z-index: 20;
-}
-.sidebar.collapsed {
-  width: 64px;
-  min-width: 64px;
-}
-
-/* Logo */
-.sidebar-logo {
-  height: 64px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 18px;
-  cursor: pointer;
-  border-bottom: 1px solid var(--sidebar-border);
+  background: linear-gradient(180deg, #0e0e12 0%, #070708 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
   flex-shrink: 0;
 }
-.logo-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #6366f1, #7c3aed);
+
+.rail-logo {
+  padding: 18px 0 12px;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(99,102,241,0.4);
 }
-.logo-text {
-  font-size: 17px;
-  font-weight: 700;
-  color: #fff;
-  white-space: nowrap;
-  letter-spacing: -0.3px;
+.rail-logo-svg {
+  opacity: 0.95;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
 }
 
-/* Nav */
-.sidebar-nav {
+.rail-center {
   flex: 1;
-  padding: 16px 10px;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-.nav-section-label {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: rgba(148,163,184,0.5);
-  padding: 0 10px 8px;
-  margin-top: 4px;
-}
-.nav-divider {
-  height: 1px;
-  background: var(--sidebar-border);
-  margin: 12px 10px;
-}
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border-radius: 8px;
-  color: var(--sidebar-text);
-  text-decoration: none;
-  font-size: 13.5px;
-  font-weight: 500;
-  margin-bottom: 2px;
-  transition: background 0.18s, color 0.18s;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.nav-item:hover {
-  background: rgba(255,255,255,0.06);
-  color: var(--sidebar-text-hover);
-}
-.nav-item.active {
-  background: rgba(99,102,241,0.18);
-  color: #818cf8;
-}
-.nav-icon {
-  width: 28px;
-  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  border-radius: 6px;
-  transition: background 0.18s;
+  min-height: 0;
+  width: 100%;
+  padding: 8px 0;
 }
-.nav-item.active .nav-icon {
-  background: rgba(99,102,241,0.25);
-}
-.nav-label { flex: 1; }
 
-/* User area */
-.sidebar-user {
+.rail-floating-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.rail-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
-  border-top: 1px solid var(--sidebar-border);
-  flex-shrink: 0;
+  justify-content: center;
+  color: rgba(226, 232, 240, 0.85);
+  text-decoration: none;
+  transition: background 0.18s, color 0.18s, box-shadow 0.18s;
 }
-.user-avatar-letter {
-  width: 34px;
-  height: 34px;
+.rail-icon:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.rail-icon--active {
+  background: rgba(99, 102, 241, 0.28);
+  color: #c7d2fe;
+  box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.35);
+}
+
+.rail-bottom {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 20px;
+  width: 100%;
+}
+
+.rail-user {
+  cursor: pointer;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  outline: none;
+}
+.rail-user:focus-visible {
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.6);
+}
+
+.rail-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #4f46e5, #7c3aed);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
-  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
-.user-meta { flex: 1; min-width: 0; }
-.user-name { font-size: 13px; font-weight: 600; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.user-role { font-size: 11px; color: rgba(148,163,184,0.7); margin-top: 1px; }
-.logout-btn {
-  background: none;
-  border: none;
+
+.rail-menu-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(226, 232, 240, 0.9);
   cursor: pointer;
-  color: rgba(148,163,184,0.6);
-  padding: 4px;
-  border-radius: 6px;
   display: flex;
   align-items: center;
-  transition: color 0.18s, background 0.18s;
+  justify-content: center;
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
 }
-.logout-btn:hover { color: #f87171; background: rgba(248,113,113,0.1); }
+.rail-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.18);
+}
 
-/* ——— Main area ——— */
+/* ——— Main ——— */
 .layout-main {
   flex: 1;
   display: flex;
@@ -265,7 +393,6 @@ function handleLogout() {
   overflow: hidden;
 }
 
-/* Topbar */
 .topbar {
   height: 60px;
   background: var(--bg-card);
@@ -277,28 +404,42 @@ function handleLogout() {
   flex-shrink: 0;
   box-shadow: var(--shadow-sm);
 }
-.topbar-left { display: flex; align-items: center; gap: 14px; }
-.collapse-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-secondary);
-  padding: 6px;
-  border-radius: 8px;
+.topbar-left {
   display: flex;
   align-items: center;
-  transition: background 0.18s, color 0.18s;
+  gap: 14px;
 }
-.collapse-btn:hover { background: var(--bg-muted); color: var(--text-primary); }
 
-.breadcrumb { display: flex; align-items: center; gap: 6px; }
-.bc-item { font-size: 13px; color: var(--text-muted); }
-.bc-item a { color: var(--text-muted); text-decoration: none; }
-.bc-item a:hover { color: var(--primary); }
-.bc-sep { color: var(--border-strong); font-size: 13px; }
-.bc-active { color: var(--text-secondary); font-weight: 500; }
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bc-item {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.bc-item a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.bc-item a:hover {
+  color: var(--primary);
+}
+.bc-sep {
+  color: var(--border-strong);
+  font-size: 13px;
+}
+.bc-active {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
 
-.topbar-right { display: flex; align-items: center; gap: 12px; }
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .topbar-badge {
   display: flex;
   align-items: center;
@@ -318,9 +459,69 @@ function handleLogout() {
   background: var(--text-muted);
 }
 
-/* Page content */
 .page-main {
   flex: 1;
   overflow-y: auto;
+}
+.page-main--bleed {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.rail-more-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-more-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(248, 250, 252, 0.96);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+.rail-more-item:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.rail-more-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(248, 250, 252, 0.92);
+  flex-shrink: 0;
+}
+.rail-more-label {
+  flex: 1;
+}
+</style>
+
+<style>
+/* Popover: frosted panel to the right of the rail menu button */
+.rail-more-popover.el-popper.is-light,
+.rail-more-popover.el-popper {
+  background: rgba(36, 36, 42, 0.94) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 18px !important;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  padding: 10px !important;
+}
+.rail-more-popover.el-popper .el-popper__arrow::before {
+  display: none;
 }
 </style>

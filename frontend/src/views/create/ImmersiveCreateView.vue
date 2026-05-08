@@ -1,0 +1,1891 @@
+<template>
+  <div class="immersive-root">
+    <header class="immersive-top">
+      <div class="immersive-top-left">
+      <button type="button" class="top-logo" title="返回剧集列表" @click="goProjectEpisodes">
+        <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <path
+            d="M8 6c0-1.1.9-2 2-2h6a6 6 0 016 6v4a4 4 0 01-4 4h-4a2 2 0 00-2 2v6a2 2 0 01-2 2H6a2 2 0 01-2-2V18c0-2.2 1.8-4 4-4h4a2 2 0 002-2V8a2 2 0 00-2-2H8z"
+            stroke="white"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M18 14h4a6 6 0 016 6v6a2 2 0 01-2 2h-4a2 2 0 01-2-2v-4a4 4 0 00-4-4h-2"
+            stroke="white"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+      <span v-if="project?.name" class="top-project-title">{{ project.name }}</span>
+      </div>
+      <div class="top-right">
+        <span class="credits"><span class="credits-ico" aria-hidden="true">✦</span> 125</span>
+        <button type="button" class="vip-link" @click="noopVip">开通会员</button>
+        <button type="button" class="icon-btn" title="通知" aria-label="通知" @click="noopBell">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7M13.73 21a2 2 0 01-3.46 0" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="immersive-body" :class="{ 'has-plan': showPlanPanel }">
+      <aside class="episode-rail" aria-label="剧集">
+        <span class="episode-rail-label">剧集</span>
+        <div class="episode-pills-scroll">
+          <div class="episode-pills">
+            <button
+              v-for="ep in episodeDisplay"
+              :key="ep"
+              type="button"
+              class="episode-dot"
+              :class="{ active: ep === activeEpisode }"
+              @click="activeEpisode = ep"
+            >
+              {{ String(ep).padStart(2, '0') }}
+            </button>
+          </div>
+        </div>
+        <button type="button" class="episode-add" title="新增剧集" @click="openAddEpisodeDialog">
+          +
+        </button>
+      </aside>
+
+      <main class="immersive-main">
+        <div ref="scrollRef" class="chat-scroll">
+          <div v-if="userPrompt" class="msg-user-wrap">
+            <div class="bubble-user">{{ userPrompt }}</div>
+          </div>
+
+          <div v-if="activeEpisode > 1" class="continuation-block">
+            <h3 class="continuation-title">继续策划下一集</h3>
+            <div class="continuation-seko">
+              <span class="ai-brand small"><span class="ai-brand-dot" /> 泥人</span>
+              <p class="continuation-lead">提炼前面故事的情节走向</p>
+              <p class="continuation-desc">
+                承接上一集的悬念与人物状态，在下方说明本集开场、冲突或反转；也可让我先梳理前几集的伏笔与节奏。
+              </p>
+            </div>
+          </div>
+
+          <div v-if="generating" class="ai-status-row">
+            <span class="ai-brand">
+              <span class="ai-brand-dot" />
+              泥人
+            </span>
+            <span class="ai-status">
+              <span class="spin" aria-hidden="true" />
+              {{ outlineContent ? '正在流式输出…' : '策划剧本大纲' }}
+            </span>
+            <p v-if="!outlineContent" class="ttft-hint">
+              正在等待模型首包：会先写「项目通用信息」，大模型首字通常需数秒至几十秒，请稍候。
+            </p>
+          </div>
+
+          <div v-if="outlineContent" class="outline-card">
+            <pre v-if="generating" class="outline-plain">{{ outlinePlainDisplay }}</pre>
+            <div v-else class="outline-md" v-html="outlineHtml" />
+            <div v-if="showOutlineConfirmActions" class="outline-card-actions">
+              <button
+                type="button"
+                class="btn-confirm-outline"
+                :disabled="outlineSaving || scriptWorkflowLoading"
+                @click="confirmOutline"
+              >
+                确认大纲
+              </button>
+            </div>
+          </div>
+
+          <div v-for="(m, i) in chatTail" :key="i" class="chat-extra" :class="m.role">
+            <template v-if="m.role === 'user'">
+              <div class="bubble-user">{{ m.text }}</div>
+            </template>
+            <template v-else>
+              <div class="ai-line">
+                <span class="ai-brand small"><span class="ai-brand-dot" /> 泥人</span>
+                <p class="ai-text">{{ m.text }}</p>
+              </div>
+            </template>
+          </div>
+
+          <div v-if="streamError" class="stream-err">{{ streamError }}</div>
+        </div>
+
+        <div class="composer-bottom">
+          <div class="composer-inner">
+            <button type="button" class="attach-btn" title="附件" @click="noopAttach">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+              </svg>
+            </button>
+            <textarea
+              v-model="bottomInput"
+              class="bottom-textarea"
+              :placeholder="composerPlaceholder"
+              rows="1"
+              @keydown="onBottomKeydown"
+            />
+            <button
+              type="button"
+              class="send-round"
+              :disabled="
+                bottomSending ||
+                outlineSaving ||
+                scriptWorkflowLoading ||
+                (workflowPhase === 'outline' && !outlineContent.trim())
+              "
+              @click="sendFollowUp"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5" />
+                <polyline points="5 12 12 5 19 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </main>
+
+      <aside v-if="showPlanPanel" class="immersive-plan" :aria-label="`第${activeEpisode}集策划`">
+        <div class="plan-inner">
+          <header class="plan-head">
+            <span class="plan-ep-badge">第 {{ String(activeEpisode).padStart(2, '0') }} 集</span>
+            <h2 class="plan-title">{{ activePlanScript?.title || '—' }}</h2>
+            <p class="plan-ai-note">内容由 AI 生成</p>
+          </header>
+
+          <div v-if="scriptWorkflowLoading" class="plan-loading">
+            <span class="spin plan-spin" aria-hidden="true" />
+            <p>{{ scriptWorkflowPhaseText }}</p>
+          </div>
+
+          <template v-else>
+            <section class="plan-block">
+              <h3 class="plan-block-title">梗概</h3>
+              <p class="plan-block-body">{{ activePlanScript?.summary || '暂无梗概，可在剧本页补充。' }}</p>
+            </section>
+
+            <section class="plan-block">
+              <h3 class="plan-block-title">主体列表</h3>
+              <p v-if="!planCharacters.length" class="plan-muted">暂无主体，大纲保存后将同步角色库。</p>
+              <ul v-else class="plan-subject-list">
+                <li v-for="c in planCharacters" :key="c.id" class="plan-subject-item">
+                  <div class="plan-subject-avatar">
+                    <img v-if="c.imageUrl" :src="c.imageUrl" :alt="c.name" />
+                    <span v-else class="plan-avatar-ph">{{ portraitRefreshing ? '…' : '·' }}</span>
+                  </div>
+                  <div class="plan-subject-meta">
+                    <span class="plan-subject-name">{{ c.name }}</span>
+                    <span v-if="c.appearance" class="plan-subject-desc">{{ c.appearance }}</span>
+                  </div>
+                </li>
+              </ul>
+            </section>
+
+            <section class="plan-block plan-block--script">
+              <h3 class="plan-block-title">分镜剧本</h3>
+              <p v-if="!episodeScriptBody.trim()" class="plan-muted">
+                暂无本集剧本正文；可在「剧本生成」页撰写，或完成大纲确认与剧本生成后查看。
+              </p>
+              <pre v-else class="plan-script-body">{{ episodeScriptBody }}</pre>
+            </section>
+
+            <div v-if="showGenVideoFab" class="plan-actions">
+              <p v-if="episodeStoryboardGenerating" class="plan-action-hint">正在拆解本集分镜并计算动态/静态推荐，请稍候…</p>
+              <p v-else-if="episodeStoryboardReady" class="plan-action-hint plan-action-hint--ok">本集分镜已就绪；点击下方将按推荐生成静态图与动态片段（动态优先）。</p>
+              <p v-else-if="episodeStoryboardErr" class="plan-action-hint plan-action-hint--err">{{ episodeStoryboardErr }}</p>
+              <p v-else class="plan-action-hint">等待分镜任务…</p>
+              <button
+                type="button"
+                class="btn-plan-video"
+                :disabled="primaryVideoDisabled"
+                @click="onPrimaryVideoAction"
+              >
+                <span class="btn-plan-video-ico" aria-hidden="true">✦</span>
+                {{ primaryVideoLabel }}
+              </button>
+            </div>
+          </template>
+        </div>
+      </aside>
+    </div>
+
+    <el-dialog
+      v-model="addEpisodeDialogVisible"
+      title="选择关联剧本？"
+      width="380px"
+      align-center
+      append-to-body
+      destroy-on-close
+      class="immersive-episode-dialog"
+      @opened="onAddEpisodeDialogOpen"
+    >
+      <p class="ep-dialog-desc">当前选中集已关联的剧本将作为下一集的承接参考；确认后将扩展项目总集数。</p>
+      <div class="ep-dialog-ref">
+        <template v-if="dialogReferenceScript">
+          <div class="ep-dialog-ref-title">
+            第 {{ activeEpisode }} 集：{{ dialogReferenceScript.title || '未命名' }}
+          </div>
+          <div class="ep-dialog-ref-meta">
+            <span>{{ formatScriptDate(dialogReferenceScript) }}</span>
+            <span class="ep-dialog-ver">V1</span>
+          </div>
+        </template>
+        <template v-else>
+          <div class="ep-dialog-empty">
+            当前集暂无已入库剧本，仍可扩展总集数后，在「剧本生成」撰写该集。
+          </div>
+        </template>
+      </div>
+      <template #footer>
+        <div class="ep-dialog-footer-inner">
+          <span class="ep-dialog-footer-hint">项目总集数 +1，并选中最新一集</span>
+          <div class="ep-dialog-footer-btns">
+            <button type="button" class="btn-ep-cancel" @click="addEpisodeDialogVisible = false">取消</button>
+            <button type="button" class="btn-ep-primary" :disabled="creatingNextEpisode" @click="createNextEpisode">
+              {{ creatingNextEpisode ? '处理中…' : '创建下一集' }}
+            </button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
+
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { characterApi } from '@/api/character'
+import { projectApi } from '@/api/project'
+import { scriptApi } from '@/api/script'
+import { storyboardApi } from '@/api/storyboard'
+import { taskApi } from '@/api/task'
+import { videoApi } from '@/api/video'
+import { formatOutlinePlainDividers, renderAiOutlineMarkdown } from '@/utils/renderMarkdown'
+
+const INSPIRATION_KEY = 'niren.dashboard.inspiration'
+
+const route = useRoute()
+const router = useRouter()
+
+const projectId = computed(() => String(route.params.id || ''))
+
+const project = ref<any>(null)
+const userPrompt = ref('')
+const outlineContent = ref('')
+const generating = ref(false)
+const outlineSaving = ref(false)
+/** 用户点击「确认大纲」或发送确认触发词后置 true，用于隐藏卡片下方按钮（保存失败会复位） */
+const outlineConfirmBarDismissed = ref(false)
+/** outline | script_gen | plan_ready */
+const workflowPhase = ref<'outline' | 'script_gen' | 'plan_ready'>('outline')
+const scriptWorkflowLoading = ref(false)
+const scriptWorkflowPhaseText = ref('正在生成第 1 集剧本…')
+/** 项目内各集剧本摘要（右侧策划栏按 activeEpisode 切换） */
+const projectScripts = ref<any[]>([])
+const planCharacters = ref<any[]>([])
+const portraitRefreshing = ref(false)
+const streamError = ref('')
+const scrollRef = ref<HTMLElement | null>(null)
+
+const activeEpisode = ref(1)
+const bottomInput = ref('')
+const bottomSending = ref(false)
+const chatTail = ref<Array<{ role: 'user' | 'ai'; text: string }>>([])
+
+const addEpisodeDialogVisible = ref(false)
+const dialogScripts = ref<any[]>([])
+const creatingNextEpisode = ref(false)
+
+const dialogReferenceScript = computed(() =>
+  dialogScripts.value.find((s: any) => Number(s.episodeNo) === activeEpisode.value),
+)
+
+const composerPlaceholder = computed(
+  () => '输入你的问题，Enter 换行，Cmd/Ctrl + Enter 发送',
+)
+
+const activePlanScript = computed(() =>
+  projectScripts.value.find((s: any) => Number(s.episodeNo) === activeEpisode.value) ?? null,
+)
+
+/** 当前集完整剧本正文（右侧「分镜剧本」区块） */
+const episodeScriptBody = computed(() => String(activePlanScript.value?.content ?? '').trim())
+
+/** 流式阶段：分隔标记换成轻符号行，不展示 ###…### */
+const outlinePlainDisplay = computed(() => formatOutlinePlainDividers(outlineContent.value))
+
+/** 流式阶段不做 Markdown 解析，避免每帧全文 parse 卡死界面；结束后再渲染版式 */
+const outlineHtml = computed(() => {
+  if (generating.value) return ''
+  return renderAiOutlineMarkdown(outlineContent.value)
+})
+
+const showPlanPanel = computed(
+  () => workflowPhase.value === 'script_gen' || workflowPhase.value === 'plan_ready',
+)
+
+const showOutlineConfirmActions = computed(
+  () =>
+    !generating.value &&
+    workflowPhase.value === 'outline' &&
+    outlineContent.value.trim().length > 0 &&
+    !outlineConfirmBarDismissed.value,
+)
+
+/** 策划就绪后右侧栏底部「生成视频」（分镜就绪后可点；已合成成片则「查看视频」） */
+const showGenVideoFab = computed(
+  () => workflowPhase.value === 'plan_ready' && !scriptWorkflowLoading.value,
+)
+
+/** 打开策划栏后异步拆解的本集分镜 */
+const episodeStoryboardGenerating = ref(false)
+const episodeStoryboardReady = ref(false)
+const episodeStoryboardErr = ref('')
+const hasProjectVideo = ref(false)
+const mediaSubmitLoading = ref(false)
+/** 剧集切换或重复调度时递增，用于取消过期的分镜拉取/生成流程 */
+let sbEnsureGeneration = 0
+
+const primaryVideoLabel = computed(() => (hasProjectVideo.value ? '查看视频' : '生成视频'))
+
+const primaryVideoDisabled = computed(() => {
+  if (hasProjectVideo.value) return false
+  return (
+    !episodeScriptBody.value.trim() ||
+    !activePlanScript.value?.id ||
+    episodeStoryboardGenerating.value ||
+    !episodeStoryboardReady.value ||
+    mediaSubmitLoading.value
+  )
+})
+
+/** 左侧剧集条：展示当前季起始集，具体集数以项目为准 */
+const episodeDisplay = computed(() => {
+  const n = project.value?.episodes
+  if (typeof n === 'number' && n > 0) {
+    return Array.from({ length: Math.min(n, 24) }, (_, i) => i + 1)
+  }
+  return [1]
+})
+
+function scrollToBottom() {
+  nextTick(() => {
+    const el = scrollRef.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
+watch([outlineContent, chatTail, generating], () => scrollToBottom())
+
+watch(activeEpisode, async () => {
+  episodeStoryboardReady.value = false
+  episodeStoryboardErr.value = ''
+  sbEnsureGeneration += 1
+  if (workflowPhase.value === 'plan_ready') {
+    try {
+      await loadPlanSideData()
+      await refreshVideoOverview()
+    } catch {
+      /* ignore */
+    }
+  }
+})
+
+async function loadProject() {
+  const res = await projectApi.get(projectId.value)
+  project.value = res.data?.data ?? res.data
+}
+
+function readSeedFromStorage() {
+  try {
+    const s = sessionStorage.getItem(INSPIRATION_KEY) || ''
+    userPrompt.value = s.trim()
+  } catch {
+    userPrompt.value = ''
+  }
+}
+
+async function startOutlineStream() {
+  const idea = userPrompt.value
+  if (!idea) {
+    ElMessage.warning('未找到创作灵感，请从首页重新发起')
+    return
+  }
+  generating.value = true
+  streamError.value = ''
+  outlineContent.value = ''
+  try {
+    await scriptApi.generateOutlinePreviewStream(
+      {
+        projectId: projectId.value,
+        idea,
+      },
+      {
+        onChunk: (chunk) => {
+          outlineContent.value += chunk
+        },
+        onDone: async () => {
+          generating.value = false
+          try {
+            await loadProject()
+          } catch {
+            /* 列表名等以后端为准，刷新失败可忽略 */
+          }
+          chatTail.value.push({
+            role: 'ai',
+            text: '您好！根据您提供的创意，我已为您构思全剧大纲与人物信息，请浏览上方内容。若需调整，可在下方说明，我会尝试优化大纲。',
+          })
+        },
+        onError: (msg) => {
+          streamError.value = msg
+          generating.value = false
+        },
+      },
+    )
+  } catch (e: any) {
+    streamError.value = e?.message || '大纲生成失败'
+    generating.value = false
+  }
+}
+
+async function pollTaskUntilDone(taskId: string, timeoutMs = 45 * 60 * 1000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const ax = await taskApi.get(taskId)
+    const payload = ax.data as { data?: Record<string, unknown> }
+    const task = payload?.data ?? (payload as Record<string, unknown>)
+    const st = task?.status as string | undefined
+    if (st === 'SUCCESS') return task
+    if (st === 'FAILED') throw new Error(String(task?.message || '后台任务失败'))
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+  throw new Error('任务等待超时，请稍后在「剧本生成」页查看进度')
+}
+
+function extractTaskId(res: unknown): string | null {
+  const r = res as { data?: { data?: { id?: unknown } } }
+  const id = r?.data?.data?.id
+  return id != null ? String(id) : null
+}
+
+async function refreshVideoOverview() {
+  try {
+    const res = await videoApi.getOverview(projectId.value)
+    const o = (res as any).data?.data ?? {}
+    const u = o.videoUrl
+    hasProjectVideo.value = !!(u && String(u).trim())
+  } catch {
+    hasProjectVideo.value = false
+  }
+}
+
+async function ensureEpisodeStoryboard() {
+  const gen = ++sbEnsureGeneration
+  episodeStoryboardErr.value = ''
+  if (!showPlanPanel.value || workflowPhase.value !== 'plan_ready') return
+  const script = activePlanScript.value as { id?: number | string } | null
+  const sidRaw = script?.id
+  if (sidRaw == null || !episodeScriptBody.value.trim()) {
+    episodeStoryboardReady.value = false
+    return
+  }
+  const scriptId = Number(sidRaw)
+  episodeStoryboardGenerating.value = true
+  try {
+    const listRes = await storyboardApi.listByScript(scriptId)
+    if (gen !== sbEnsureGeneration) return
+    const existing = (listRes as any).data?.data ?? []
+    if (Array.isArray(existing) && existing.length > 0) {
+      episodeStoryboardReady.value = true
+      await refreshVideoOverview()
+      return
+    }
+
+    const genRes = await storyboardApi.generate({ projectId: projectId.value, scriptId })
+    const taskId = extractTaskId(genRes)
+    if (!taskId) throw new Error('未返回分镜任务')
+    await pollTaskUntilDone(taskId)
+    if (gen !== sbEnsureGeneration) return
+
+    const verify = await storyboardApi.listByScript(scriptId)
+    const rows = (verify as any).data?.data ?? []
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new Error('分镜生成完成但未查到镜头，请稍后重试')
+    }
+    episodeStoryboardReady.value = true
+    await refreshVideoOverview()
+  } catch (e: unknown) {
+    if (gen !== sbEnsureGeneration) return
+    episodeStoryboardReady.value = false
+    episodeStoryboardErr.value = e instanceof Error ? e.message : '分镜生成失败'
+  } finally {
+    if (gen === sbEnsureGeneration) episodeStoryboardGenerating.value = false
+  }
+}
+
+watch(
+  () =>
+    [showPlanPanel.value, workflowPhase.value, activePlanScript.value?.id, episodeScriptBody.value] as const,
+  () => {
+    if (showPlanPanel.value && workflowPhase.value === 'plan_ready') {
+      void ensureEpisodeStoryboard()
+    }
+  },
+)
+
+async function onPrimaryVideoAction() {
+  if (hasProjectVideo.value) {
+    router.push({
+      path: `/projects/${projectId.value}/immersive/workbench`,
+      query: { episode: String(activeEpisode.value), tab: 'video' },
+    })
+    return
+  }
+  if (!activePlanScript.value?.id || !episodeStoryboardReady.value) return
+  mediaSubmitLoading.value = true
+  try {
+    const scriptId = Number(activePlanScript.value.id)
+    const listRes = await storyboardApi.listByScript(scriptId)
+    const shots = (listRes as any).data?.data ?? []
+    const shotIds = (Array.isArray(shots) ? shots : [])
+      .map((s: { id?: unknown }) => s.id)
+      .filter((id: unknown) => id != null)
+      .map((id: unknown) => String(id))
+    if (!shotIds.length) {
+      ElMessage.warning('暂无本集分镜数据')
+      return
+    }
+
+    const polls: Promise<unknown>[] = []
+
+    try {
+      const imgRes = await videoApi.generateImages(projectId.value, shotIds)
+      const tid = extractTaskId(imgRes)
+      if (tid) polls.push(pollTaskUntilDone(tid))
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (!msg.includes('均已勾选动态')) throw e
+    }
+
+    try {
+      const dynRes = await videoApi.generateDynamic(projectId.value, shotIds)
+      const tid = extractTaskId(dynRes)
+      if (tid) polls.push(pollTaskUntilDone(tid))
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (!msg.includes('没有选中的动态镜头')) throw e
+    }
+
+    if (polls.length) await Promise.all(polls)
+
+    router.push({
+      path: `/projects/${projectId.value}/immersive/workbench`,
+      query: { episode: String(activeEpisode.value) },
+    })
+  } catch (e: unknown) {
+    ElMessage.error(e instanceof Error ? e.message : '素材生成失败')
+  } finally {
+    mediaSubmitLoading.value = false
+  }
+}
+
+async function loadPlanSideData() {
+  const [scriptsRes, charRes] = await Promise.all([
+    scriptApi.listByProject(projectId.value),
+    characterApi.listByProject(projectId.value),
+  ])
+  const scripts = (scriptsRes as any).data?.data ?? (scriptsRes as any).data ?? []
+  projectScripts.value = Array.isArray(scripts) ? scripts : []
+  planCharacters.value = (charRes as any).data?.data ?? (charRes as any).data ?? []
+}
+
+async function refreshCharactersOnly() {
+  const charRes = await characterApi.listByProject(projectId.value)
+  planCharacters.value = (charRes as any).data?.data ?? (charRes as any).data ?? []
+}
+
+async function triggerCharacterPortraits() {
+  const list = planCharacters.value.filter((c: any) => !c.imageUrl)
+  if (!list.length) return
+  portraitRefreshing.value = true
+  try {
+    await Promise.all(list.map((c: any) => characterApi.generateImage(c.id)))
+    const deadline = Date.now() + 180000
+    while (Date.now() < deadline) {
+      await refreshCharactersOnly()
+      const ok = planCharacters.value.every((c: any) => c.imageUrl)
+      if (ok) break
+      await new Promise((r) => setTimeout(r, 2500))
+    }
+  } finally {
+    portraitRefreshing.value = false
+  }
+}
+
+async function runScriptAndAssetsPipeline() {
+  scriptWorkflowLoading.value = true
+  scriptWorkflowPhaseText.value = '正在生成第 1 集剧本…'
+  try {
+    const genRes = await scriptApi.generate({
+      projectId: projectId.value,
+      episodeNo: 1,
+      idea: userPrompt.value,
+    })
+    const taskPayload = (genRes as any).data?.data ?? (genRes as any).data
+    const taskId = taskPayload?.id
+    if (!taskId) throw new Error('未返回剧本生成任务')
+    await pollTaskUntilDone(String(taskId))
+    scriptWorkflowPhaseText.value = '正在加载策划信息…'
+    await loadPlanSideData()
+    scriptWorkflowPhaseText.value = '正在生成人物形象…'
+    await triggerCharacterPortraits()
+    workflowPhase.value = 'plan_ready'
+    chatTail.value.push({
+      role: 'ai',
+      text: '第 1 集剧本与右侧策划信息已就绪；角色形象已提交生成（若较慢可在「角色管理」查看）。打开右侧策划栏将自动拆解本集分镜；分镜就绪后可生成素材并进入镜头工作台。',
+    })
+  } catch (e: unknown) {
+    workflowPhase.value = 'outline'
+    const msg = e instanceof Error ? e.message : '生成失败'
+    throw new Error(msg)
+  } finally {
+    scriptWorkflowLoading.value = false
+  }
+}
+
+async function saveOutlineAndAdvance() {
+  if (!outlineContent.value.trim()) return
+  if (workflowPhase.value !== 'outline') {
+    ElMessage.info('大纲已确认，请使用右侧「生成视频」或到剧本/分镜页继续')
+    return
+  }
+  outlineSaving.value = true
+  try {
+    await scriptApi.saveOutlinePreview({
+      projectId: projectId.value,
+      content: outlineContent.value,
+      idea: userPrompt.value,
+    })
+    ElMessage.success('大纲已保存')
+    await loadProject()
+    workflowPhase.value = 'script_gen'
+    chatTail.value.push({
+      role: 'ai',
+      text: '已确认大纲，正在生成第 1 集完整剧本并同步角色与场景信息…',
+    })
+    await runScriptAndAssetsPipeline()
+  } catch (e: unknown) {
+    workflowPhase.value = 'outline'
+    outlineConfirmBarDismissed.value = false
+    ElMessage.error(e instanceof Error ? e.message : '处理失败')
+  } finally {
+    outlineSaving.value = false
+  }
+}
+
+/** 与底部发送「确认分镜大纲」一致，便于对话区留下确认记录 */
+const OUTLINE_CONFIRM_CHAT_TEXT = '确认分镜大纲'
+
+async function confirmOutline() {
+  if (!outlineContent.value.trim()) return
+  if (workflowPhase.value !== 'outline') {
+    ElMessage.info('大纲已确认，请使用右侧「生成视频」或到剧本/分镜页继续')
+    return
+  }
+  outlineConfirmBarDismissed.value = true
+  chatTail.value.push({ role: 'user', text: OUTLINE_CONFIRM_CHAT_TEXT })
+  await nextTick()
+  scrollToBottom()
+  await saveOutlineAndAdvance()
+}
+
+function onBottomKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault()
+    sendFollowUp()
+  }
+}
+
+const CONFIRM_OUTLINE_TRIGGERS = ['确认分镜大纲', '确认大纲']
+
+async function sendFollowUp() {
+  const t = bottomInput.value.trim()
+  if (!t || !outlineContent.value.trim()) return
+
+  if (CONFIRM_OUTLINE_TRIGGERS.includes(t)) {
+    outlineConfirmBarDismissed.value = true
+    bottomSending.value = true
+    chatTail.value.push({ role: 'user', text: t })
+    bottomInput.value = ''
+    try {
+      await saveOutlineAndAdvance()
+    } catch {
+      /* toast、phase、outlineConfirmBarDismissed 已在 saveOutlineAndAdvance 处理 */
+    } finally {
+      bottomSending.value = false
+      scrollToBottom()
+    }
+    return
+  }
+
+  bottomSending.value = true
+  chatTail.value.push({ role: 'user', text: t })
+  bottomInput.value = ''
+  try {
+    const res = await scriptApi.repairOutlinePreview({
+      projectId: projectId.value,
+      content: outlineContent.value,
+      idea: t,
+    })
+    const payload = res.data?.data || {}
+    if (payload.content) {
+      outlineContent.value = payload.content
+    }
+    chatTail.value.push({
+      role: 'ai',
+      text: '已根据你的说明尝试调整大纲，请查看上方正文。确认无误后可发送「确认分镜大纲」。',
+    })
+  } catch (e: any) {
+    ElMessage.error(e?.message || '发送失败')
+    chatTail.value.push({
+      role: 'ai',
+      text: '暂时无法处理该补充，请稍后在「剧本生成」页使用修复或重新生成。',
+    })
+  } finally {
+    bottomSending.value = false
+    scrollToBottom()
+  }
+}
+
+function goProjectEpisodes() {
+  router.push(`/projects/${projectId.value}/episodes`)
+}
+
+async function hydrateWorkspaceWithoutNewStream() {
+  try {
+    const scriptsRes = await scriptApi.listByProject(projectId.value)
+    const list = (scriptsRes as any).data?.data ?? (scriptsRes as any).data ?? []
+    projectScripts.value = Array.isArray(list) ? list : []
+
+    const ep = activeEpisode.value
+    const sc = projectScripts.value.find((s: any) => Number(s.episodeNo) === ep)
+
+    if (sc && (String(sc.summary || '').trim() || String(sc.content || '').trim())) {
+      workflowPhase.value = 'plan_ready'
+      const blob = String(sc.summary || sc.content || '').trim()
+      outlineContent.value = blob.slice(0, 24000)
+      await loadPlanSideData()
+      return
+    }
+
+    const ci = project.value?.commonInfo
+    if (typeof ci === 'string' && ci.trim()) {
+      outlineContent.value = ci.trim()
+      workflowPhase.value = 'outline'
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function noopVip() {
+  ElMessage.info('会员能力敬请期待')
+}
+
+function noopBell() {
+  ElMessage.info('暂无新通知')
+}
+
+function noopAttach() {
+  ElMessage.info('附件能力敬请期待')
+}
+
+async function onAddEpisodeDialogOpen() {
+  try {
+    const res = await scriptApi.listByProject(projectId.value)
+    dialogScripts.value = (res as any).data?.data ?? (res as any).data ?? []
+  } catch {
+    dialogScripts.value = []
+  }
+}
+
+function formatScriptDate(s: Record<string, unknown>) {
+  const raw = s.updateTime ?? s.createTime
+  if (raw == null) return '—'
+  const d = new Date(String(raw))
+  if (Number.isNaN(d.getTime())) return '—'
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}/${m}/${day}`
+}
+
+function openAddEpisodeDialog() {
+  addEpisodeDialogVisible.value = true
+}
+
+async function createNextEpisode() {
+  const p = project.value
+  if (!p?.name) {
+    ElMessage.warning('项目信息未加载完整')
+    return
+  }
+  const cap = typeof p.episodes === 'number' && p.episodes > 0 ? p.episodes : 1
+  if (cap >= 120) {
+    ElMessage.warning('已达到当前上限，请在项目详情中调整')
+    return
+  }
+  creatingNextEpisode.value = true
+  try {
+    await projectApi.update(projectId.value, {
+      name: p.name,
+      description: p.description ?? '',
+      projectType: p.projectType ?? '',
+      genre: p.genre ?? '',
+      episodes: cap + 1,
+      episodeDuration: typeof p.episodeDuration === 'number' && p.episodeDuration > 0 ? p.episodeDuration : 60,
+    })
+    await loadProject()
+    activeEpisode.value = cap + 1
+    addEpisodeDialogVisible.value = false
+    chatTail.value.push({
+      role: 'ai',
+      text: `已进入第 ${cap + 1} 集策划。可先让我提炼前面故事的情节走向，或在下方直接写下本集目标、开场与冲突。`,
+    })
+    ElMessage.success(`已扩展至 ${cap + 1} 集，左侧已切换到第 ${cap + 1} 集`)
+  } catch (e: unknown) {
+    ElMessage.error(e instanceof Error ? e.message : '更新失败')
+  } finally {
+    creatingNextEpisode.value = false
+  }
+}
+
+onMounted(async () => {
+  readSeedFromStorage()
+  const epQ = Number(route.query.episode)
+  if (Number.isFinite(epQ) && epQ >= 1) {
+    activeEpisode.value = epQ
+  }
+
+  try {
+    await loadProject()
+  } catch {
+    ElMessage.error('加载项目失败')
+    return
+  }
+
+  const hasCachedInspiration = userPrompt.value.trim().length > 0
+  const commonReady = !!(project.value?.commonInfo && String(project.value.commonInfo).trim())
+
+  // 仅在本项目尚无通用信息时使用工作台缓存灵感触发流式大纲（避免从剧集入口进入时误用其它会话缓存）
+  if (hasCachedInspiration && !commonReady) {
+    await startOutlineStream()
+    return
+  }
+
+  await hydrateWorkspaceWithoutNewStream()
+
+  if (workflowPhase.value === 'plan_ready') {
+    await refreshVideoOverview()
+  }
+
+  if (!outlineContent.value.trim()) {
+    ElMessage.warning('暂无大纲内容：请在「工作台」输入灵感并发起的项目，或在剧本页生成后再进入策划。')
+  }
+})
+</script>
+
+<style scoped>
+.immersive-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: #050506;
+  color: #e8eaef;
+  animation: immersive-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes immersive-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.immersive-top {
+  flex-shrink: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px 0 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+}
+
+.immersive-top-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.top-project-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(248, 250, 252, 0.96);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.top-logo {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+.top-logo:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.top-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.credits {
+  font-size: 13px;
+  color: rgba(226, 232, 240, 0.85);
+  font-weight: 600;
+}
+.credits-ico {
+  opacity: 0.9;
+  margin-right: 2px;
+}
+.vip-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e8c785;
+  padding: 4px 6px;
+}
+.vip-link:hover {
+  text-decoration: underline;
+}
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.85);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.immersive-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+}
+.immersive-body.has-plan .immersive-main {
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.immersive-plan {
+  flex: 0 0 clamp(280px, 34vw, 420px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: rgba(8, 9, 12, 0.96);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+.plan-inner {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 16px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.plan-head {
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.plan-ep-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: rgba(165, 180, 252, 0.95);
+  background: rgba(79, 70, 229, 0.22);
+  border: 1px solid rgba(129, 140, 248, 0.35);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.plan-title {
+  margin: 10px 0 6px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.35;
+}
+.plan-ai-note {
+  margin: 0;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.85);
+}
+.plan-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 12px;
+  color: rgba(203, 213, 225, 0.9);
+  font-size: 13px;
+  text-align: center;
+}
+.plan-spin {
+  width: 22px;
+  height: 22px;
+}
+.plan-block-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.85);
+}
+.plan-block-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(226, 232, 240, 0.92);
+}
+.plan-muted {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(148, 163, 184, 0.85);
+}
+.plan-subject-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plan-subject-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.plan-subject-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.plan-subject-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.plan-avatar-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 14px;
+  color: rgba(148, 163, 184, 0.55);
+}
+.plan-subject-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.plan-subject-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+.plan-subject-desc {
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(148, 163, 184, 0.9);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.plan-block--script {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.plan-script-body {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.65;
+  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace;
+  color: rgba(226, 232, 240, 0.94);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  max-height: min(42vh, 520px);
+  overflow-y: auto;
+}
+.plan-actions {
+  margin-top: auto;
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plan-action-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(148, 163, 184, 0.88);
+}
+.plan-action-hint--ok {
+  color: rgba(94, 234, 212, 0.85);
+}
+.plan-action-hint--err {
+  color: rgba(251, 113, 133, 0.92);
+}
+.btn-plan-video {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  background: linear-gradient(135deg, #e2e8f0, #f8fafc);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.btn-plan-video-ico {
+  font-size: 13px;
+  opacity: 0.88;
+}
+.btn-plan-video:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+}
+.btn-plan-video:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.episode-rail {
+  width: 56px;
+  flex-shrink: 0;
+  align-self: stretch;
+  min-height: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 6px;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.episode-rail-label {
+  flex-shrink: 0;
+  writing-mode: vertical-rl;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: rgba(148, 163, 184, 0.75);
+}
+/* 约 5 个集数圆点的可视高度：36×5 + 间距 10×4 */
+.episode-pills-scroll {
+  flex: 0 1 auto;
+  width: 100%;
+  min-height: 0;
+  max-height: calc(36px * 5 + 10px * 4);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.episode-pills-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+.episode-pills {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+.episode-dot {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(30, 30, 36, 0.9);
+  color: #f1f5f9;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.episode-dot.active {
+  border-color: rgba(129, 140, 248, 0.6);
+  background: rgba(79, 70, 229, 0.35);
+}
+.episode-add {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: rgba(226, 232, 240, 0.8);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.episode-add:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.immersive-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px 16px;
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.msg-user-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 20px;
+}
+.bubble-user {
+  max-width: 85%;
+  padding: 12px 16px;
+  border-radius: 16px 16px 4px 16px;
+  background: rgba(45, 48, 58, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 14px;
+  line-height: 1.55;
+  color: #f1f5f9;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 第 2 集及以后：继续策划引导（对齐参考布局） */
+.continuation-block {
+  margin-bottom: 18px;
+  padding: 14px 16px 16px;
+  border-radius: 14px;
+  background: rgba(18, 20, 28, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.continuation-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #f8fafc;
+  letter-spacing: 0.02em;
+}
+.continuation-seko {
+  padding-top: 2px;
+}
+.continuation-lead {
+  margin: 10px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(186, 230, 253, 0.95);
+}
+.continuation-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(203, 213, 225, 0.88);
+}
+
+.ai-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: rgba(203, 213, 225, 0.9);
+}
+.ai-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: #fff;
+}
+.ai-brand.small {
+  font-size: 12px;
+}
+.ai-brand-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #818cf8, #6366f1);
+}
+.ai-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(148, 163, 184, 0.95);
+}
+.ai-status-row .ttft-hint {
+  width: 100%;
+  flex-basis: 100%;
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(148, 163, 184, 0.88);
+  font-weight: 400;
+}
+.spin {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(129, 140, 248, 0.35);
+  border-top-color: #a5b4fc;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.outline-card {
+  background: rgba(22, 24, 32, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 18px 18px 14px;
+  margin-bottom: 20px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+.outline-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.btn-confirm-outline {
+  padding: 10px 22px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  background: #f8fafc;
+  color: #0f172a;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.btn-confirm-outline:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.btn-confirm-outline:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+/* 流式阶段：纯文本，避免 Markdown 每帧全量解析阻塞渲染 */
+.outline-plain {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: rgba(226, 232, 240, 0.94);
+  max-height: min(52vh, 520px);
+  overflow-y: auto;
+}
+
+.outline-md {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: rgba(226, 232, 240, 0.94);
+  max-height: min(52vh, 520px);
+  overflow-y: auto;
+}
+.outline-md :deep(h1),
+.outline-md :deep(h2),
+.outline-md :deep(h3),
+.outline-md :deep(h4) {
+  margin: 1em 0 0.5em;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.35;
+}
+.outline-md :deep(h1) {
+  font-size: 1.35rem;
+}
+.outline-md :deep(h2) {
+  font-size: 1.2rem;
+}
+.outline-md :deep(h3) {
+  font-size: 1.08rem;
+}
+.outline-md :deep(h4) {
+  font-size: 1rem;
+  color: rgba(226, 232, 240, 0.92);
+}
+.outline-md :deep(p) {
+  margin: 0.5em 0;
+}
+.outline-md :deep(strong),
+.outline-md :deep(b) {
+  font-weight: 700;
+  color: #fff;
+}
+.outline-md :deep(em),
+.outline-md :deep(i) {
+  font-style: italic;
+  color: rgba(226, 232, 240, 0.95);
+}
+.outline-md :deep(ul),
+.outline-md :deep(ol) {
+  margin: 0.5em 0 0.5em 1.2em;
+  padding: 0;
+}
+.outline-md :deep(li) {
+  margin: 0.25em 0;
+}
+.outline-md :deep(blockquote) {
+  margin: 0.6em 0;
+  padding: 0.4em 0.75em;
+  border-left: 3px solid rgba(129, 140, 248, 0.55);
+  background: rgba(0, 0, 0, 0.25);
+  color: rgba(203, 213, 225, 0.95);
+}
+.outline-md :deep(hr) {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  margin: 1rem 0;
+}
+
+/* AI 结构化标记 → 柔和分割线（与沉浸式深色卡片协调） */
+.outline-md :deep(.ai-outline-sep) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 1.35rem 0;
+  min-height: 12px;
+  user-select: none;
+}
+.outline-md :deep(.ai-outline-sep__arm) {
+  flex: 1;
+  height: 1px;
+  border-radius: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(129, 140, 248, 0.38) 42%,
+    rgba(129, 140, 248, 0.38) 58%,
+    transparent 100%
+  );
+  opacity: 0.85;
+}
+.outline-md :deep(.ai-outline-sep__arm--muted) {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(148, 163, 184, 0.22) 50%,
+    transparent
+  );
+  height: 1px;
+  opacity: 0.9;
+}
+.outline-md :deep(.ai-outline-sep__arm--accent) {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(251, 191, 36, 0.28) 45%,
+    rgba(245, 158, 11, 0.22) 50%,
+    rgba(251, 191, 36, 0.2) 55%,
+    transparent
+  );
+  height: 1px;
+}
+.outline-md :deep(.ai-outline-sep__arm--fine) {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1) 50%, transparent);
+  height: 1px;
+  max-width: 42%;
+  flex: 1;
+  opacity: 0.75;
+}
+.outline-md :deep(.ai-outline-sep__chip) {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(165, 180, 252, 0.88);
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(30, 27, 50, 0.5));
+  border: 1px solid rgba(129, 140, 248, 0.28);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2) inset;
+}
+.outline-md :deep(.ai-outline-sep__chip--muted) {
+  color: rgba(148, 163, 184, 0.9);
+  border-color: rgba(148, 163, 184, 0.22);
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.45), rgba(15, 23, 42, 0.35));
+  letter-spacing: 0.12em;
+  text-transform: none;
+  font-size: 11px;
+  font-weight: 500;
+}
+.outline-md :deep(.ai-outline-sep__pill) {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(254, 243, 199, 0.95);
+  padding: 4px 14px;
+  border-radius: 8px;
+  background: rgba(120, 53, 15, 0.28);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  letter-spacing: 0.04em;
+}
+.outline-md :deep(.ai-outline-sep__glyph) {
+  flex-shrink: 0;
+  font-size: 9px;
+  line-height: 1;
+  color: rgba(148, 163, 184, 0.45);
+  opacity: 0.9;
+}
+.outline-md :deep(.ai-outline-sep--pci-start) {
+  margin-top: 0.5rem;
+}
+.outline-md :deep(.ai-outline-sep--ep-end) {
+  margin-bottom: 0.75rem;
+  gap: 10px;
+}
+.outline-md :deep(.ai-outline-sep--ep-end .ai-outline-sep__arm--fine) {
+  max-width: 38%;
+}
+.outline-md :deep(code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.88em;
+  padding: 0.15em 0.4em;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e9d5ff;
+}
+.outline-md :deep(pre) {
+  margin: 0.75em 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow-x: auto;
+}
+.outline-md :deep(pre code) {
+  padding: 0;
+  border: none;
+  background: none;
+  color: rgba(226, 232, 240, 0.92);
+}
+.outline-md :deep(a) {
+  color: #93c5fd;
+  text-decoration: none;
+}
+.outline-md :deep(a:hover) {
+  text-decoration: underline;
+}
+.outline-md :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 0.75em 0;
+}
+.outline-md :deep(th),
+.outline-md :deep(td) {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 6px 10px;
+  text-align: left;
+}
+.outline-md :deep(th) {
+  background: rgba(255, 255, 255, 0.06);
+}
+.chat-extra {
+  margin-bottom: 16px;
+}
+.chat-extra.user {
+  display: flex;
+  justify-content: flex-end;
+}
+.ai-line {
+  padding: 12px 0;
+}
+.ai-text {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.65;
+  color: rgba(203, 213, 225, 0.92);
+}
+
+.stream-err {
+  color: #fca5a5;
+  font-size: 13px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(127, 29, 29, 0.25);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+}
+
+.composer-bottom {
+  flex-shrink: 0;
+  padding: 12px 16px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(16px);
+}
+.composer-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: rgba(28, 30, 38, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.attach-btn {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(203, 213, 225, 0.85);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.attach-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.bottom-textarea {
+  flex: 1;
+  min-height: 44px;
+  max-height: 160px;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #f1f5f9;
+  font-family: inherit;
+  padding: 8px 0;
+}
+.bottom-textarea::placeholder {
+  color: rgba(148, 163, 184, 0.75);
+}
+.send-round {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  background: #f8fafc;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s, opacity 0.12s;
+}
+.send-round:hover:not(:disabled) {
+  transform: scale(1.05);
+}
+.send-round:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+</style>
+
+<style>
+/* append-to-body 对话框不受 scoped 限制 */
+.immersive-episode-dialog.el-dialog {
+  background: linear-gradient(165deg, #151821 0%, #0c0e12 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+.immersive-episode-dialog .el-dialog__header {
+  padding: 16px 18px 6px;
+  margin: 0;
+}
+.immersive-episode-dialog .el-dialog__title {
+  color: #f1f5f9;
+  font-weight: 700;
+  font-size: 15px;
+}
+.immersive-episode-dialog .el-dialog__headerbtn .el-dialog__close {
+  color: rgba(148, 163, 184, 0.9);
+}
+.immersive-episode-dialog .el-dialog__body {
+  padding: 8px 18px 4px;
+  color: rgba(203, 213, 225, 0.92);
+}
+.immersive-episode-dialog .el-dialog__footer {
+  padding: 10px 18px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ep-dialog-desc {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(148, 163, 184, 0.95);
+}
+.ep-dialog-ref {
+  padding: 12px 12px 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ep-dialog-ref-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f8fafc;
+  line-height: 1.45;
+  margin-bottom: 8px;
+}
+.ep-dialog-ref-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: rgba(148, 163, 184, 0.9);
+}
+.ep-dialog-ver {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.2);
+  color: rgba(165, 180, 252, 0.95);
+  border: 1px solid rgba(129, 140, 248, 0.35);
+}
+.ep-dialog-empty {
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(148, 163, 184, 0.95);
+}
+.ep-dialog-footer-inner {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+.ep-dialog-footer-hint {
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.85);
+}
+.ep-dialog-footer-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.btn-ep-cancel {
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn-ep-cancel:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.btn-ep-primary {
+  padding: 8px 18px;
+  border-radius: 10px;
+  border: none;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.btn-ep-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+</style>
