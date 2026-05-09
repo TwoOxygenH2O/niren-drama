@@ -28,6 +28,50 @@
       </div>
     </div>
 
+    <section v-if="activeTab === 'image'" class="image-debug-panel" aria-label="文生图 API 调试">
+      <div class="image-debug-head">
+        <h3 class="image-debug-title">文生图 API 调试</h3>
+        <p class="image-debug-desc">
+          使用当前账号解析后的文生图配置（优先「默认」配置，否则回退服务端环境变量）发起一次生成；返回的图片会经素材服务写入
+          <strong>腾讯云 COS</strong>（未启用 COS 时保存到本地并通过 /api/files 访问）。
+        </p>
+      </div>
+      <el-input
+        v-model="imageDebugPrompt"
+        type="textarea"
+        :rows="4"
+        placeholder="输入中文或英文画面描述，例如：黄昏时分的江南水乡，青瓦白墙，电影感柔光，竖屏构图"
+        maxlength="2000"
+        show-word-limit
+      />
+      <div class="image-debug-row">
+        <div class="image-debug-size">
+          <span class="image-debug-label">输出尺寸</span>
+          <el-select v-model="imageDebugSize" style="width: 200px">
+            <el-option label="1024×1024（方图）" value="1024x1024" />
+            <el-option label="1024×1792（竖屏）" value="1024x1792" />
+            <el-option label="1792×1024（横屏）" value="1792x1024" />
+          </el-select>
+        </div>
+        <el-button type="primary" :loading="imageDebugLoading" @click="runImageDebug">
+          生成并上传
+        </el-button>
+      </div>
+      <p v-if="imageDebugError" class="image-debug-err">{{ imageDebugError }}</p>
+      <div v-if="imageDebugResultUrl" class="image-debug-preview">
+        <div class="image-debug-preview-head">
+          <span>预览</span>
+          <el-button text type="primary" size="small" @click="copyImageDebugUrl">复制公网 URL</el-button>
+        </div>
+        <img :src="imageDebugResultUrl" alt="文生图调试预览" class="image-debug-img" />
+        <p class="image-debug-url mono">{{ imageDebugResultUrl }}</p>
+        <p v-if="imageDebugProviderUrl" class="image-debug-meta">
+          模型侧原始地址（未强制转存时可能为临时链）：
+          <span class="mono">{{ imageDebugProviderUrl }}</span>
+        </p>
+      </div>
+    </section>
+
     <div class="config-list">
       <div v-if="filteredConfigs(activeTab).length === 0" class="empty-config">
         <div class="empty-icon">
@@ -191,6 +235,13 @@ const editing = ref(false)
 const submitting = ref(false)
 const activeTab = ref('text')
 const isDefault = ref(false)
+
+const imageDebugPrompt = ref('黄昏时分的江南水乡，青瓦白墙，电影感柔光，竖屏短剧分镜，高清细节')
+const imageDebugSize = ref('1024x1024')
+const imageDebugLoading = ref(false)
+const imageDebugResultUrl = ref('')
+const imageDebugProviderUrl = ref('')
+const imageDebugError = ref('')
 
 const tabs = [
   {
@@ -464,6 +515,45 @@ async function deleteConfig(id: number) {
   await aiConfigApi.delete(id)
   ElMessage.success('已删除')
   load()
+}
+
+async function runImageDebug() {
+  if (!imageDebugPrompt.value.trim()) {
+    ElMessage.warning('请输入提示词')
+    return
+  }
+  imageDebugLoading.value = true
+  imageDebugError.value = ''
+  imageDebugResultUrl.value = ''
+  imageDebugProviderUrl.value = ''
+  try {
+    const res = await aiConfigApi.debugGenerateImage({
+      prompt: imageDebugPrompt.value.trim(),
+      size: imageDebugSize.value,
+    })
+    const d = (res.data as any)?.data || {}
+    imageDebugResultUrl.value = d.imageUrl || ''
+    imageDebugProviderUrl.value = d.providerUrl || ''
+    if (!imageDebugResultUrl.value) {
+      imageDebugError.value = '接口未返回图片地址'
+      return
+    }
+    ElMessage.success('生成完成')
+  } catch (e: any) {
+    imageDebugError.value = e?.message || '生成失败'
+  } finally {
+    imageDebugLoading.value = false
+  }
+}
+
+async function copyImageDebugUrl() {
+  if (!imageDebugResultUrl.value) return
+  try {
+    await navigator.clipboard.writeText(imageDebugResultUrl.value)
+    ElMessage.success('已复制 URL')
+  } catch {
+    ElMessage.warning('复制失败，请手动选择文本')
+  }
 }
 
 onMounted(load)
@@ -770,5 +860,98 @@ onMounted(load)
   border: 1px solid var(--border);
   white-space: nowrap;
   margin-left: 8px;
+}
+
+.image-debug-panel {
+  margin-bottom: 24px;
+  padding: 20px 22px;
+  background: var(--bg-card);
+  border: 1px solid rgba(129, 140, 248, 0.22);
+  border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.image-debug-head {
+  margin-bottom: 2px;
+}
+.image-debug-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.image-debug-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+.image-debug-desc strong {
+  color: #c7d2fe;
+  font-weight: 600;
+}
+.image-debug-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.image-debug-size {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.image-debug-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.image-debug-err {
+  margin: 0;
+  font-size: 13px;
+  color: #fca5a5;
+  line-height: 1.5;
+}
+.image-debug-preview {
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.image-debug-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.image-debug-img {
+  display: block;
+  max-width: min(100%, 420px);
+  max-height: 420px;
+  width: auto;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.35);
+  object-fit: contain;
+}
+.image-debug-url {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.95);
+  word-break: break-all;
+  line-height: 1.5;
+}
+.image-debug-meta {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.mono {
+  font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
 }
 </style>

@@ -15,4 +15,8 @@ export const aiConfigApi = {
 
   getProviderDefaults: (provider: string, configType: string) =>
     request.get('/ai-configs/provider-defaults', { params: { provider, configType } }),
+
+  /** 文生图调试：按当前账号解析的配置生成图片并写入 COS */
+  debugGenerateImage: (data: { prompt: string; size?: string }) =>
+    request.post('/ai-configs/debug/generate-image', data, { timeout: 240000 }),
 }

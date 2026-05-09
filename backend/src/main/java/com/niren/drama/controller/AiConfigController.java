@@ -5,6 +5,7 @@ import com.niren.drama.common.Result;
 import com.niren.drama.entity.AiConfig;
 
 import com.niren.drama.service.AiConfigService;
+import com.niren.drama.service.AiImageDebugService;
 import com.niren.drama.common.CurrentUserHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +24,7 @@ import java.util.Map;
 public class AiConfigController {
 
     private final AiConfigService aiConfigService;
+    private final AiImageDebugService aiImageDebugService;
     private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "获取我的AI配置列表")
@@ -65,6 +67,16 @@ public class AiConfigController {
         String baseUrl = AiProviderFactory.getDefaultBaseUrl(provider, configType);
         String model = AiProviderFactory.getDefaultModel(provider, configType);
         return Result.success(Map.of("baseUrl", baseUrl, "model", model));
+    }
+
+    @Operation(summary = "调试文生图：输入提示词生成图片并写入 COS（或本地公网可访问路径）")
+    @PostMapping("/debug/generate-image")
+    public Result<Map<String, Object>> debugGenerateImage(@RequestBody(required = false) Map<String, String> body,
+                                                          @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        String prompt = body != null ? body.get("prompt") : null;
+        String size = body != null ? body.get("size") : null;
+        return Result.success(aiImageDebugService.generateAndStore(userId, prompt, size));
     }
 
     private Long getUserId(UserDetails userDetails) {
