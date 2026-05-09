@@ -158,6 +158,20 @@ public class StoryboardService {
         return task;
     }
 
+    /**
+     * 删除该剧本下已有分镜（含预览与已保存），并重新提交异步拆解任务。
+     */
+    public TaskRecord startRegenerateStoryboard(Long userId, Long projectId, Long scriptId) {
+        requireScript(scriptId, projectId);
+        storyboardMapper.delete(new LambdaQueryWrapper<Storyboard>()
+                .eq(Storyboard::getProjectId, projectId)
+                .eq(Storyboard::getScriptId, scriptId));
+        StoryboardGenerateRequest req = new StoryboardGenerateRequest();
+        req.setProjectId(projectId);
+        req.setScriptId(scriptId);
+        return startGenerateStoryboard(userId, req);
+    }
+
     public void streamGenerateStoryboard(Long userId, StoryboardGenerateRequest request, java.util.function.Consumer<String> chunkConsumer, java.util.function.Consumer<String> progressConsumer) {
         log.debug("开始流式生成分镜预览: userId={}, projectId={}, scriptId={}",
             userId, request.getProjectId(), request.getScriptId());

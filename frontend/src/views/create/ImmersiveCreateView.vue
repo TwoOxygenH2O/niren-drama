@@ -139,6 +139,7 @@
                 scriptWorkflowLoading ||
                 (workflowPhase === 'outline' && !outlineContent.trim())
               "
+              title="发送（Cmd/Ctrl + Enter）"
               @click="sendFollowUp"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -307,9 +308,15 @@ const dialogReferenceScript = computed(() =>
   dialogScripts.value.find((s: any) => Number(s.episodeNo) === activeEpisode.value),
 )
 
-const composerPlaceholder = computed(
-  () => '输入你的问题，Enter 换行，Cmd/Ctrl + Enter 发送',
-)
+const composerPlaceholder = computed(() => {
+  if (workflowPhase.value === 'outline') {
+    return '补充说明以调整大纲；发送「确认分镜大纲」进入剧本阶段。Enter 换行，Cmd/Ctrl + Enter 发送'
+  }
+  if (workflowPhase.value === 'plan_ready') {
+    return '例如：重新生成分镜、重写本集剧本；会用 AI 结合项目信息处理。Cmd/Ctrl + Enter 发送'
+  }
+  return '输入你的问题，Enter 换行，Cmd/Ctrl + Enter 发送'
+})
 
 const activePlanScript = computed(() =>
   projectScripts.value.find((s: any) => Number(s.episodeNo) === activeEpisode.value) ?? null,
@@ -717,7 +724,8 @@ const CONFIRM_OUTLINE_TRIGGERS = ['确认分镜大纲', '确认大纲']
 
 async function sendFollowUp() {
   const t = bottomInput.value.trim()
-  if (!t || !outlineContent.value.trim()) return
+  if (!t) return
+  if (workflowPhase.value === 'outline' && !outlineContent.value.trim()) return
 
   if (CONFIRM_OUTLINE_TRIGGERS.includes(t)) {
     outlineConfirmBarDismissed.value = true
@@ -739,24 +747,50 @@ async function sendFollowUp() {
   chatTail.value.push({ role: 'user', text: t })
   bottomInput.value = ''
   try {
-    const res = await scriptApi.repairOutlinePreview({
-      projectId: projectId.value,
-      content: outlineContent.value,
-      idea: t,
+    const res = await projectApi.immersiveChat(projectId.value, {
+      message: t,
+      episodeNo: activeEpisode.value,
+      workflowPhase: workflowPhase.value,
+      outlineContent: workflowPhase.value === 'outline' ? outlineContent.value : undefined,
     })
-    const payload = res.data?.data || {}
-    if (payload.content) {
-      outlineContent.value = payload.content
+    const data = (res as any).data?.data ?? (res as any).data ?? {}
+    const reply = typeof data.reply === 'string' ? data.reply : '已处理。'
+    if (typeof data.outlineContent === 'string' && data.outlineContent.trim() && workflowPhase.value === 'outline') {
+      outlineContent.value = data.outlineContent
     }
+    chatTail.value.push({ role: 'ai', text: reply })
+
+    const tid = data.taskId
+    const ttype = data.taskType as string | undefined
+    if (tid != null && (ttype === 'STORYBOARD_GEN' || ttype === 'SCRIPT_GEN')) {
+      try {
+        await pollTaskUntilDone(String(tid))
+        await loadPlanSideData()
+        if (ttype === 'STORYBOARD_GEN') {
+          episodeStoryboardReady.value = true
+          episodeStoryboardErr.value = ''
+          await refreshVideoOverview()
+        }
+        chatTail.value.push({
+          role: 'ai',
+          text:
+            ttype === 'STORYBOARD_GEN'
+              ? '后台任务已完成：本集分镜已写入，可在右侧策划栏查看。'
+              : '后台任务已完成：本集剧本已刷新，请查看右侧与剧本页。',
+        })
+      } catch (te: unknown) {
+        ElMessage.error(te instanceof Error ? te.message : '后台任务失败')
+        if (ttype === 'STORYBOARD_GEN') {
+          episodeStoryboardReady.value = false
+          episodeStoryboardErr.value = te instanceof Error ? te.message : '分镜任务失败'
+        }
+      }
+    }
+  } catch (e: unknown) {
+    ElMessage.error(e instanceof Error ? e.message : '发送失败')
     chatTail.value.push({
       role: 'ai',
-      text: '已根据你的说明尝试调整大纲，请查看上方正文。确认无误后可发送「确认分镜大纲」。',
-    })
-  } catch (e: any) {
-    ElMessage.error(e?.message || '发送失败')
-    chatTail.value.push({
-      role: 'ai',
-      text: '暂时无法处理该补充，请稍后在「剧本生成」页使用修复或重新生成。',
+      text: '请求失败，请稍后重试或到剧本/分镜页操作。',
     })
   } finally {
     bottomSending.value = false

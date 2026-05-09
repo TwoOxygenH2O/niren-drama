@@ -23,6 +23,9 @@ export function normalizeApiErrorMessage(message: unknown, requestUrl = '') {
     if (requestUrl.includes('/scripts/preview/outline/repair')) {
       return '大纲 AI 修复超时，请稍后重试'
     }
+    if (requestUrl.includes('/immersive-chat')) {
+      return '导演助手请求超时，可缩短说明后重试'
+    }
     return '请求超时，请稍后重试'
   }
 
