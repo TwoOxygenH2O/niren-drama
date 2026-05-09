@@ -117,13 +117,13 @@ const router = createRouter({
           path: 'settings',
           name: 'Settings',
           component: () => import('@/views/settings/SettingsView.vue'),
-          meta: { title: 'AI配置' },
+          meta: { title: 'AI配置', fullBleed: true },
         },
         {
           path: 'library/subjects',
           name: 'SubjectLibrary',
           component: () => import('@/views/library/SubjectLibraryView.vue'),
-          meta: { title: '主体库' },
+          meta: { title: '主体库', fullBleed: true },
         },
         {
           path: 'help/tutorial',

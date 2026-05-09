@@ -1,5 +1,6 @@
 <template>
-  <div class="settings-page">
+  <div class="settings-immersive-root">
+    <div class="settings-inner">
     <div class="settings-header">
       <div class="settings-header-left">
         <h1 class="settings-title">AI 配置中心</h1>
@@ -174,6 +175,7 @@
         </div>
       </template>
     </el-dialog>
+    </div>
   </div>
 </template>
 
@@ -468,27 +470,65 @@ onMounted(load)
 </script>
 
 <style scoped>
-.settings-page {
-  padding: 28px 32px;
+.settings-immersive-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 28px 40px 32px 112px;
+  background: #0a0a0c;
+  color: #e8eaef;
+  --bg-card: rgba(22, 24, 30, 0.98);
+  --bg-card-hover: rgba(30, 32, 40, 0.98);
+  --bg-muted: rgba(255, 255, 255, 0.06);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --text-primary: #f8fafc;
+  --text-secondary: rgba(226, 232, 240, 0.92);
+  --text-muted: rgba(148, 163, 184, 0.92);
+  --shadow-md: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+
+.settings-inner {
   max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .settings-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 16px;
   margin-bottom: 28px;
+  flex-wrap: wrap;
 }
 .settings-title {
   font-size: 22px;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0 0 6px;
+  letter-spacing: -0.02em;
 }
 .settings-desc {
   font-size: 13px;
   color: var(--text-muted);
   margin: 0;
+  line-height: 1.55;
+}
+
+.settings-header :deep(.el-button--primary) {
+  border-radius: 12px;
+  border: none;
+  padding: 10px 18px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.35);
+}
+.settings-header :deep(.el-button--primary:hover) {
+  filter: brightness(1.06);
 }
 
 .model-input-row {
@@ -505,39 +545,51 @@ onMounted(load)
   gap: 12px;
   margin-bottom: 24px;
 }
+@media (max-width: 900px) {
+  .config-tabs {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 520px) {
+  .config-tabs {
+    grid-template-columns: 1fr;
+  }
+}
 .config-tab {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 16px 18px;
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.18s;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
 }
 .config-tab:hover {
-  border-color: var(--primary);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+  border-color: rgba(129, 140, 248, 0.4);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.38);
+  transform: translateY(-1px);
 }
 .config-tab.active {
-  border-color: var(--primary);
-  background: rgba(99, 102, 241, 0.04);
-  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.12);
+  border-color: rgba(129, 140, 248, 0.55);
+  background: rgba(99, 102, 241, 0.14);
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.2);
 }
 .tab-icon {
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: rgba(99, 102, 241, 0.08);
+  background: rgba(99, 102, 241, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--primary);
+  color: #a5b4fc;
   flex-shrink: 0;
 }
 .config-tab.active .tab-icon {
-  background: var(--primary);
+  background: linear-gradient(135deg, #6366f1, #7c3aed);
   color: #fff;
 }
 .tab-label {
@@ -559,17 +611,21 @@ onMounted(load)
 }
 .config-card {
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
   padding: 18px 22px;
-  transition: box-shadow 0.2s, border-color 0.2s;
+  transition: box-shadow 0.2s, border-color 0.2s, transform 0.18s;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.32);
 }
 .config-card:hover {
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.42);
+  border-color: rgba(129, 140, 248, 0.25);
+  transform: translateY(-1px);
 }
 .config-card.is-default {
-  border-color: rgba(16, 185, 129, 0.3);
-  background: rgba(16, 185, 129, 0.02);
+  border-color: rgba(52, 211, 153, 0.4);
+  background: rgba(16, 185, 129, 0.08);
+  box-shadow: 0 6px 24px rgba(16, 185, 129, 0.12);
 }
 .config-card-header {
   display: flex;
@@ -590,11 +646,23 @@ onMounted(load)
 .config-actions {
   display: flex;
   gap: 4px;
+  flex-wrap: wrap;
+}
+.config-actions :deep(.el-button) {
+  color: rgba(226, 232, 240, 0.88);
+}
+.config-actions :deep(.el-button--primary) {
+  color: var(--el-color-primary);
 }
 .config-card-body {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
+}
+@media (max-width: 720px) {
+  .config-card-body {
+    grid-template-columns: 1fr;
+  }
 }
 .config-field {
   display: flex;
@@ -623,14 +691,13 @@ onMounted(load)
 .empty-config {
   text-align: center;
   padding: 60px 24px;
-  background: var(--bg-card);
-  border: 1px dashed var(--border-strong);
-  border-radius: 12px;
+  background: rgba(22, 24, 30, 0.55);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
 }
 .empty-icon {
-  color: var(--text-muted);
+  color: rgba(148, 163, 184, 0.55);
   margin-bottom: 16px;
-  opacity: 0.5;
 }
 .empty-text {
   font-size: 15px;
@@ -659,14 +726,14 @@ onMounted(load)
   font-size: 12px;
 }
 .provider-hint {
-  color: var(--primary) !important;
-  background: rgba(99, 102, 241, 0.05);
+  color: #c7d2fe !important;
+  background: rgba(99, 102, 241, 0.1);
   padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 8px;
+  border: 1px solid rgba(99, 102, 241, 0.25);
 }
 .key-tip {
-  color: var(--color-success) !important;
+  color: #6ee7b7 !important;
 }
 .default-row {
   display: flex;
