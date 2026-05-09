@@ -280,13 +280,15 @@ async function goFromInspiration() {
 .dashboard-bg {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(ellipse 120% 80% at 50% 120%, rgba(30, 25, 45, 0.95) 0%, transparent 55%),
-    radial-gradient(ellipse 90% 60% at 70% 20%, rgba(60, 80, 120, 0.35) 0%, transparent 50%),
-    radial-gradient(ellipse 70% 50% at 20% 60%, rgba(90, 60, 40, 0.2) 0%, transparent 45%),
-    linear-gradient(165deg, #0d0f14 0%, #1a1528 35%, #121820 70%, #0a0c10 100%);
   pointer-events: none;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% 120%, rgba(30, 25, 45, 0.92) 0%, transparent 55%),
+    radial-gradient(ellipse 90% 60% at 70% 20%, rgba(60, 80, 120, 0.38) 0%, transparent 50%),
+    radial-gradient(ellipse 70% 50% at 20% 60%, rgba(90, 60, 40, 0.22) 0%, transparent 45%),
+    linear-gradient(165deg, rgba(13, 15, 20, 0.88) 0%, rgba(26, 21, 40, 0.82) 35%, rgba(18, 24, 32, 0.86) 70%, rgba(10, 12, 16, 0.92) 100%),
+    url('/background/background1.png') center / cover no-repeat;
 }
+
 .dashboard-bg::after {
   content: '';
   position: absolute;

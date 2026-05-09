@@ -33,17 +33,21 @@ withDefaults(
 
 <style scoped>
 .auth-page {
+  position: relative;
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
+  /* 底图尽量透出：仅一层很轻的全景压暗，便于辨认卡片与浅色表单 */
   background:
-    radial-gradient(circle at top, rgba(15, 23, 42, 0.05), transparent 28%),
-    linear-gradient(180deg, #f6f6f3 0%, #f3f3ef 100%);
+    linear-gradient(165deg, rgba(10, 12, 18, 0.38) 0%, rgba(15, 18, 28, 0.48) 50%, rgba(8, 10, 16, 0.52) 100%),
+    url('/background/background1.png') center / cover no-repeat fixed #0f1117;
 }
 
 .auth-shell {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: 420px;
   display: flex;
@@ -59,7 +63,8 @@ withDefaults(
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.03em;
-  color: #111827;
+  color: #f8fafc;
+  text-shadow: 0 1px 18px rgba(0, 0, 0, 0.55);
 }
 
 .brand-icon {
@@ -77,10 +82,13 @@ withDefaults(
   width: 100%;
   padding: 32px 28px 28px;
   border-radius: 24px;
-  border: 1px solid rgba(17, 24, 39, 0.08);
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow:
+    0 22px 48px rgba(0, 0, 0, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  backdrop-filter: blur(22px) saturate(1.08);
+  -webkit-backdrop-filter: blur(22px) saturate(1.08);
 }
 
 .auth-value {
