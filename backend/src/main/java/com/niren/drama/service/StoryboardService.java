@@ -1515,6 +1515,12 @@ if (isStream) {
         if (update.getDuration() != null) storyboard.setDuration(update.getDuration());
         if (update.getImagePrompt() != null) storyboard.setImagePrompt(update.getImagePrompt());
         if (update.getVideoPrompt() != null) storyboard.setVideoPrompt(update.getVideoPrompt());
+        if (update.getImageUrl() != null) {
+            storyboard.setImageUrl(hasText(update.getImageUrl()) ? update.getImageUrl().trim() : null);
+        }
+        if (update.getVideoUrl() != null) {
+            storyboard.setVideoUrl(hasText(update.getVideoUrl()) ? update.getVideoUrl().trim() : null);
+        }
         if (update.getMotionLevel() != null) storyboard.setMotionLevel(normalizeMotionLevel(update.getMotionLevel()));
         if (update.getDynamicSelected() != null) {
             storyboard.setDynamicSelected(update.getDynamicSelected());

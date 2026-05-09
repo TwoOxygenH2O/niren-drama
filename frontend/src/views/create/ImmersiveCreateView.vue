@@ -23,7 +23,6 @@
       <span v-if="project?.name" class="top-project-title">{{ project.name }}</span>
       </div>
       <div class="top-right">
-        <span class="credits"><span class="credits-ico" aria-hidden="true">✦</span> 125</span>
         <button type="button" class="vip-link" @click="noopVip">开通会员</button>
         <button type="button" class="icon-btn" title="通知" aria-label="通知" @click="noopBell">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -152,7 +151,7 @@
       </main>
 
       <aside v-if="showPlanPanel" class="immersive-plan" :aria-label="`第${activeEpisode}集策划`">
-        <div class="plan-inner">
+        <div class="plan-scroll">
           <header class="plan-head">
             <span class="plan-ep-badge">第 {{ String(activeEpisode).padStart(2, '0') }} 集</span>
             <h2 class="plan-title">{{ activePlanScript?.title || '—' }}</h2>
@@ -194,23 +193,31 @@
               </p>
               <pre v-else class="plan-script-body">{{ episodeScriptBody }}</pre>
             </section>
-
-            <div v-if="showGenVideoFab" class="plan-actions">
-              <p v-if="episodeStoryboardGenerating" class="plan-action-hint">正在拆解本集分镜并计算动态/静态推荐，请稍候…</p>
-              <p v-else-if="episodeStoryboardReady" class="plan-action-hint plan-action-hint--ok">本集分镜已就绪；点击下方将按推荐生成静态图与动态片段（动态优先）。</p>
-              <p v-else-if="episodeStoryboardErr" class="plan-action-hint plan-action-hint--err">{{ episodeStoryboardErr }}</p>
-              <p v-else class="plan-action-hint">等待分镜任务…</p>
-              <button
-                type="button"
-                class="btn-plan-video"
-                :disabled="primaryVideoDisabled"
-                @click="onPrimaryVideoAction"
-              >
-                <span class="btn-plan-video-ico" aria-hidden="true">✦</span>
-                {{ primaryVideoLabel }}
-              </button>
-            </div>
           </template>
+        </div>
+
+        <div v-if="showGenVideoFab && !scriptWorkflowLoading" class="plan-actions plan-actions--dock">
+          <p v-if="episodeStoryboardGenerating" class="plan-action-hint">正在拆解本集分镜并计算动态/静态推荐，请稍候…</p>
+          <p v-else-if="episodeStoryboardReady" class="plan-action-hint plan-action-hint--ok">本集分镜已就绪；点击下方将按推荐生成静态图与动态片段（动态优先）。</p>
+          <p v-else-if="episodeStoryboardErr" class="plan-action-hint plan-action-hint--err">{{ episodeStoryboardErr }}</p>
+          <p v-else class="plan-action-hint">等待分镜任务…</p>
+          <button
+            type="button"
+            class="btn-plan-prompts"
+            :disabled="!activePlanScript?.id"
+            @click="videoPromptsOpen = true"
+          >
+            生成视频提示词
+          </button>
+          <button
+            type="button"
+            class="btn-plan-video"
+            :disabled="primaryVideoDisabled"
+            @click="onPrimaryVideoAction"
+          >
+            <span class="btn-plan-video-ico" aria-hidden="true">✦</span>
+            {{ primaryVideoLabel }}
+          </button>
         </div>
       </aside>
     </div>
@@ -255,6 +262,14 @@
       </template>
     </el-dialog>
 
+    <VideoPromptsExportDialog
+      v-model="videoPromptsOpen"
+      :project-id="projectId"
+      :episode-no="activeEpisode"
+      :script-id="activePlanScript?.id != null ? Number(activePlanScript.id) : null"
+      :project="project"
+    />
+
   </div>
 </template>
 
@@ -269,6 +284,7 @@ import { storyboardApi } from '@/api/storyboard'
 import { taskApi } from '@/api/task'
 import { videoApi } from '@/api/video'
 import { formatOutlinePlainDividers, renderAiOutlineMarkdown } from '@/utils/renderMarkdown'
+import VideoPromptsExportDialog from '@/components/create/VideoPromptsExportDialog.vue'
 
 const INSPIRATION_KEY = 'niren.dashboard.inspiration'
 
@@ -359,6 +375,8 @@ const hasProjectVideo = ref(false)
 const mediaSubmitLoading = ref(false)
 /** 剧集切换或重复调度时递增，用于取消过期的分镜拉取/生成流程 */
 let sbEnsureGeneration = 0
+
+const videoPromptsOpen = ref(false)
 
 const primaryVideoLabel = computed(() => (hasProjectVideo.value ? '查看视频' : '生成视频'))
 
@@ -1007,15 +1025,6 @@ onMounted(async () => {
   align-items: center;
   gap: 14px;
 }
-.credits {
-  font-size: 13px;
-  color: rgba(226, 232, 240, 0.85);
-  font-weight: 600;
-}
-.credits-ico {
-  opacity: 0.9;
-  margin-right: 2px;
-}
 .vip-link {
   background: none;
   border: none;
@@ -1062,13 +1071,23 @@ onMounted(async () => {
   background: rgba(8, 9, 12, 0.96);
   border-left: 1px solid rgba(255, 255, 255, 0.06);
 }
-.plan-inner {
+.plan-scroll {
   flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding: 18px 16px 22px;
+  overscroll-behavior: contain;
+  padding: 18px 16px 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+.plan-actions--dock {
+  flex-shrink: 0;
+  padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 11, 14, 0.98);
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.45);
 }
 .plan-head {
   padding-bottom: 8px;
@@ -1210,11 +1229,33 @@ onMounted(async () => {
   overflow-y: auto;
 }
 .plan-actions {
-  margin-top: auto;
-  padding-top: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.btn-plan-prompts {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(129, 140, 248, 0.45);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  color: #c7d2fe;
+  background: rgba(99, 102, 241, 0.12);
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-plan-prompts:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(165, 180, 252, 0.65);
+}
+.btn-plan-prompts:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .plan-action-hint {
   margin: 0;

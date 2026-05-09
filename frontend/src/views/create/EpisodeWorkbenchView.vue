@@ -105,14 +105,38 @@
               <button type="button" class="wb-link-btn wb-link-btn--primary" @click="goSynthesis">前往合成导出</button>
             </div>
           </template>
-          <template v-else-if="displayVideoUrl">
-            <video class="wb-media" :src="displayVideoUrl" controls playsinline />
+          <template v-else-if="displayShotVideoUrl">
+            <video class="wb-media" :src="displayShotVideoUrl" controls playsinline />
           </template>
           <template v-else-if="displayImageUrl">
             <img class="wb-media" :src="displayImageUrl" alt="镜头画面" />
           </template>
           <div v-else class="wb-canvas-empty">素材生成中或未就绪</div>
         </div>
+        <div class="wb-external-panel">
+          <div class="wb-external-title">外站分镜视频</div>
+          <p class="wb-external-tip">
+            粘贴其他平台生成的镜头视频直链（建议 https · mp4），保存后与当前选中镜头关联，成片合成时可使用。
+          </p>
+          <div class="wb-external-row">
+            <input
+              v-model="externalVideoUrl"
+              type="url"
+              class="wb-external-input"
+              placeholder="https://example.com/clip.mp4"
+              autocomplete="off"
+            />
+            <button
+              type="button"
+              class="wb-external-btn"
+              :disabled="!activeShot?.id || externalSaving"
+              @click="saveExternalVideo"
+            >
+              {{ externalSaving ? '保存中…' : '保存关联' }}
+            </button>
+          </div>
+        </div>
+
         <div class="wb-filmstrip-wrap">
           <div ref="stripRef" class="wb-filmstrip">
             <button
@@ -162,6 +186,8 @@ const shots = ref<any[]>([])
 const activeIndex = ref(0)
 const leftTab = ref<'frame' | 'dub' | 'music'>('frame')
 const stripRef = ref<HTMLElement | null>(null)
+const externalVideoUrl = ref('')
+const externalSaving = ref(false)
 
 const chatMessages = ref<Array<{ role: 'user' | 'ai'; text: string }>>([
   { role: 'ai', text: '你好，这里是本集镜头工作台。下方横条可切换镜头；左侧可切换画面 / 配音 / 音乐面板。' },
@@ -178,9 +204,10 @@ const displayImageUrl = computed(() => {
   return s.imageUrl && String(s.imageUrl).trim() ? String(s.imageUrl) : ''
 })
 
-const displayVideoUrl = computed(() => {
+/** 当前镜头已有关联视频（含外站导入或本系统生成） */
+const displayShotVideoUrl = computed(() => {
   const s = activeShot.value
-  if (!s || !s.dynamicSelected) return ''
+  if (!s) return ''
   const u = s.videoUrl
   return u && String(u).trim() ? String(u) : ''
 })
@@ -224,6 +251,31 @@ async function loadData() {
       )
     : []
   activeIndex.value = 0
+  syncExternalInputFromShot()
+}
+
+function syncExternalInputFromShot() {
+  const s = activeShot.value
+  externalVideoUrl.value = s?.videoUrl && String(s.videoUrl).trim() ? String(s.videoUrl).trim() : ''
+}
+
+async function saveExternalVideo() {
+  const s = activeShot.value
+  if (!s?.id) return
+  externalSaving.value = true
+  try {
+    const url = externalVideoUrl.value.trim()
+    await storyboardApi.update(s.id, { videoUrl: url || '' })
+    ElMessage.success(url ? '已关联外站镜头视频' : '已清空本镜头视频地址')
+    await loadData()
+    const idx = shots.value.findIndex((x: any) => x.id === s.id)
+    if (idx >= 0) activeIndex.value = idx
+    syncExternalInputFromShot()
+  } catch (e: unknown) {
+    ElMessage.error(e instanceof Error ? e.message : '保存失败')
+  } finally {
+    externalSaving.value = false
+  }
 }
 
 function goBack() {
@@ -253,6 +305,7 @@ function sendChatStub() {
 }
 
 watch(activeIndex, () => {
+  syncExternalInputFromShot()
   const el = stripRef.value?.querySelector('.wb-thumb.active')
   el?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
 })
@@ -581,6 +634,57 @@ onMounted(() => {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+}
+
+.wb-external-panel {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(129, 140, 248, 0.22);
+  background: rgba(79, 70, 229, 0.06);
+}
+.wb-external-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e0e7ff;
+  margin-bottom: 6px;
+}
+.wb-external-tip {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(148, 163, 184, 0.92);
+}
+.wb-external-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.wb-external-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.45);
+  color: #e8eaef;
+  font-size: 12px;
+}
+.wb-external-btn {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #0f172a;
+  background: linear-gradient(135deg, #a5b4fc, #818cf8);
+}
+.wb-external-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .wb-filmstrip-wrap {
