@@ -702,13 +702,13 @@ onMounted(async () => {
 }
 
 .episode-range-sep {
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 13px;
 }
 
 .form-tip {
   margin-top: 8px;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -722,7 +722,7 @@ onMounted(async () => {
 
 .common-card-tip {
   margin-bottom: 10px;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -731,7 +731,7 @@ onMounted(async () => {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.65;
-  color: #334155;
+  color: var(--text-secondary);
   font-family: inherit;
 }
 
@@ -750,7 +750,7 @@ onMounted(async () => {
 
 .script-card:hover,
 .script-card.active {
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.22);
+  box-shadow: 0 0 0 2px var(--primary-glow);
 }
 
 .script-header {
@@ -763,7 +763,7 @@ onMounted(async () => {
 
 .script-outline {
   font-size: 12px;
-  color: #475569;
+  color: var(--text-secondary);
   line-height: 1.55;
   display: -webkit-box;
   -webkit-line-clamp: 6;
@@ -773,7 +773,7 @@ onMounted(async () => {
 }
 
 .script-outline.is-empty {
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .editor-card { margin-bottom: 20px; }

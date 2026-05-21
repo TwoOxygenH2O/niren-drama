@@ -1,374 +1,735 @@
 <template>
-  <div class="page-container">
-    <!-- Hero welcome -->
-    <div class="hero-banner">
-      <div class="hero-text">
-        <div class="hero-greeting">你好，{{ userStore.userInfo?.nickname || '创作者' }}</div>
-        <div class="hero-title">泥人剧场 · AI 短剧创作平台</div>
-        <div class="hero-sub">从一句话创意到完整短剧成片，AI 全流程驱动创作</div>
-      </div>
-      <div class="hero-action">
-        <button class="new-project-btn" @click="$router.push('/projects')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          新建项目
-        </button>
-      </div>
-    </div>
+  <div class="dashboard-immersive" v-loading="creatingProject" element-loading-text="正在创建项目…">
+    <div class="dashboard-bg" aria-hidden="true" />
+    <div class="dashboard-inner" :class="{ 'dashboard-inner--expanded': expanded }">
+      <h1 class="dashboard-headline">有什么新的故事灵感？</h1>
+      <p class="dashboard-sub">你好，{{ userStore.userInfo?.nickname || '创作者' }} · 泥人剧场</p>
 
-    <!-- Stats row -->
-    <div class="stats-row">
-      <div class="stat-card" v-for="stat in stats" :key="stat.label">
-        <div class="stat-icon" :style="{ background: stat.bg }">
-          <span v-html="stat.icon"></span>
-        </div>
-        <div class="stat-body">
-          <div class="stat-value">{{ stat.value }}</div>
-          <div class="stat-label">{{ stat.label }}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Workflow steps -->
-    <div class="section">
-      <div class="section-head">
-        <span class="section-title">创作流程</span>
-        <span class="section-sub">从创意到成片，全程 AI 驱动</span>
-      </div>
-      <div class="steps-grid">
-        <div
-          v-for="step in steps"
-          :key="step.no"
-          class="step-card"
-          :class="{ clickable: !!step.route }"
-          @click="step.route && handleStepClick(step)"
-        >
-          <div class="step-number">{{ step.no }}</div>
-          <div class="step-icon-wrap" v-html="step.icon"></div>
-          <div class="step-name">{{ step.name }}</div>
-          <div class="step-desc">{{ step.desc }}</div>
-          <div class="step-arrow" v-if="step.no !== '08'">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      <div
+        class="inspire-bar-wrap"
+        :class="{ 'inspire-bar-wrap--expanded': expanded }"
+        @click="onWrapClick"
+      >
+        <Transition name="inspire-swap" mode="out-in">
+          <!-- Collapsed: single pill row（点击除「发送」外区域展开） -->
+          <div v-if="!expanded" key="compact" class="inspire-bar inspire-bar--compact">
+            <input
+              v-model="inspiration"
+              type="text"
+              class="inspire-input"
+              placeholder="输入你的灵感，AI 会为你自动规划内容生成视频"
+              maxlength="500"
+              readonly
+              tabindex="-1"
+              @keydown.enter.prevent="goFromInspiration"
+            />
+            <button type="button" class="inspire-submit" title="开始创作" @click.stop="goFromInspiration">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5" />
+                <polyline points="5 12 12 5 19 12" />
+              </svg>
+            </button>
           </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- Recent projects -->
-    <div class="section">
-      <div class="section-head">
-        <span class="section-title">最近项目</span>
-        <router-link to="/projects" class="view-all-link">查看全部 →</router-link>
-      </div>
-      <div v-if="recentProjects.length" class="projects-grid">
-        <div
-          v-for="project in recentProjects"
-          :key="project.id"
-          class="project-card"
-          @click="$router.push(`/projects/${project.id}`)"
-        >
-          <div class="project-cover">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l4.553-2.843A1 1 0 0121 8.117v7.766a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
-          </div>
-          <div class="project-info">
-            <div class="project-name">{{ project.name }}</div>
-            <div class="project-meta">
-              <span :class="`status-badge status-${project.status}`">{{ statusLabel(project.status) }}</span>
-              <span class="project-date">{{ formatDate(project.createTime) }}</span>
+          <!-- Expanded: full composer -->
+          <div v-else key="expanded" class="inspire-bar inspire-bar--expanded" @click.stop>
+          <button type="button" class="composer-collapse" title="收起" aria-label="收起" @click="collapseComposer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <polyline points="6 15 12 9 18 15" />
+            </svg>
+          </button>
+
+          <div class="composer-body">
+            <div class="composer-input-row">
+              <span class="composer-prefix"><span class="composer-prefix-accent">短剧原创</span><span class="composer-slash">/</span></span>
+              <textarea
+                ref="textareaRef"
+                v-model="inspiration"
+                class="composer-textarea"
+                placeholder="输入你的灵感，AI 会为你自动策划内容生成视频"
+                maxlength="500"
+                rows="3"
+                @keydown.ctrl.enter.prevent="goFromInspiration"
+              />
+            </div>
+
+            <div class="composer-toolbar">
+              <div class="toolbar-icons" aria-hidden="true">
+                <button type="button" class="tool-ico" title="附件">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+                  </svg>
+                </button>
+                <button type="button" class="tool-ico" title="素材">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M12 2l9 5v10l-9 5-9-5V7l9-5z" />
+                    <path d="M12 22V12M12 12L3 7M12 12l9-5" />
+                  </svg>
+                </button>
+                <button type="button" class="tool-ico" title="提及">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <circle cx="12" cy="12" r="4" />
+                    <path d="M16 8v5a4 4 0 01-8 0v-1" />
+                    <path d="M16 12h1.5a2.5 2.5 0 010 5H17" />
+                  </svg>
+                </button>
+                <button type="button" class="tool-ico" title="对话">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 018.5-8.5h.5a8.48 8.48 0 018 8.5z" />
+                  </svg>
+                </button>
+              </div>
+              <div class="toolbar-center">
+                <button type="button" class="mode-pill" title="当前默认文生视频模型（来自 AI 配置）">
+                  <span class="mode-pill-text">{{ videoModelLabel }}</span>
+                  <span class="mode-pill-new">NEW</span>
+                </button>
+              </div>
+              <div class="toolbar-right">
+                <span class="multi-label">多剧集</span>
+                <el-switch v-model="multiEpisode" size="small" />
+                <button type="button" class="send-pill" title="生成 / 前往项目" @click="goFromInspiration">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5" />
+                    <polyline points="5 12 12 5 19 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
+        </Transition>
       </div>
-      <div v-else class="empty-state">
-        <svg class="empty-svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l4.553-2.843A1 1 0 0121 8.117v7.766a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
-        <div class="empty-text">暂无项目，开始你的第一部短剧创作</div>
-        <button class="new-project-btn-sm" @click="$router.push('/projects')">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          创建项目
-        </button>
+
+      <div class="dashboard-extras" :class="{ 'dashboard-extras--visible': expanded }">
+        <div class="quick-actions">
+          <button type="button" class="quick-chip quick-chip--drama" @click="goFromInspiration">
+            <span class="quick-chip-ico quick-chip-ico--pink" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3l2 4 4 .5-3 3 1 4.5L12 13l-4 2 .5-4.5-3-3L10 7l2-4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+            </span>
+            短剧原创
+          </button>
+        </div>
+
+        <div class="feature-cards">
+          <button type="button" class="feature-card" @click="goFromInspiration">
+            <div class="feature-card-icon" aria-hidden="true">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+              </svg>
+            </div>
+            <span class="feature-card-title">对话剧情</span>
+            <span class="feature-card-desc">多角色对话驱动的短剧形式，适合都市情感、悬疑推理等题材</span>
+          </button>
+          <button type="button" class="feature-card" @click="goFromInspiration">
+            <div class="feature-card-icon feature-card-icon--cyan" aria-hidden="true">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                <path d="M19 10v2a7 7 0 01-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+              </svg>
+            </div>
+            <span class="feature-card-title">旁白解说</span>
+            <span class="feature-card-desc">旁白解说驱动叙事，适合知识分享、故事讲解等内容</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import { aiConfigApi } from '@/api/aiConfig'
 import { projectApi } from '@/api/project'
+import { DASHBOARD_COLLAPSE_COMPOSER } from '@/constants/dashboard'
+import { DEFAULT_PROJECT_TYPE } from '@/constants/project'
 
 const router = useRouter()
 const userStore = useUserStore()
-const recentProjects = ref<any[]>([])
+const inspiration = ref('')
+const expanded = ref(false)
+const multiEpisode = ref(false)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const videoModelName = ref('')
+const creatingProject = ref(false)
 
-const steps = [
-  {
-    no: '01',
-    icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
-    name: '创建项目',
-    desc: '设置题材、集数与时长',
-    route: '/projects',
-  },
-  {
-    no: '02',
-    icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>',
-    name: '剧本生成',
-    desc: '一句话创意 → AI 剧本',
-    route: null,
-  },
-  {
-    no: '03',
-    icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/></svg>',
-    name: '分镜拆解',
-    desc: 'AI 解析剧本为分镜',
-    route: null,
-  },
-  {
-    no: '04',
-    icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-    name: '角色设计',
-    desc: 'AI 生成角色肖像',
-    route: null,
-  },
-  {
-    no: '05',
-    icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
-    name: '场景绘制',
-    desc: 'AI 生成场景背景',
-    route: null,
-  },
-  {
-    no: '06',
-    icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
-    name: '分镜画面',
-    desc: 'AI 生成每帧画面',
-    route: null,
-  },
-  {
-    no: '07',
-    icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>',
-    name: '配音生成',
-    desc: 'TTS 为角色配音',
-    route: null,
-  },
-  {
-    no: '08',
-    icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>',
-    name: '合成导出',
-    desc: '自动合成竖屏短剧',
-    route: null,
-  },
-]
+const INSPIRATION_KEY = 'niren.dashboard.inspiration'
+const MULTI_EPISODE_KEY = 'niren.dashboard.multiEpisode'
 
-const stats = ref([
-  {
-    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>',
-    label: '总项目',
-    value: '—',
-    bg: 'rgba(99,102,241,0.1)',
-  },
-  {
-    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
-    label: '已完成',
-    value: '—',
-    bg: 'rgba(16,185,129,0.1)',
-  },
-  {
-    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
-    label: '生成中',
-    value: '—',
-    bg: 'rgba(245,158,11,0.1)',
-  },
-])
+/** 与 AI 配置中心「文生视频」默认项的模型名称一致 */
+const videoModelLabel = computed(() => {
+  const m = videoModelName.value.trim()
+  if (m) return `${m} 全能模式`
+  return '请在 AI 配置中添加文生视频模型'
+})
 
-const statusLabel = (s: string) => ({ draft: '草稿', generating: '生成中', completed: '已完成', failed: '失败' }[s] || s)
-const formatDate = (d: string) => d ? d.substring(0, 10) : ''
-
-function handleStepClick(step: any) {
-  if (step.route) {
-    router.push(step.route)
+async function loadDefaultVideoModel() {
+  try {
+    const res = await aiConfigApi.list()
+    const list = (res.data?.data || []) as Array<{
+      configType?: string
+      isDefault?: number
+      model?: string
+    }>
+    const videos = list.filter((c) => c.configType === 'video')
+    const def = videos.find((c) => c.isDefault === 1) || videos[0]
+    videoModelName.value = (def?.model || '').trim()
+  } catch {
+    videoModelName.value = ''
   }
 }
 
-onMounted(async () => {
-  try {
-    const res = await projectApi.list({ page: 1, size: 6 })
-    const records = res.data.data?.records || []
-    recentProjects.value = records
-    stats.value[0].value = String(res.data.data?.total || records.length)
-    stats.value[1].value = String(records.filter((p: any) => p.status === 'completed').length)
-    stats.value[2].value = String(records.filter((p: any) => p.status === 'generating').length)
-  } catch {}
+function collapseComposer() {
+  expanded.value = false
+}
+
+function expandComposer() {
+  if (expanded.value) return
+  expanded.value = true
+  loadDefaultVideoModel()
+  nextTick(() => textareaRef.value?.focus())
+}
+
+function onExternalCollapse() {
+  collapseComposer()
+}
+
+function onWindowWheel(e: WheelEvent) {
+  if (!expanded.value) return
+  const t = e.target
+  if (t instanceof HTMLTextAreaElement) {
+    if (t.scrollHeight > t.clientHeight + 1 && t.scrollTop > 0) {
+      return
+    }
+  }
+  const main = document.querySelector('main.page-main') as HTMLElement | null
+  if (main && main.scrollTop > 2) return
+  if (e.deltaY >= 0) return
+  collapseComposer()
+}
+
+onMounted(() => {
+  loadDefaultVideoModel()
+  window.addEventListener(DASHBOARD_COLLAPSE_COMPOSER, onExternalCollapse)
+  window.addEventListener('wheel', onWindowWheel, { passive: true })
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener(DASHBOARD_COLLAPSE_COMPOSER, onExternalCollapse)
+  window.removeEventListener('wheel', onWindowWheel)
+})
+
+function onWrapClick() {
+  if (!expanded.value) expandComposer()
+}
+
+async function goFromInspiration() {
+  const text = inspiration.value.trim()
+  if (!text) {
+    ElMessage.warning('请先输入创作灵感')
+    return
+  }
+  try {
+    sessionStorage.setItem(MULTI_EPISODE_KEY, multiEpisode.value ? '1' : '0')
+    sessionStorage.setItem(INSPIRATION_KEY, text)
+  } catch {
+    /* ignore */
+  }
+
+  const episodes = 20
+
+  creatingProject.value = true
+  try {
+    const res = await projectApi.create({
+      name: text.length > 40 ? `${text.slice(0, 37)}…` : text,
+      description: text,
+      projectType: DEFAULT_PROJECT_TYPE,
+      genre: '',
+      episodes,
+      episodeDuration: 60,
+    })
+    const project = res.data?.data
+    const pid = project?.id
+    if (!pid) {
+      ElMessage.error('创建项目失败')
+      return
+    }
+    await router.push(`/projects/${pid}/episodes`)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : '创建项目失败'
+    ElMessage.error(msg)
+  } finally {
+    creatingProject.value = false
+  }
+}
 </script>
 
 <style scoped>
-.page-container { padding: 28px 32px; }
-
-/* Hero */
-.hero-banner {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  background: linear-gradient(135deg, #1a1040 0%, #2d1b69 50%, #1e3a5f 100%);
-  border-radius: 20px;
-  padding: 36px 44px;
-  margin-bottom: 28px;
+.dashboard-immersive {
   position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: min(720px, 100%);
+  padding: 32px 20px 48px;
   overflow: hidden;
 }
-.hero-banner::before {
+
+.dashboard-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    url("/background/background1.png") center / cover no-repeat,
+    radial-gradient(ellipse 120% 80% at 50% 120%, rgba(30, 25, 45, 0.92) 0%, transparent 55%),
+    radial-gradient(ellipse 90% 60% at 70% 20%, rgba(60, 80, 120, 0.38) 0%, transparent 50%),
+    radial-gradient(ellipse 70% 50% at 20% 60%, rgba(90, 60, 40, 0.22) 0%, transparent 45%),
+    linear-gradient(165deg, #0a0a0f 0%, #0a0a0f 100%);
+}
+
+.dashboard-bg::after {
   content: '';
   position: absolute;
-  top: -30%;
-  right: -10%;
-  width: 400px;
-  height: 400px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(99,102,241,0.25) 0%, transparent 70%);
-  pointer-events: none;
+  inset: 0;
+  background: rgba(10, 10, 15, 0.45);
 }
-.hero-greeting { font-size: 14px; color: rgba(129,140,248,0.9); margin-bottom: 8px; font-weight: 500; }
-.hero-title { font-size: 28px; font-weight: 800; color: #fff; letter-spacing: -0.5px; margin-bottom: 10px; }
-.hero-sub { font-size: 14px; color: rgba(148,163,184,0.8); line-height: 1.6; }
-.new-project-btn {
-  display: flex; align-items: center; gap: 8px;
-  background: #fff; color: #4f46e5;
-  border: none; border-radius: 10px;
-  padding: 12px 22px; font-size: 14px; font-weight: 700;
-  cursor: pointer; white-space: nowrap;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-.new-project-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
 
-/* Stats */
-.stats-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  margin-bottom: 32px;
+.dashboard-inner {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 820px;
+  text-align: center;
+  transition:
+    max-width 0.55s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.55s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.stat-card {
-  background: var(--bg-card, #fff);
-  border-radius: 14px;
-  padding: 20px 22px;
+.dashboard-inner--expanded {
+  max-width: 980px;
+  transform: translateY(-10px);
+}
+
+.dashboard-headline {
+  margin: 0 0 12px;
+  font-size: clamp(26px, 4.5vw, 38px);
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
+  transition: opacity 0.35s ease;
+}
+
+.dashboard-sub {
+  margin: 0 0 28px;
+  font-size: 14px;
+  color: rgba(226, 232, 240, 0.65);
+}
+
+.inspire-bar-wrap {
+  width: 100%;
+  cursor: pointer;
+  transition: margin 0.45s ease;
+}
+.inspire-bar-wrap--expanded {
+  cursor: default;
+}
+
+/* Collapsed pill */
+.inspire-bar--compact {
   display: flex;
   align-items: center;
-  gap: 16px;
-  border: 1px solid var(--border, #e5e7eb);
-  transition: box-shadow 0.2s;
+  gap: 12px;
+  padding: 8px 8px 8px 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
-.stat-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
-.stat-icon {
-  width: 48px; height: 48px;
-  border-radius: 12px;
-  display: flex; align-items: center; justify-content: center;
+
+.inspire-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 15px;
+  color: #f1f5f9;
+  padding: 12px 0;
+  pointer-events: none;
+}
+.inspire-input::placeholder {
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.inspire-submit {
   flex-shrink: 0;
-  color: var(--primary, #6366f1);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.95);
+  color: #1e293b;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s, box-shadow 0.15s;
+  pointer-events: auto;
 }
-.stat-value { font-size: 26px; font-weight: 800; color: var(--text-primary, #1e293b); line-height: 1; margin-bottom: 4px; }
-.stat-label { font-size: 12px; color: var(--text-muted, #94a3b8); font-weight: 500; }
+.inspire-submit:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
 
-/* Sections */
-.section { margin-bottom: 32px; }
-.section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
-.section-title { font-size: 17px; font-weight: 700; color: var(--text-primary, #1e293b); }
-.section-sub { font-size: 13px; color: var(--text-muted, #94a3b8); margin-left: 10px; }
-.view-all-link { font-size: 13px; color: var(--primary, #6366f1); text-decoration: none; font-weight: 500; }
-.view-all-link:hover { text-decoration: underline; }
-
-/* Step cards */
-.steps-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-}
-@media (max-width: 1100px) {
-  .steps-grid { grid-template-columns: repeat(2, 1fr); }
-}
-.step-card {
-  background: var(--bg-card, #fff);
-  border-radius: 14px;
-  padding: 22px 18px;
-  text-align: center;
-  border: 1px solid var(--border, #e5e7eb);
-  transition: transform 0.18s, box-shadow 0.18s, border-color 0.18s;
+/* Expanded panel */
+.inspire-bar--expanded {
   position: relative;
+  text-align: left;
+  border-radius: 20px;
+  padding: 14px 16px 12px;
+  background: rgba(22, 24, 32, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  animation: inspire-expand-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-.step-card.clickable { cursor: pointer; }
-.step-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(99,102,241,0.12);
-  border-color: rgba(99,102,241,0.25);
+
+@keyframes inspire-expand-in {
+  from {
+    opacity: 0.65;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
-.step-card.clickable:hover {
-  border-color: var(--primary, #6366f1);
+
+.inspire-swap-enter-active,
+.inspire-swap-leave-active {
+  transition:
+    opacity 0.42s ease,
+    transform 0.48s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.step-number { font-size: 10px; font-weight: 700; color: var(--primary, #6366f1); letter-spacing: 0.5px; margin-bottom: 10px; }
-.step-icon-wrap {
-  width: 48px; height: 48px;
-  margin: 0 auto 12px;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(99,102,241,0.08);
-  border-radius: 12px;
-  color: var(--primary, #6366f1);
+.inspire-swap-enter-from {
+  opacity: 0;
+  transform: translateY(14px) scale(0.985);
 }
-.step-name { font-size: 14px; font-weight: 700; color: var(--text-primary, #1e293b); margin-bottom: 4px; }
-.step-desc { font-size: 12px; color: var(--text-muted, #94a3b8); line-height: 1.4; }
-.step-arrow {
+.inspire-swap-leave-to {
+  opacity: 0;
+  transform: translateY(18px) scale(0.978);
+}
+
+.composer-collapse {
   position: absolute;
-  right: -14px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--border-strong, #cbd5e1);
-  z-index: 1;
+  top: 10px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(226, 232, 240, 0.85);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  z-index: 2;
+}
+.composer-collapse:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
 }
 
-/* Project grid */
-.projects-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 16px;
+.composer-body {
+  padding-right: 36px;
 }
-.project-card {
-  background: var(--bg-card, #fff);
-  border-radius: 14px;
+
+.composer-input-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.composer-prefix {
+  flex-shrink: 0;
+  padding-top: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.composer-prefix-accent {
+  color: #22d3ee;
+}
+.composer-slash {
+  color: rgba(148, 163, 184, 0.55);
+  margin-left: 2px;
+}
+
+.composer-textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 72px;
+  max-height: 160px;
+  resize: vertical;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #f1f5f9;
+  font-family: inherit;
+}
+.composer-textarea::placeholder {
+  color: rgba(148, 163, 184, 0.75);
+}
+
+.composer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 12px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.toolbar-icons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tool-ico {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.75);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.tool-ico:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.toolbar-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.mode-pill {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(248, 250, 252, 0.92);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(280px, 46vw);
+  min-width: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+.mode-pill-text {
   overflow: hidden;
-  cursor: pointer;
-  border: 1px solid var(--border, #e5e7eb);
-  transition: transform 0.18s, box-shadow 0.18s;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
-.project-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+.mode-pill:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
 }
-.project-cover {
-  height: 100px;
-  background: linear-gradient(135deg, #1a1040, #2d1b69);
-  display: flex; align-items: center; justify-content: center;
+.mode-pill-new {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #0f172a;
+  background: linear-gradient(135deg, #fde047, #facc15);
+  padding: 2px 6px;
+  border-radius: 6px;
 }
-.project-info { padding: 14px 16px; }
-.project-name { font-size: 14px; font-weight: 700; color: var(--text-primary, #1e293b); margin-bottom: 8px; }
-.project-meta { display: flex; justify-content: space-between; align-items: center; }
-.project-date { font-size: 11px; color: var(--text-muted, #94a3b8); }
 
-/* Empty */
-.empty-state {
-  background: var(--bg-card, #fff);
-  border-radius: 16px;
-  padding: 56px 24px;
-  text-align: center;
-  border: 1px dashed var(--border-strong, #cbd5e1);
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.empty-svg { color: var(--text-muted, #94a3b8); opacity: 0.4; margin-bottom: 16px; }
-.empty-text { font-size: 14px; color: var(--text-muted, #94a3b8); margin-bottom: 20px; }
-.new-project-btn-sm {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: var(--primary, #6366f1); color: #fff;
-  border: none; border-radius: 8px;
-  padding: 10px 20px; font-size: 13px; font-weight: 600;
+.multi-label {
+  font-size: 12px;
+  color: rgba(203, 213, 225, 0.85);
+  font-weight: 500;
+}
+.send-pill {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
   cursor: pointer;
-  transition: opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.95);
+  color: #1e293b;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s;
 }
-.new-project-btn-sm:hover { opacity: 0.88; }
+.send-pill:hover {
+  transform: scale(1.06);
+}
+
+/* Extras slide in */
+.dashboard-extras {
+  margin-top: 0;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateY(16px);
+  transition:
+    max-height 0.65s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.45s ease 0.08s,
+    transform 0.55s cubic-bezier(0.4, 0, 0.2, 1),
+    margin-top 0.45s ease;
+  pointer-events: none;
+}
+.dashboard-extras--visible {
+  margin-top: 28px;
+  max-height: 560px;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f1f5f9;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: background 0.2s, border-color 0.2s, transform 0.15s;
+}
+.quick-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.22);
+  transform: translateY(-1px);
+}
+.quick-chip-ico {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+.quick-chip-ico--pink {
+  background: linear-gradient(145deg, #f472b6, #db2777);
+  color: #fff;
+}
+
+.feature-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  width: 100%;
+}
+
+.feature-card {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+.feature-card:hover {
+  border-color: var(--primary-light);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-4px);
+}
+
+.feature-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--primary-glow);
+  color: var(--primary-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.feature-card-icon--cyan {
+  background: rgba(6, 182, 212, 0.15);
+  color: var(--accent-light);
+}
+
+.feature-card-desc {
+  display: block;
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+
+.feature-card-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 640px) {
+  .feature-cards {
+    grid-template-columns: 1fr;
+  }
+  .toolbar-center {
+    order: 3;
+    width: 100%;
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+}
 </style>

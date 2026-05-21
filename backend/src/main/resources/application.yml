@@ -62,7 +62,10 @@ niren:
       base-url: ${AI_TEXT_BASE_URL:https://api.openai.com/v1}
       api-key: ${AI_TEXT_API_KEY:}
       model: ${AI_TEXT_MODEL:gpt-4o}
-      max-tokens: ${AI_TEXT_MAX_TOKENS:8192}
+      max-tokens: ${AI_TEXT_MAX_TOKENS:16384}
+    sse:
+      # 将每个模型分片再拆成若干小片下发（按 Unicode 码点计，0 表示不拆、原样透传）
+      typewriter-code-points: ${NIREN_SSE_TYPEWRITER_CODE_POINTS:2}
     image:
       provider: ${AI_IMAGE_PROVIDER:aliyun}
       base-url: ${AI_IMAGE_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
@@ -95,6 +98,16 @@ niren:
     poll:
       base-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_BASE_SECONDS:5}
       max-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_MAX_SECONDS:30}
+  dynamic-priority:
+    # 目标动态镜头占比（主链路可看性优先，建议 0.95-1.0）
+    target-dynamic-ratio: ${NIREN_TARGET_DYNAMIC_RATIO:0.99}
+    # 是否默认把镜头按动态链路处理（除非明确手动关掉）
+    force-dynamic-by-default: ${NIREN_FORCE_DYNAMIC_BY_DEFAULT:true}
+    # 动态镜头质量不理想时的最大重试次数（0=不重试）
+    quality-max-retry: ${NIREN_DYNAMIC_QUALITY_MAX_RETRY:1}
+  motion-tier:
+    # 是否启用 A/B/C 分层动效策略（A=真i2v, B=轻动态, C=静帧基线）
+    enabled: ${NIREN_MOTION_TIER_ENABLED:true}
   recommend:
     dynamic:
       enabled: ${NIREN_DYNAMIC_RECOMMEND_ENABLED:true}
@@ -200,6 +213,24 @@ niren:
     segmented:
       enabled: ${COMPOSE_SEGMENTED_ENABLED:true}
       max-shots-per-segment: ${COMPOSE_MAX_SHOTS_PER_SEGMENT:12}
+    narration:
+      # 是否启用整集连续旁白轨（读小说融合）
+      enabled: ${COMPOSE_NARRATION_ENABLED:true}
+      # 旁白基础音量（对白优先场景建议 0.15-0.28）
+      volume: ${COMPOSE_NARRATION_VOLUME:0.22}
+      # 对白存在时是否自动压低旁白
+      ducking-when-dialogue: ${COMPOSE_NARRATION_DUCKING_WHEN_DIALOGUE:true}
+      # 单段旁白最大时长（秒），避免长段抢戏
+      max-segment-seconds: ${COMPOSE_NARRATION_MAX_SEGMENT_SECONDS:3.5}
+      # 冲突镜头是否暂停旁白（遵循对白优先）
+      pause-on-conflict: ${COMPOSE_NARRATION_PAUSE_ON_CONFLICT:true}
+    mix:
+      # 是否启用对白绝对优先混音策略
+      dialogue-priority: ${COMPOSE_MIX_DIALOGUE_PRIORITY:true}
+      # 对白结束后旁白恢复时间（毫秒）
+      narration-recover-ms: ${COMPOSE_MIX_NARRATION_RECOVER_MS:280}
+      # 旁白让位触发阈值（越小越容易让位）
+      dialogue-threshold: ${COMPOSE_MIX_DIALOGUE_THRESHOLD:0.035}
   storage:
     cos:
       enabled: ${NIREN_COS_ENABLED:true}

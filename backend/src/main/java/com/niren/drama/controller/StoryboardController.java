@@ -7,14 +7,19 @@ import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
 
 
+import com.niren.drama.entity.Script;
 import com.niren.drama.service.StoryboardService;
+import com.niren.drama.service.ScriptService;
+import com.niren.drama.service.ProjectService;
 import com.niren.drama.common.CurrentUserHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.niren.drama.common.sse.SseTextChunkFanout;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -35,11 +40,16 @@ public class StoryboardController {
     private static final long SSE_TIMEOUT_MILLIS = 3_600_000L;
 
     private final StoryboardService storyboardService;
+    private final ScriptService scriptService;
+    private final ProjectService projectService;
     private final CurrentUserHelper currentUserHelper;
     private final ObjectMapper objectMapper;
 
     @jakarta.annotation.Resource(name = "aiTaskExecutor")
     private java.util.concurrent.Executor sseExecutor;
+
+    @Value("${niren.ai.sse.typewriter-code-points:2}")
+    private int typewriterCodePoints;
 
     @Operation(summary = "AI生成分镜（异步）")
     @PostMapping("/generate")
@@ -59,7 +69,7 @@ public class StoryboardController {
         sseExecutor.execute(() -> {
             try {
                 storyboardService.streamGenerateStoryboard(userId, request,
-                        chunk -> sendChunk(emitter, chunk),
+                        chunk -> sendContentChunk(emitter, chunk),
                         progress -> sendProgress(emitter, progress));
                 sendDone(emitter, "分镜预览生成完成");
                 emitter.complete();
@@ -95,26 +105,41 @@ public class StoryboardController {
 
     @Operation(summary = "获取项目下所有分镜")
     @GetMapping("/project/{projectId}")
-    public Result<List<Storyboard>> listByProject(@PathVariable Long projectId) {
+    public Result<List<Storyboard>> listByProject(@PathVariable Long projectId,
+                                                   @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        projectService.getProject(userId, projectId); // ownership check
         return Result.success(storyboardService.listByProject(projectId));
     }
 
     @Operation(summary = "获取脚本下所有分镜")
     @GetMapping("/script/{scriptId}")
-    public Result<List<Storyboard>> listByScript(@PathVariable Long scriptId) {
+    public Result<List<Storyboard>> listByScript(@PathVariable Long scriptId,
+                                                  @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Script script = scriptService.getScript(scriptId);
+        projectService.getProject(userId, script.getProjectId()); // ownership check
         return Result.success(storyboardService.listByScript(scriptId));
     }
 
     @Operation(summary = "获取分镜详情")
     @GetMapping("/{id}")
-    public Result<Storyboard> get(@PathVariable Long id) {
-        return Result.success(storyboardService.getStoryboard(id));
+    public Result<Storyboard> get(@PathVariable Long id,
+                                  @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Storyboard sb = storyboardService.getStoryboard(id);
+        projectService.getProject(userId, sb.getProjectId()); // ownership check
+        return Result.success(sb);
     }
 
     @Operation(summary = "更新分镜")
     @PutMapping("/{id}")
     public Result<Storyboard> update(@PathVariable Long id,
-                                     @RequestBody Storyboard update) {
+                                     @RequestBody Storyboard update,
+                                     @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Storyboard sb = storyboardService.getStoryboard(id);
+        projectService.getProject(userId, sb.getProjectId()); // ownership check
         return Result.success(storyboardService.updateStoryboard(id, update));
     }
 
@@ -130,6 +155,21 @@ public class StoryboardController {
         } catch (Exception e) {
             log.warn("SSE 发送分片失败: {}", e.getMessage());
         }
+    }
+
+    private void sendContentChunk(SseEmitter emitter, String chunk) {
+        if (chunk == null) {
+            return;
+        }
+        if (chunk.isEmpty()) {
+            sendChunk(emitter, "");
+            return;
+        }
+        if (typewriterCodePoints <= 0) {
+            sendChunk(emitter, chunk);
+            return;
+        }
+        SseTextChunkFanout.forEachCodePointSlice(chunk, typewriterCodePoints, sub -> sendChunk(emitter, sub));
     }
 
     private void sendDone(SseEmitter emitter, String message) {

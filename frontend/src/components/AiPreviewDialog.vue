@@ -99,16 +99,14 @@ function handleCancel() {
 
 <style scoped>
 .ai-preview-dialog :deep(.el-dialog) {
-  background:
-    radial-gradient(circle at top right, rgba(99, 102, 241, 0.12), transparent 28%),
-    linear-gradient(180deg, #fbfcff 0%, #ffffff 22%, #ffffff 100%);
+  background: var(--bg-card);
 }
 
 .preview-hero {
   position: relative;
   overflow: hidden;
-  border-radius: 18px;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 42%, #312e81 100%);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--secondary-dark) 100%);
   color: #fff;
 }
 
@@ -117,7 +115,7 @@ function handleCancel() {
   inset: auto -20% -45% auto;
   width: 240px;
   height: 240px;
-  background: radial-gradient(circle, rgba(129, 140, 248, 0.55), transparent 68%);
+  background: radial-gradient(circle, var(--primary-glow), transparent 68%);
   pointer-events: none;
 }
 
@@ -170,7 +168,7 @@ function handleCancel() {
   justify-content: center;
   min-width: 96px;
   padding: 8px 14px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: 12px;
   font-weight: 600;
   backdrop-filter: blur(10px);
@@ -195,8 +193,8 @@ function handleCancel() {
 .preview-shell__desc {
   margin-bottom: 16px;
   padding: 12px 14px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(59, 130, 246, 0.05));
+  border-radius: var(--radius-lg);
+  background: var(--primary-glow);
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.7;
@@ -205,7 +203,7 @@ function handleCancel() {
 .preview-shell__error {
   margin-top: 14px;
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   background: rgba(239, 68, 68, 0.08);
   border: 1px solid rgba(239, 68, 68, 0.14);
   color: #b91c1c;

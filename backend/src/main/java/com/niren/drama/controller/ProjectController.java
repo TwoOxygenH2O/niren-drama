@@ -51,13 +51,19 @@ public class ProjectController {
     @Operation(summary = "更新项目")
     @PutMapping("/{id}")
     public Result<Project> update(@PathVariable Long id,
-                                  @RequestBody ProjectCreateRequest request) {
+                                  @RequestBody ProjectCreateRequest request,
+                                  @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        projectService.getProject(userId, id); // ownership check
         return Result.success(projectService.updateProject(id, request));
     }
 
     @Operation(summary = "删除项目")
     @DeleteMapping("/{id}")
-    public Result<Void> delete(@PathVariable Long id) {
+    public Result<Void> delete(@PathVariable Long id,
+                               @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        projectService.getProject(userId, id); // ownership check
         projectService.deleteProject(id);
         return Result.success();
     }

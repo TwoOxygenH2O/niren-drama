@@ -158,6 +158,8 @@ CREATE TABLE IF NOT EXISTS drama_storyboard (
     dynamic_selected TINYINT  NOT NULL DEFAULT 0 COMMENT '是否最终选择为动态镜头',
     dynamic_score INT         NOT NULL DEFAULT 0 COMMENT '动态推荐分数 0-100',
     dynamic_reason VARCHAR(500) COMMENT '动态推荐原因',
+    motion_tier   VARCHAR(10) NOT NULL DEFAULT 'C' COMMENT '镜头动效分档：A/B/C',
+    motion_tier_reason VARCHAR(500) COMMENT '镜头分档原因',
     render_mode  VARCHAR(20)  NOT NULL DEFAULT 'image' COMMENT '最终渲染模式：image/video',
     status       VARCHAR(30)  NOT NULL DEFAULT 'draft' COMMENT '分镜状态',
     create_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,

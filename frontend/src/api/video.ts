@@ -2,11 +2,24 @@
 
 const VIDEO_STATUS_TIMEOUT = 60 * 60 * 1000
 
-function buildShotSelectionPayload(shotIds?: Array<number | string>) {
+export type ComposeOptions = {
+  narrationEnabled?: boolean
+  narrationVolume?: number
+  dialoguePriority?: boolean
+}
+
+export type DynamicOptions = {
+  forceDynamicByDefault?: boolean
+}
+
+function buildShotSelectionPayload(
+  shotIds?: Array<number | string>,
+  options?: Record<string, any>,
+) {
   if (!shotIds || shotIds.length === 0) {
-    return undefined
+    return options && Object.keys(options).length > 0 ? options : undefined
   }
-  return { shotIds }
+  return { shotIds, ...(options || {}) }
 }
 
 export const videoApi = {
@@ -15,16 +28,16 @@ export const videoApi = {
     request.post(`/videos/generate-images/${projectId}`, buildShotSelectionPayload(shotIds)),
 
   /** Generate dynamic clips for selected storyboard shots */
-  generateDynamic: (projectId: number | string, shotIds?: Array<number | string>) =>
-    request.post(`/videos/generate-dynamic/${projectId}`, buildShotSelectionPayload(shotIds)),
+  generateDynamic: (projectId: number | string, shotIds?: Array<number | string>, options?: DynamicOptions) =>
+    request.post(`/videos/generate-dynamic/${projectId}`, buildShotSelectionPayload(shotIds, options)),
 
   /** Generate TTS audio for all storyboard shots */
   generateAudio: (projectId: number | string, shotIds?: Array<number | string>) =>
     request.post(`/videos/generate-audio/${projectId}`, buildShotSelectionPayload(shotIds)),
 
   /** Start video composition */
-  compose: (projectId: number | string, shotIds?: Array<number | string>) =>
-    request.post(`/videos/compose/${projectId}`, buildShotSelectionPayload(shotIds)),
+  compose: (projectId: number | string, shotIds?: Array<number | string>, options?: ComposeOptions) =>
+    request.post(`/videos/compose/${projectId}`, buildShotSelectionPayload(shotIds, options)),
 
   /** Get latest video composition status */
   getStatus: (projectId: number | string) =>

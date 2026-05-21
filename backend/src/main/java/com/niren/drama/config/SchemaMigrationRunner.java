@@ -77,6 +77,16 @@ public class SchemaMigrationRunner implements ApplicationRunner {
             "ALTER TABLE drama_storyboard ADD COLUMN user_locked_tts TINYINT(1) NOT NULL DEFAULT 0 COMMENT '用户是否锁定配音稿' AFTER user_locked_subtitle"
         );
         ensureColumnExists(
+                "drama_storyboard",
+                "motion_tier",
+                "ALTER TABLE drama_storyboard ADD COLUMN motion_tier VARCHAR(10) NOT NULL DEFAULT 'C' COMMENT '镜头动效分档：A(i2v)/B(增强静帧)/C(基线)'"
+        );
+        ensureColumnExists(
+                "drama_storyboard",
+                "motion_tier_reason",
+                "ALTER TABLE drama_storyboard ADD COLUMN motion_tier_reason VARCHAR(500) COMMENT '镜头分档原因' AFTER motion_tier"
+        );
+        ensureColumnExists(
             "drama_character",
             "speech_rate",
             "ALTER TABLE drama_character ADD COLUMN speech_rate INT COMMENT 'TTS语速，100=1.0x，可空' AFTER voice_name"

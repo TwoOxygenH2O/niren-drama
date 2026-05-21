@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.niren.drama.ai.AiProviderFactory;
+import com.niren.drama.ai.ChatMessage;
 import com.niren.drama.ai.TextAiProvider;
 import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.dto.script.BatchScriptPreviewSaveRequest;
@@ -27,6 +28,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +51,7 @@ public class ScriptService {
     private static final Pattern EPISODE_OUTLINE_PATTERN = Pattern.compile("###EPISODE_OUTLINE_START:(\\d+)###\\s*(.*?)\\s*###EPISODE_OUTLINE_END###", Pattern.DOTALL);
     private static final Pattern EPISODE_OUTLINE_HEADING_PATTERN = Pattern.compile("(?m)^(?:#{1,6}\\s*)?(?:【|\\[)?\\s*第\\s*(\\d+)\\s*集\\s*(?:】|\\])?\\s*([^\\r\\n]*)$");
     private static final Pattern PROJECT_COMMON_INFO_PATTERN = Pattern.compile("###PROJECT_COMMON_INFO_START###\\s*(.*?)\\s*###PROJECT_COMMON_INFO_END###", Pattern.DOTALL);
+    private static final Pattern OFFICIAL_PROJECT_NAME_PATTERN = Pattern.compile("(?m)^\\s*官方项目名称[：:]\\s*(.+?)\\s*$");
     private static final Pattern TITLE_PATTERN = Pattern.compile("^标题[：:]\\s*(.+)$", Pattern.MULTILINE);
 
     private final ScriptMapper scriptMapper;
@@ -135,23 +138,25 @@ public class ScriptService {
         TextAiProvider textProvider = aiProviderFactory.getTextProvider(userId);
         String systemPrompt = buildOutlineSystemPrompt(project, resolveGenre(project, request), request.getStyle());
 
-        String commonInfo = generateProjectCommonInfoWithRetry(
+        String commonInfo = streamProjectCommonInfoWithRetry(
             textProvider,
             systemPrompt,
             project,
             request,
             totalEpisodes,
-            episodeDuration);
+            episodeDuration,
+            chunkConsumer);
+        applyAiGeneratedProjectName(userId, project, commonInfo);
         log.debug("大纲流式通用信息已就绪: projectId={}, commonInfoLength={}",
                 request.getProjectId(), commonInfo.length());
-        chunkConsumer.accept(formatProjectCommonInfoBlock(commonInfo));
+
         int chunkSize = resolveAdaptiveOutlineChunkSize(request, totalEpisodes, episodeDuration);
         for (int chunkStart = 1; chunkStart <= totalEpisodes; chunkStart += chunkSize) {
             int chunkEnd = Math.min(totalEpisodes, chunkStart + chunkSize - 1);
             log.debug("大纲流式分片开始: projectId={}, startEpisode={}, endEpisode={}",
                     request.getProjectId(), chunkStart, chunkEnd);
             chunkConsumer.accept("\n\n");
-            Map<Integer, EpisodeOutline> chunkOutlines = generateEpisodeOutlineChunk(
+            streamEpisodeOutlineChunkWithRetry(
                 textProvider,
                 systemPrompt,
                 project,
@@ -160,10 +165,113 @@ public class ScriptService {
                 chunkStart,
                 chunkEnd,
                 totalEpisodes,
+                episodeDuration,
+                chunkConsumer);
+            log.debug("大纲流式分片完成: projectId={}, startEpisode={}, endEpisode={}",
+                    request.getProjectId(), chunkStart, chunkEnd);
+        }
+    }
+
+    /**
+     * 项目通用信息：优先使用模型 token 流式输出；解析失败时重试（重试段一次性下发）。
+     */
+    private String streamProjectCommonInfoWithRetry(TextAiProvider textProvider,
+                                                    String systemPrompt,
+                                                    Project project,
+                                                    ScriptGenerateRequest request,
+                                                    int totalEpisodes,
+                                                    int episodeDuration,
+                                                    Consumer<String> chunkConsumer) {
+        String prompt = buildProjectCommonInfoUserPrompt(project, request, totalEpisodes, episodeDuration);
+        String lastFull = null;
+        BusinessException lastException = null;
+
+        for (int attempt = 1; attempt <= COMMON_INFO_RETRY_ATTEMPTS; attempt++) {
+            log.debug("流式生成通用信息尝试: projectId={}, attempt={}", project.getId(), attempt);
+            if (attempt > 1) {
+                chunkConsumer.accept("\n\n—— 正在重试生成项目通用信息… ——\n\n");
+            }
+
+            StringBuilder acc = new StringBuilder();
+            if (attempt == 1) {
+                textProvider.streamChatWithHistory(
+                    systemPrompt,
+                    Collections.singletonList(new ChatMessage("user", prompt)),
+                    chunk -> {
+                        acc.append(chunk);
+                        chunkConsumer.accept(chunk);
+                    });
+            } else {
+                String response = textProvider.chat(systemPrompt, prompt);
+                chunkConsumer.accept(response);
+                acc.append(response);
+            }
+
+            lastFull = acc.toString();
+            try {
+                String commonInfo = extractProjectCommonInfo(lastFull);
+                log.debug("流式通用信息解析成功: projectId={}, length={}", project.getId(), commonInfo.length());
+                return commonInfo;
+            } catch (BusinessException ex) {
+                lastException = ex;
+                log.warn("项目通用信息流式解析失败: attempt={}, responseLength={}, message={}",
+                    attempt,
+                    lastFull != null ? lastFull.length() : 0,
+                    ex.getMessage());
+            }
+        }
+
+        String fallback = StringUtils.trimToNull(extractProjectCommonInfoForPrompt(lastFull));
+        if (fallback != null) {
+            return fallback;
+        }
+        if (lastException != null) {
+            throw lastException;
+        }
+        throw new BusinessException("项目通用信息生成失败：AI 未返回有效内容");
+    }
+
+    /**
+     * 分集大纲：首遍使用 token 流式输出；解析失败时回退到原有同步生成并追加格式化结果。
+     */
+    private void streamEpisodeOutlineChunkWithRetry(TextAiProvider textProvider,
+                                                    String systemPrompt,
+                                                    Project project,
+                                                    ScriptGenerateRequest request,
+                                                    String commonInfo,
+                                                    int startEpisode,
+                                                    int endEpisode,
+                                                    int totalEpisodes,
+                                                    int episodeDuration,
+                                                    Consumer<String> chunkConsumer) {
+        String prompt = buildEpisodeOutlineUserPrompt(
+            project, request, commonInfo, startEpisode, endEpisode, totalEpisodes, episodeDuration);
+        StringBuilder acc = new StringBuilder();
+        try {
+            textProvider.streamChatWithHistory(
+                systemPrompt,
+                Collections.singletonList(new ChatMessage("user", prompt)),
+                chunk -> {
+                    acc.append(chunk);
+                    chunkConsumer.accept(chunk);
+                });
+            String response = acc.toString();
+            parseEpisodeOutlines(response, startEpisode, endEpisode);
+        } catch (Exception ex) {
+            log.warn("流式分集大纲解析失败或异常，回退同步生成: projectId={}, range={}-{}, message={}",
+                project.getId(), startEpisode, endEpisode, ex.getMessage());
+            chunkConsumer.accept("\n\n—— 正在重试本分集大纲… ——\n\n");
+            Map<Integer, EpisodeOutline> repaired = generateEpisodeOutlineChunk(
+                textProvider,
+                systemPrompt,
+                project,
+                request,
+                commonInfo,
+                startEpisode,
+                endEpisode,
+                totalEpisodes,
                 episodeDuration);
-            log.debug("大纲流式分片完成: projectId={}, startEpisode={}, endEpisode={}, generatedEpisodes={}",
-                    request.getProjectId(), chunkStart, chunkEnd, chunkOutlines.size());
-            chunkConsumer.accept(formatEpisodeOutlineBlocks(chunkOutlines, chunkStart, chunkEnd));
+            chunkConsumer.accept(formatEpisodeOutlineBlocks(repaired, startEpisode, endEpisode));
         }
     }
 
@@ -182,6 +290,7 @@ public class ScriptService {
         log.debug("大纲预览解析完成: projectId={}, commonInfoLength={}, outlineCount={}",
             request.getProjectId(), StringUtils.length(commonInfo), outlineMap.size());
         if (StringUtils.isNotBlank(commonInfo)) {
+            applyAiGeneratedProjectName(userId, project, commonInfo);
             projectService.updateCommonInfo(userId, project.getId(), commonInfo);
         }
         syncCharactersFromCommonInfo(userId, project.getId(), StringUtils.defaultIfBlank(commonInfo, project.getCommonInfo()));
@@ -304,6 +413,7 @@ public class ScriptService {
                     request,
                     totalEpisodes,
                     episodeDuration);
+                applyAiGeneratedProjectName(userId, project, commonInfo);
             projectService.updateCommonInfo(userId, project.getId(), commonInfo);
                 syncCharactersFromCommonInfo(userId, project.getId(), commonInfo);
                 log.debug("异步大纲通用信息已保存: taskId={}, projectId={}, commonInfoLength={}",
@@ -573,7 +683,7 @@ public class ScriptService {
         if (project.getEpisodes() != null && project.getEpisodes() > 0) {
             return project.getEpisodes();
         }
-        return 1;
+        return 20;
     }
 
     private void validateEpisodeIndex(int episodeNo, int totalEpisodes, String label) {
@@ -921,7 +1031,10 @@ public class ScriptService {
                          ###PROJECT_COMMON_INFO_START###
                          ...正文...
                          ###PROJECT_COMMON_INFO_END###
-                     2) 正文必须包含以下模块，并使用中文小标题：
+                     2) 正文开头第一行必须是单独一行（该行不要加 Markdown 标题符号），格式严格为：
+                         官方项目名称：《片名》或 官方项目名称：片名
+                         其中片名为 4–14 字的短剧宣传名，须贴合故事卖点、有记忆点；可与用户原始灵感表述不同，不得为空。
+                         该行之后空一行，再按下列模块与小标题书写：
                          - 故事核心卖点
                          - 世界观/时代背景/规则
                          - 核心人物小传（至少4人，每人都写：身份定位、性格驱动、情感诉求、秘密或弱点、外形记忆点、语言/动作特征）
@@ -1234,6 +1347,47 @@ public class ScriptService {
             throw new BusinessException("项目通用信息解析失败：模型未返回约定标记");
         }
         return matcher.group(1).trim();
+    }
+
+    private void applyAiGeneratedProjectName(Long userId, Project project, String commonInfo) {
+        String name = extractOfficialProjectName(commonInfo);
+        if (StringUtils.isBlank(name)) {
+            return;
+        }
+        projectService.updateProjectName(userId, project.getId(), name);
+        project.setName(name);
+    }
+
+    /**
+     * 从通用信息正文解析模型输出的正式片名（行首：官方项目名称：…）。
+     */
+    private String extractOfficialProjectName(String commonInfo) {
+        if (StringUtils.isBlank(commonInfo)) {
+            return null;
+        }
+        Matcher matcher = OFFICIAL_PROJECT_NAME_PATTERN.matcher(commonInfo);
+        if (!matcher.find()) {
+            return null;
+        }
+        return normalizeOfficialProjectName(matcher.group(1));
+    }
+
+    private String normalizeOfficialProjectName(String raw) {
+        String n = StringUtils.trimToEmpty(raw);
+        if (n.isEmpty()) {
+            return null;
+        }
+        while (n.startsWith("《") && n.endsWith("》") && n.length() >= 2) {
+            n = n.substring(1, n.length() - 1).trim();
+        }
+        n = StringUtils.trimToEmpty(n);
+        if (n.isEmpty()) {
+            return null;
+        }
+        if (n.length() > 200) {
+            n = n.substring(0, 200);
+        }
+        return n;
     }
 
     private String extractProjectCommonInfoForPrompt(String response) {
@@ -1857,16 +2011,17 @@ public class ScriptService {
         if (project.getEpisodeDuration() != null && project.getEpisodeDuration() > 0) {
             return project.getEpisodeDuration();
         }
-        return 120;
+        return 60;
     }
 
     private int resolveAdaptiveOutlineChunkSize(ScriptGenerateRequest request, int totalEpisodes, int episodeDuration) {
         int chunkSize = OUTLINE_CHUNK_SIZE;
         String idea = request != null ? StringUtils.trimToEmpty(request.getIdea()) : "";
-        if (totalEpisodes >= 24 || episodeDuration >= 150 || idea.length() >= 900) {
+        // 单次请求生成的集数越多、单集越长，单次输出越容易触达 max_tokens，适当减小分批以降低截断风险
+        if (totalEpisodes >= 16 || episodeDuration >= 120 || idea.length() >= 900) {
             chunkSize = 3;
         }
-        if (totalEpisodes >= 40 || idea.length() >= 1800) {
+        if (totalEpisodes >= 20 || idea.length() >= 1800) {
             chunkSize = OUTLINE_CHUNK_MIN;
         }
         return Math.max(OUTLINE_CHUNK_MIN, Math.min(OUTLINE_CHUNK_SIZE, chunkSize));

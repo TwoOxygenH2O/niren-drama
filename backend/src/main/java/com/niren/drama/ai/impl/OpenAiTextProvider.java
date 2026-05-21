@@ -24,7 +24,8 @@ import java.util.function.Consumer;
 @Slf4j
 public class OpenAiTextProvider implements TextAiProvider {
 
-    private static final int OPENAI_COMPATIBLE_MAX_TOKENS = 8192;
+    /** 与 OpenAI 兼容接口常见输出上限一致，避免长剧本/长大纲在流式末尾被 length 截断 */
+    private static final int OPENAI_COMPATIBLE_MAX_TOKENS = 16384;
 
     private final String baseUrl;
     private final String apiKey;
@@ -66,7 +67,8 @@ public class OpenAiTextProvider implements TextAiProvider {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 400) {
                 log.error("智能文本接口异常: 状态码={}, 响应体={}", response.statusCode(), response.body());
-                throw new RuntimeException("AI text service error: HTTP " + response.statusCode());
+                throw new RuntimeException("AI text service error: HTTP " + response.statusCode()
+                    + hintForUpstreamHttpError(response.statusCode()));
             }
             JsonNode responseJson = objectMapper.readTree(response.body());
             String content = responseJson.path("choices").path(0).path("message").path("content").asText("");
@@ -104,7 +106,8 @@ public class OpenAiTextProvider implements TextAiProvider {
             HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() >= 400) {
                 String errorBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
-                throw new RuntimeException("AI text service error: HTTP " + response.statusCode() + " - " + errorBody);
+                throw new RuntimeException("AI text service error: HTTP " + response.statusCode()
+                    + " - " + errorBody + hintForUpstreamHttpError(response.statusCode()));
             }
 
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
@@ -194,5 +197,15 @@ public class OpenAiTextProvider implements TextAiProvider {
             return OPENAI_COMPATIBLE_MAX_TOKENS;
         }
         return configuredMaxTokens;
+    }
+
+    /** 常见网关/CDN 错误码说明，便于运维排查（524 为 Cloudflare 源站超时） */
+    private static String hintForUpstreamHttpError(int statusCode) {
+        return switch (statusCode) {
+            case 524 -> " （524：CDN/代理在等待上游模型响应时超时，请增大反代 idle/read 超时、直连 API 域名或缩短单次生成体量）";
+            case 504 -> " （504：网关超时，同上）";
+            case 502, 503 -> " （上游暂时不可用或过载，请稍后重试）";
+            default -> "";
+        };
     }
 }

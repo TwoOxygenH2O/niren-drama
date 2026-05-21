@@ -56,6 +56,22 @@
       </div>
     </div>
 
+    <el-card class="mix-config-card" shadow="never">
+      <template #header>
+        <div class="copy-check-header">
+          <span>动态主链路与旁白混音策略</span>
+        </div>
+      </template>
+      <div class="mix-config-grid">
+        <el-switch v-model="composeOptions.narrationEnabled" active-text="整集旁白轨" />
+        <el-switch v-model="composeOptions.dialoguePriority" active-text="对白优先混音" />
+        <div class="mix-volume">
+          <span>旁白音量</span>
+          <el-slider v-model="composeOptions.narrationVolume" :min="0.1" :max="0.5" :step="0.01" style="width: 180px" />
+        </div>
+      </div>
+    </el-card>
+
     <el-card v-if="shots.length" class="copy-check-card" shadow="hover">
       <template #header>
         <div class="copy-check-header">
@@ -160,6 +176,9 @@
         </div>
         <div v-if="stepDurationText">
           步骤耗时：{{ stepDurationText }}
+        </div>
+        <div v-if="composeSummaryText">
+          合成摘要：{{ composeSummaryText }}
         </div>
       </div>
       <div v-if="taskTrace" class="task-trace-panel">
@@ -414,6 +433,11 @@ const dynamicLoading = ref(false)
 const audioLoading = ref(false)
 const composeLoading = ref(false)
 const downloadLoading = ref(false)
+const composeOptions = ref({
+  narrationEnabled: true,
+  narrationVolume: 0.22,
+  dialoguePriority: true,
+})
 
 type DialogType = 'images' | 'dynamic' | 'audio' | 'compose'
 type DialogGroup = 'pending' | 'generated'
@@ -456,6 +480,18 @@ const stepDurationText = computed(() => {
   return Object.entries(steps)
     .map(([k, v]) => `${k}:${formatMs(Number(v || 0))}`)
     .join('，')
+})
+const composeSummaryText = computed(() => {
+  const payload = parseAnyTaskResult(currentTask.value?.result)
+  if (!payload) return ''
+  const total = Number(payload.totalShots || 0)
+  const dynamic = Number(payload.dynamicShots || 0)
+  const ratio = Number(payload.dynamicRatio || 0)
+  if (total <= 0) return ''
+  const narration = payload.globalNarrationEnabled
+    ? `旁白轨 ${Number(payload.globalNarrationDurationSeconds || 0).toFixed(1)}s`
+    : '无旁白轨'
+  return `动态 ${dynamic}/${total} (${formatRatio(ratio)})，${narration}`
 })
 const asyncTaskDetails = computed(() => {
   const items = taskTrace.value?.summary?.asyncTasks
@@ -597,7 +633,7 @@ const confirmGenerate = async () => {
       ElMessage.success('分镜配音生成任务已提交')
     } else if (dialogType.value === 'compose') {
       composeLoading.value = true
-      res = await videoApi.compose(projectId, shotIds)
+      res = await videoApi.compose(projectId, shotIds, composeOptions.value)
       ElMessage.success('视频合成任务已提交')
     }
     if (res && res.data && res.data.data) {
@@ -776,6 +812,15 @@ function parseTaskTrace(raw: any) {
   }
 }
 
+function parseAnyTaskResult(raw: any) {
+  if (!raw || typeof raw !== 'string') return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
 function formatTraceBody(value: any) {
   if (!value) return ''
   if (typeof value === 'string') {
@@ -855,6 +900,22 @@ onUnmounted(() => {
 .copy-check-card {
   margin-bottom: 20px;
 }
+.mix-config-card {
+  margin-bottom: 16px;
+}
+.mix-config-grid {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.mix-volume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
 .copy-check-header {
   display: flex;
   justify-content: space-between;
@@ -872,8 +933,8 @@ onUnmounted(() => {
   margin-bottom: 24px;
 }
 .ov-card {
-  background: #fff;
-  border-radius: 12px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
   padding: 20px;
   display: flex;
   align-items: center;
@@ -884,7 +945,7 @@ onUnmounted(() => {
 .ov-icon {
   width: 48px;
   height: 48px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -904,8 +965,8 @@ onUnmounted(() => {
 
 /* Action section */
 .action-section {
-  background: #fff;
-  border-radius: 14px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
   padding: 24px;
   margin-bottom: 24px;
   border: 1px solid var(--border);
@@ -928,7 +989,7 @@ onUnmounted(() => {
   gap: 14px;
   padding: 16px;
   background: var(--bg-muted);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
 .step-num {
   width: 32px;
@@ -962,8 +1023,8 @@ onUnmounted(() => {
 
 /* Task progress */
 .task-progress-card {
-  background: #fff;
-  border-radius: 14px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
   padding: 20px 24px;
   margin-bottom: 24px;
   border: 1px solid var(--border);
@@ -984,7 +1045,7 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 600;
   padding: 2px 10px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
 }
 .task-status.status-pending { background: #fef3c7; color: #92400e; }
 .task-status.status-running { background: #dbeafe; color: #1e40af; }
@@ -998,17 +1059,17 @@ onUnmounted(() => {
 .task-diagnostics {
   margin-top: 10px;
   padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px dashed #cbd5e1;
-  background: #f8fafc;
-  color: #475569;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
   font-size: 12px;
   display: grid;
   gap: 4px;
 }
 .task-trace-panel {
   margin-top: 16px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border);
   padding-top: 16px;
 }
 .task-trace-header {
@@ -1033,10 +1094,10 @@ onUnmounted(() => {
   gap: 12px;
 }
 .task-trace-item {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   padding: 12px;
-  background: #fafafa;
+  background: var(--bg-card);
 }
 .task-trace-item-head {
   display: flex;
@@ -1052,16 +1113,16 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 700;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
-.task-trace-index { background: #e5e7eb; color: #374151; }
+.task-trace-index { background: var(--bg-muted); color: var(--text-secondary); }
 .task-trace-shot { background: #dbeafe; color: #1d4ed8; }
 .task-trace-method { background: #ede9fe; color: #6d28d9; }
 .task-trace-url {
   flex: 1;
   min-width: 280px;
   font-size: 12px;
-  color: #111827;
+  color: var(--text-primary);
   word-break: break-all;
 }
 .task-trace-status.is-success { background: #d1fae5; color: #065f46; }
@@ -1086,9 +1147,9 @@ onUnmounted(() => {
 .task-trace-block pre {
   margin: 0;
   padding: 10px;
-  border-radius: 8px;
-  background: #111827;
-  color: #e5e7eb;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  color: var(--text-primary);
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -1097,7 +1158,7 @@ onUnmounted(() => {
 .task-trace-error {
   margin-top: 10px;
   padding: 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: #fef2f2;
   color: #b91c1c;
   font-size: 12px;
@@ -1106,7 +1167,7 @@ onUnmounted(() => {
 .task-async-panel {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px dashed #d1d5db;
+  border-top: 1px dashed var(--border);
 }
 .task-async-list {
   display: grid;
@@ -1115,10 +1176,10 @@ onUnmounted(() => {
   margin-top: 12px;
 }
 .task-async-item {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   padding: 12px;
-  background: #fff;
+  background: var(--bg-card);
 }
 .task-async-head {
   display: flex;
@@ -1135,15 +1196,15 @@ onUnmounted(() => {
 }
 .task-async-value {
   font-size: 12px;
-  color: #111827;
+  color: var(--text-primary);
   line-height: 1.5;
   word-break: break-all;
 }
 
 /* Video section */
 .video-section {
-  background: #fff;
-  border-radius: 14px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
   padding: 24px;
   margin-bottom: 24px;
   border: 1px solid var(--border);
@@ -1159,7 +1220,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: center;
   background: #000;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   margin-bottom: 16px;
 }
@@ -1184,8 +1245,8 @@ onUnmounted(() => {
 
 /* Shots section */
 .shots-section {
-  background: #fff;
-  border-radius: 14px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
   padding: 24px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
@@ -1227,7 +1288,7 @@ onUnmounted(() => {
   font-size: 11px;
   font-weight: 600;
   padding: 1px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 .shot-status.status-draft { background: #f3f4f6; color: #6b7280; }
 .shot-status.status-image_generated { background: #dbeafe; color: #1e40af; }
@@ -1240,7 +1301,7 @@ onUnmounted(() => {
 
 .shot-image {
   aspect-ratio: 9/16;
-  background: #f3f4f6;
+  background: var(--bg-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1271,7 +1332,7 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--text-muted);
 }
-.dynamic-selected { color: #7c3aed; }
+.dynamic-selected { color: var(--secondary); }
 .audio-ready { color: var(--color-success); }
 .audio-pending { color: var(--text-muted); }
 
@@ -1320,7 +1381,7 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 600;
   padding: 2px 10px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
 }
 .status-draft { background: #f3f4f6; color: #6b7280; }
 .status-generating { background: #dbeafe; color: #1e40af; }

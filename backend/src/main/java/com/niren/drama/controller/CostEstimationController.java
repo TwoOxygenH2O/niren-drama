@@ -18,8 +18,8 @@ public class CostEstimationController {
     @Operation(summary = "预估系列短剧总成本")
     @GetMapping("/estimate")
     public Result<CostEstimationService.CostEstimation> estimateCost(
-            @RequestParam(defaultValue = "50") int episodes,
-            @RequestParam(defaultValue = "480") int episodeDuration,
+            @RequestParam(defaultValue = "20") int episodes,
+            @RequestParam(defaultValue = "60") int episodeDuration,
             @RequestParam(defaultValue = "0") int shotsPerEpisode) {
         return Result.success(costEstimationService.estimateSeriesCost(episodes, episodeDuration, shotsPerEpisode));
     }

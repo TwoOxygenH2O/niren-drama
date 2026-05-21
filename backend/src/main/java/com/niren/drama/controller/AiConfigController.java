@@ -1,11 +1,14 @@
 package com.niren.drama.controller;
 
 import com.niren.drama.ai.AiProviderFactory;
+import com.niren.drama.ai.impl.ComfyUiWorkflowLoader;
 import com.niren.drama.common.Result;
 import com.niren.drama.entity.AiConfig;
 
 import com.niren.drama.service.AiConfigService;
+import com.niren.drama.service.AiImageDebugService;
 import com.niren.drama.common.CurrentUserHelper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +16,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -23,6 +28,7 @@ import java.util.Map;
 public class AiConfigController {
 
     private final AiConfigService aiConfigService;
+    private final AiImageDebugService aiImageDebugService;
     private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "获取我的AI配置列表")
@@ -65,6 +71,55 @@ public class AiConfigController {
         String baseUrl = AiProviderFactory.getDefaultBaseUrl(provider, configType);
         String model = AiProviderFactory.getDefaultModel(provider, configType);
         return Result.success(Map.of("baseUrl", baseUrl, "model", model));
+    }
+
+    @Operation(summary = "调试文生图：输入提示词生成图片并写入 COS（或本地公网可访问路径）")
+    @PostMapping("/debug/generate-image")
+    public Result<Map<String, Object>> debugGenerateImage(@RequestBody(required = false) Map<String, String> body,
+                                                          @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        String prompt = body != null ? body.get("prompt") : null;
+        String size = body != null ? body.get("size") : null;
+        return Result.success(aiImageDebugService.generateAndStore(userId, prompt, size));
+    }
+
+    @Operation(summary = "获取 ComfyUI 可用工作流模板列表")
+    @GetMapping("/comfyui/workflows")
+    public Result<List<String>> listComfyUiWorkflows(@AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        String[] conn = resolveComfyUiConnection(userId);
+        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        List<String> workflows = ComfyUiWorkflowLoader.listWorkflows(conn[0], client);
+        return Result.success(workflows);
+    }
+
+    @Operation(summary = "获取指定 ComfyUI 工作流模板详情")
+    @GetMapping("/comfyui/workflow")
+    public Result<ObjectNode> getComfyUiWorkflow(@RequestParam String name,
+                                                  @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        String[] conn = resolveComfyUiConnection(userId);
+        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        ObjectNode workflow = ComfyUiWorkflowLoader.loadWorkflow(conn[0], client, name);
+        if (workflow == null) {
+            return Result.fail(404, "未找到工作流: " + name);
+        }
+        return Result.success(workflow);
+    }
+
+    /**
+     * 解析用户的 ComfyUI 连接信息 [baseUrl, apiKey]
+     */
+    private String[] resolveComfyUiConnection(Long userId) {
+        // 优先从用户视频配置获取（ComfyUI 主要用于视频/图片生成）
+        AiConfig config = aiConfigService.getDefaultByType(userId, "video");
+        if (config == null || !"comfyui".equalsIgnoreCase(config.getProvider())) {
+            config = aiConfigService.getDefaultByType(userId, "image");
+        }
+        String baseUrl = (config != null && config.getBaseUrl() != null && !config.getBaseUrl().isBlank())
+                ? config.getBaseUrl() : "http://localhost:8188";
+        String apiKey = (config != null) ? config.getApiKey() : "";
+        return new String[]{baseUrl, apiKey};
     }
 
     private Long getUserId(UserDetails userDetails) {

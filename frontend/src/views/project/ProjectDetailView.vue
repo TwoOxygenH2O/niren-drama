@@ -97,16 +97,16 @@ onMounted(async () => {
   gap: 16px;
   margin-bottom: 24px;
 }
-.project-name { font-size: 20px; font-weight: 600; color: #1a202c; }
+.project-name { font-size: 20px; font-weight: 600; color: var(--text-primary); }
 
 .workflow-nav {
   display: flex;
   gap: 12px;
   margin-bottom: 24px;
-  background: #fff;
+  background: var(--bg-card);
   padding: 16px;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
 }
 
 .workflow-step {
@@ -115,13 +115,13 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   padding: 12px 20px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background 0.2s;
   min-width: 80px;
 }
-.workflow-step:hover { background: #f0f0ff; }
-.workflow-step.active { background: #6366f1; color: #fff; }
+.workflow-step:hover { background: var(--bg-muted); }
+.workflow-step.active { background: var(--primary); color: #fff; }
 .workflow-step.active .wf-icon { opacity: 1; }
 .wf-icon { font-size: 22px; }
 .wf-label { font-size: 13px; font-weight: 500; }
@@ -133,21 +133,21 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 .info-card {
-  background: #fff;
-  border-radius: 10px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
   padding: 16px 24px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: var(--shadow-sm);
   min-width: 120px;
 }
-.info-label { font-size: 12px; color: #718096; margin-bottom: 4px; }
-.info-value { font-size: 18px; font-weight: 600; color: #1a202c; }
+.info-label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+.info-value { font-size: 18px; font-weight: 600; color: var(--text-primary); }
 
 .project-desc {
-  background: #fff;
-  border-radius: 10px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
   padding: 16px 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-  color: #4a5568;
+  box-shadow: var(--shadow-sm);
+  color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.6;
 }

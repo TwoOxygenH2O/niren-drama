@@ -82,7 +82,8 @@ public class AiVideoGenerationService {
     public VideoTaskQueryResult querySubmittedVideoTask(Long userId, Storyboard shot) {
         AiResolvedConfig config = aiProviderFactory.resolveConfig(userId, "video");
         String provider = hasText(shot.getVideoTaskProvider()) ? shot.getVideoTaskProvider() : config.provider();
-        if (!hasText(config.apiKey())) {
+        boolean isComfyUi = "comfyui".equalsIgnoreCase(provider);
+        if (!isComfyUi && !hasText(config.apiKey())) {
             throw new BusinessException("未配置视频生成 API Key，请先在 AI 配置中设置视频服务");
         }
         String statusUrl = resolveSubmittedTaskStatusUrl(provider, config.baseUrl(), shot.getVideoTaskStatusUrl(), shot.getVideoTaskId());
@@ -122,7 +123,8 @@ public class AiVideoGenerationService {
 
     public VideoTaskQueryResult queryReferenceVideoTask(Long userId, String taskId, String statusUrl) {
         AiResolvedConfig config = aiProviderFactory.resolveConfig(userId, "video");
-        if (!hasText(config.apiKey())) {
+        boolean isComfyUi = "comfyui".equalsIgnoreCase(config.provider());
+        if (!isComfyUi && !hasText(config.apiKey())) {
             throw new BusinessException("未配置视频生成 API Key，请先在 AI 配置中设置视频服务");
         }
         String resolvedStatusUrl = resolveSubmittedTaskStatusUrl(config.provider(), config.baseUrl(), statusUrl, taskId);
@@ -157,7 +159,12 @@ public class AiVideoGenerationService {
     private VideoTaskSubmission submitAliyunVideoTask(AiResolvedConfig config, Storyboard shot) {
         String prompt = resolvePrompt(shot);
         String referenceImageUrl = resolveReferenceImageUrl(shot);
-        return submitAliyunVideoTask(config, prompt, referenceImageUrl, resolveDuration(shot), shot);
+        try {
+            return submitAliyunVideoTask(config, prompt, referenceImageUrl, resolveDuration(shot), shot);
+        } catch (RuntimeException ex) {
+            maybeDowngradeToTierB(shot, ex.getMessage());
+            throw ex;
+        }
     }
 
     private VideoTaskSubmission submitAliyunVideoTask(AiResolvedConfig config,
@@ -178,6 +185,7 @@ public class AiVideoGenerationService {
         }
 
         String resolvedModel = resolveAliyunVideoModel(config.model(), effectiveReferenceImageUrl);
+        VideoGenerationProfile profile = resolveVideoGenerationProfile(shot, duration);
 
         String endpoint = resolveAliyunVideoEndpoint(config.baseUrl());
         log.debug("Start aliyun video generation: shotId={}, shotNo={}, endpoint={}, model={}, promptLength={}",
@@ -214,11 +222,12 @@ public class AiVideoGenerationService {
             }
 
             ObjectNode parameters = body.putObject("parameters");
-            parameters.put("resolution", "720P");
+            parameters.put("resolution", profile.resolution());
             parameters.put("ratio", "9:16");
             parameters.put("prompt_extend", true);
             parameters.put("watermark", true);
-            parameters.put("duration", duration > 0 ? duration : 5);
+            parameters.put("duration", profile.durationSeconds());
+            parameters.put("quality", profile.qualityTier());
 
             requestBody = objectMapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder()
@@ -309,7 +318,12 @@ public class AiVideoGenerationService {
     private VideoTaskSubmission submitCustomVideoTask(AiResolvedConfig config, Storyboard shot) {
         String prompt = resolvePrompt(shot);
         String referenceImageUrl = resolveReferenceImageUrl(shot);
-        return submitCustomVideoTask(config, prompt, referenceImageUrl, resolveDuration(shot), shot);
+        try {
+            return submitCustomVideoTask(config, prompt, referenceImageUrl, resolveDuration(shot), shot);
+        } catch (RuntimeException ex) {
+            maybeDowngradeToTierB(shot, ex.getMessage());
+            throw ex;
+        }
     }
 
     private VideoTaskSubmission submitCustomVideoTask(AiResolvedConfig config,
@@ -317,7 +331,8 @@ public class AiVideoGenerationService {
                                                       String referenceImageUrl,
                                                       int duration,
                                                       Storyboard shot) {
-        if (!hasText(config.apiKey())) {
+        boolean isComfyUi = "comfyui".equalsIgnoreCase(config.provider());
+        if (!isComfyUi && !hasText(config.apiKey())) {
             throw new BusinessException("未配置自定义视频接口 API Key");
         }
         if (!hasText(prompt)) {
@@ -326,6 +341,7 @@ public class AiVideoGenerationService {
         String effectiveReferenceImageUrl = publicAssetStorageService.ensurePublicUrl(referenceImageUrl, "reference-images", "png");
 
         String endpoint = resolveCustomVideoEndpoint(config.baseUrl());
+        VideoGenerationProfile profile = resolveVideoGenerationProfile(shot, duration);
         log.debug("Start custom video generation: shotId={}, shotNo={}, endpoint={}, model={}, promptLength={}, hasImage={}",
             shot != null ? shot.getId() : null,
             shot != null ? shot.getShotNo() : null,
@@ -349,9 +365,9 @@ public class AiVideoGenerationService {
             if (hasText(effectiveReferenceImageUrl)) {
                 body.put("image_url", effectiveReferenceImageUrl);
             }
-            body.put("duration", duration > 0 ? duration : 5);
-            body.put("size", "1080x1920");
-            body.put("quality", "standard");
+            body.put("duration", profile.durationSeconds());
+            body.put("size", "A".equalsIgnoreCase(resolveMotionTier(shot)) ? "1080x1920" : "720x1280");
+            body.put("quality", profile.qualityTier());
             body.put("with_sound", false);
 
             requestBody = objectMapper.writeValueAsString(body);
@@ -678,6 +694,44 @@ public class AiVideoGenerationService {
         return shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 5;
     }
 
+    private VideoGenerationProfile resolveVideoGenerationProfile(Storyboard shot, int fallbackDuration) {
+        int baseDuration = fallbackDuration > 0 ? fallbackDuration : 5;
+        String tier = resolveMotionTier(shot);
+        if ("A".equalsIgnoreCase(tier)) {
+            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 3), 6), "pro", "1080P");
+        }
+        if ("B".equalsIgnoreCase(tier)) {
+            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 1), 2), "standard", "720P");
+        }
+        return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 2), 4), "standard", "720P");
+    }
+
+    private String resolveMotionTier(Storyboard shot) {
+        if (shot == null || !hasText(shot.getMotionTier())) {
+            return "C";
+        }
+        String normalized = shot.getMotionTier().trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "A", "B", "C" -> normalized;
+            default -> "C";
+        };
+    }
+
+    private void maybeDowngradeToTierB(Storyboard shot, String reason) {
+        if (shot == null || shot.getId() == null || !"A".equalsIgnoreCase(resolveMotionTier(shot))) {
+            return;
+        }
+        shot.setMotionTier("B");
+        shot.setMotionTierReason("A档视频失败，自动降级为B档轻动态");
+        shot.setDynamicSelected(false);
+        shot.setRenderMode("image");
+        shot.setVideoTaskStatus("degraded");
+        String fallbackReason = hasText(reason) ? reason : "视频服务异常";
+        String originalReason = hasText(shot.getDynamicReason()) ? shot.getDynamicReason() : "";
+        shot.setDynamicReason((originalReason + "；A档降级：" + fallbackReason).replaceAll("^；", ""));
+        storyboardMapper.updateById(shot);
+    }
+
     private String resolvePrompt(Storyboard shot) {
         String basePrompt;
         if (hasText(shot.getVideoPrompt())) {
@@ -806,4 +860,6 @@ public class AiVideoGenerationService {
     private String persistVideoUrl(String videoUrl) {
         return publicAssetStorageService.ensurePublicUrl(videoUrl, "videos", "mp4");
     }
+
+    private record VideoGenerationProfile(int durationSeconds, String qualityTier, String resolution) {}
 }

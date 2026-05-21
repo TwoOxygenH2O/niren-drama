@@ -27,6 +27,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -151,14 +152,15 @@ public class VideoController {
     @GetMapping("/download/{projectId}")
     public ResponseEntity<StreamingResponseBody> download(@PathVariable Long projectId) throws Exception {
         TaskRecord task = videoCompositionService.getLatestVideoTask(projectId);
-        if (task == null || !"SUCCESS".equals(task.getStatus()) || task.getResult() == null) {
+        String taskVideoUrl = task != null ? videoCompositionService.extractVideoUrl(task.getResult()) : null;
+        if (task == null || !"SUCCESS".equals(task.getStatus()) || taskVideoUrl == null) {
             return ResponseEntity.notFound().build();
         }
 
-        Path videoPath = videoCompositionService.getVideoFilePath(task.getResult());
-        if (videoPath == null && task.getResult().startsWith("http")) {
+        Path videoPath = videoCompositionService.getVideoFilePath(taskVideoUrl);
+        if (videoPath == null && taskVideoUrl.startsWith("http")) {
             return ResponseEntity.status(302)
-                    .header(HttpHeaders.LOCATION, task.getResult())
+                    .header(HttpHeaders.LOCATION, taskVideoUrl)
                     .build();
         }
         if (videoPath == null || !Files.exists(videoPath)) {
@@ -201,22 +203,29 @@ public class VideoController {
         long audioReady = shots.stream().filter(s -> s.getAudioUrl() != null && !s.getAudioUrl().isBlank()).count();
         long dynamicRecommended = shots.stream().filter(s -> Boolean.TRUE.equals(s.getDynamicRecommended())).count();
         long dynamicSelected = shots.stream().filter(s -> Boolean.TRUE.equals(s.getDynamicSelected())).count();
+        long tierA = shots.stream().filter(s -> "A".equalsIgnoreCase(s.getMotionTier())).count();
+        long tierB = shots.stream().filter(s -> "B".equalsIgnoreCase(s.getMotionTier())).count();
+        long tierC = shots.stream().filter(s -> !("A".equalsIgnoreCase(s.getMotionTier()) || "B".equalsIgnoreCase(s.getMotionTier()))).count();
         long dynamicReady = shots.stream()
             .filter(s -> Boolean.TRUE.equals(s.getDynamicSelected()))
             .filter(s -> s.getVideoUrl() != null && !s.getVideoUrl().isBlank())
             .count();
-        String videoUrl = latestTask != null && "SUCCESS".equals(latestTask.getStatus()) ? latestTask.getResult() : null;
+        String videoUrl = latestTask != null && "SUCCESS".equals(latestTask.getStatus())
+                ? videoCompositionService.extractVideoUrl(latestTask.getResult())
+                : null;
 
-        Map<String, Object> overview = Map.of(
-                "totalShots", totalShots,
-                "imagesReady", imagesReady,
-                "audioReady", audioReady,
-                "dynamicRecommended", dynamicRecommended,
-                "dynamicSelected", dynamicSelected,
-                "dynamicReady", dynamicReady,
-                "videoUrl", videoUrl != null ? videoUrl : "",
-                "latestTask", latestTask != null ? latestTask : Map.of()
-        );
+        Map<String, Object> overview = new LinkedHashMap<>();
+        overview.put("totalShots", totalShots);
+        overview.put("imagesReady", imagesReady);
+        overview.put("audioReady", audioReady);
+        overview.put("dynamicRecommended", dynamicRecommended);
+        overview.put("dynamicSelected", dynamicSelected);
+        overview.put("tierA", tierA);
+        overview.put("tierB", tierB);
+        overview.put("tierC", tierC);
+        overview.put("dynamicReady", dynamicReady);
+        overview.put("videoUrl", videoUrl != null ? videoUrl : "");
+        overview.put("latestTask", latestTask != null ? latestTask : Map.of());
         return Result.success(overview);
     }
 }

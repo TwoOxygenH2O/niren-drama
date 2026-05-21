@@ -133,14 +133,14 @@ onMounted(load)
 .page-title { font-size: 20px; font-weight: 600; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
 
-.scene-card { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-.scene-image { height: 160px; background: linear-gradient(135deg, #e0f2fe, #f0fdf4); overflow: hidden; }
+.scene-card { background: var(--bg-card); border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm); }
+.scene-image { height: 160px; background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(16, 185, 129, 0.1)); overflow: hidden; }
 .scene-image img { width: 100%; height: 100%; object-fit: cover; }
 .scene-placeholder { height: 100%; display: flex; align-items: center; justify-content: center; }
 .scene-info { padding: 16px; }
-.scene-name { font-size: 15px; font-weight: 700; color: #1a202c; margin-bottom: 6px; }
+.scene-name { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; }
 .scene-meta { display: flex; gap: 8px; margin-bottom: 8px; }
-.scene-tag { font-size: 11px; color: #4a5568; background: #f0f0f0; padding: 2px 8px; border-radius: 8px; }
-.scene-desc { font-size: 13px; color: #718096; margin-bottom: 12px; }
+.scene-tag { font-size: 11px; color: var(--text-secondary); background: var(--bg-muted); padding: 2px 8px; border-radius: var(--radius-sm); }
+.scene-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 12px; }
 .scene-actions { display: flex; gap: 8px; }
 </style>

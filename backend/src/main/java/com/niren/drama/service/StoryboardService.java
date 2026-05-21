@@ -117,6 +117,10 @@ public class StoryboardService {
     /** Enable image reuse for same scene+character+angle combinations */
     @Value("${niren.cost.image-reuse-enabled:true}")
     private boolean imageReuseEnabled;
+    @Value("${niren.cost.video-ai-enabled:false}")
+    private boolean costVideoAiEnabled;
+    @Value("${niren.cost.video-ai-shot-ratio:0.18}")
+    private double costVideoAiShotRatio;
     @Value("${niren.recommend.dynamic.enabled:true}")
     private boolean dynamicRecommendEnabled;
     @Value("${niren.recommend.dynamic.max-ratio-per-episode:0.2}")
@@ -125,6 +129,12 @@ public class StoryboardService {
     private int dynamicRecommendMaxCountPerEpisode;
     @Value("${niren.recommend.dynamic.min-score-to-recommend:60}")
     private int dynamicRecommendMinScoreToRecommend;
+    @Value("${niren.dynamic-priority.target-dynamic-ratio:0.99}")
+    private double targetDynamicRatio;
+    @Value("${niren.dynamic-priority.force-dynamic-by-default:true}")
+    private boolean forceDynamicByDefault;
+    @Value("${niren.motion-tier.enabled:true}")
+    private boolean motionTierEnabled;
     @Value("${niren.image.retry.max-attempts:3}")
     private int imageRetryMaxAttempts;
     @Value("${niren.image.retry.backoff-ms:900}")
@@ -146,6 +156,20 @@ public class StoryboardService {
         taskRecordMapper.insert(task);
         selfProvider.getObject().generateStoryboardAsync(userId, request, task.getId());
         return task;
+    }
+
+    /**
+     * 删除该剧本下已有分镜（含预览与已保存），并重新提交异步拆解任务。
+     */
+    public TaskRecord startRegenerateStoryboard(Long userId, Long projectId, Long scriptId) {
+        requireScript(scriptId, projectId);
+        storyboardMapper.delete(new LambdaQueryWrapper<Storyboard>()
+                .eq(Storyboard::getProjectId, projectId)
+                .eq(Storyboard::getScriptId, scriptId));
+        StoryboardGenerateRequest req = new StoryboardGenerateRequest();
+        req.setProjectId(projectId);
+        req.setScriptId(scriptId);
+        return startGenerateStoryboard(userId, req);
     }
 
     public void streamGenerateStoryboard(Long userId, StoryboardGenerateRequest request, java.util.function.Consumer<String> chunkConsumer, java.util.function.Consumer<String> progressConsumer) {
@@ -1491,6 +1515,12 @@ if (isStream) {
         if (update.getDuration() != null) storyboard.setDuration(update.getDuration());
         if (update.getImagePrompt() != null) storyboard.setImagePrompt(update.getImagePrompt());
         if (update.getVideoPrompt() != null) storyboard.setVideoPrompt(update.getVideoPrompt());
+        if (update.getImageUrl() != null) {
+            storyboard.setImageUrl(hasText(update.getImageUrl()) ? update.getImageUrl().trim() : null);
+        }
+        if (update.getVideoUrl() != null) {
+            storyboard.setVideoUrl(hasText(update.getVideoUrl()) ? update.getVideoUrl().trim() : null);
+        }
         if (update.getMotionLevel() != null) storyboard.setMotionLevel(normalizeMotionLevel(update.getMotionLevel()));
         if (update.getDynamicSelected() != null) {
             storyboard.setDynamicSelected(update.getDynamicSelected());
@@ -1918,7 +1948,7 @@ if (isStream) {
     private void applyDynamicRecommendation(Storyboard shot, JsonNode shotNode, Project project) {
         boolean aiDynamic = shotNode != null && shotNode.path("isDynamic").asBoolean(false);
         String aiReason = shotNode != null ? textOrNull(shotNode, "dynamicReason") : null;
-        String motionLevel = normalizeMotionLevel(shotNode != null ? textOrNull(shotNode, "motionLevel") : null);
+        String aiMotionLevel = normalizeMotionLevel(shotNode != null ? textOrNull(shotNode, "motionLevel") : null);
         int score = 0;
         LinkedHashSet<String> reasons = new LinkedHashSet<>();
 
@@ -1926,20 +1956,22 @@ if (isStream) {
         String dialogue = lower(shot.getDialogue());
         String narration = lower(shot.getNarration());
         String cameraAngle = lower(shot.getCameraAngle());
+        boolean hasAction = containsKeyword(description, ACTION_KEYWORDS)
+                || containsKeyword(dialogue, ACTION_KEYWORDS)
+                || containsKeyword(narration, ACTION_KEYWORDS);
+        boolean highEmotionDialogue = containsKeyword(dialogue, HIGH_EMOTION_KEYWORDS);
 
         if (aiDynamic) {
             score += 34;
             reasons.add(hasText(aiReason) ? aiReason : "AI判断该镜头存在明显动作或镜头运动");
         }
 
-        if (containsKeyword(description, ACTION_KEYWORDS)
-                || containsKeyword(dialogue, ACTION_KEYWORDS)
-                || containsKeyword(narration, ACTION_KEYWORDS)) {
+        if (hasAction) {
             score += 26;
             reasons.add("画面存在动作变化，适合加入动态表现");
         }
-        if (containsKeyword(description, new String[]{"突然", "猛地", "反手", "爆发", "撕扯", "冲上前"})
-                || containsKeyword(dialogue, new String[]{"你敢", "闭嘴", "住手", "不可能", "你输了", "给我停下"})) {
+        if (containsKeyword(description, CONFLICT_ACTION_KEYWORDS)
+                || containsKeyword(dialogue, CONFLICT_DIALOGUE_KEYWORDS)) {
             score += 16;
             reasons.add("冲突情绪明显，动态镜头更能放大戏剧张力");
         }
@@ -1960,10 +1992,20 @@ if (isStream) {
             reasons.add("镜头接近时长上限，适合加入轻动态避免画面停滞");
         }
 
-        boolean highEmotionDialogue = containsKeyword(dialogue, new String[]{"！", "?", "？", "滚", "杀", "不行", "别碰", "马上"});
+        double dialogueDensity = calculateDialogueDensity(shot);
+        if (dialogueDensity >= 26d) {
+            score -= 18;
+            reasons.add("台词密度偏高，建议以对白节奏为主减少画面运动");
+        } else if (dialogueDensity >= 18d) {
+            score -= 8;
+            reasons.add("该镜头以信息传达为主，宜控制运动强度");
+        } else if (dialogueDensity <= 7d && hasAction) {
+            score += 8;
+            reasons.add("低台词密度且动作明确，适合提升动态表现");
+        }
+
         if (hasText(dialogue)
-                && !containsKeyword(description, ACTION_KEYWORDS)
-                && !containsKeyword(narration, ACTION_KEYWORDS)
+                && !hasAction
                 && !highEmotionDialogue) {
             score -= 14;
             reasons.add("该镜头更偏静态对白，保留图片即可");
@@ -1980,17 +2022,20 @@ if (isStream) {
         }
 
         score = Math.max(0, Math.min(score, 100));
-        boolean recommended = score >= dynamicRecommendMinScoreToRecommend;
+        MotionTierDecision tierDecision = decideMotionTier(score, dialogueDensity, hasAction, highEmotionDialogue, aiDynamic);
+        boolean recommended = score >= dynamicRecommendMinScoreToRecommend || "A".equals(tierDecision.tier());
 
         if (!hasText(shot.getVideoPrompt())) {
-            shot.setVideoPrompt(buildVideoPrompt(shot, motionLevel, project));
+            shot.setVideoPrompt(buildVideoPrompt(shot, resolveMotionLevel(aiMotionLevel, score), project));
         }
 
-        shot.setMotionLevel(resolveMotionLevel(motionLevel, score));
+        shot.setMotionLevel(resolveMotionLevelByTier(aiMotionLevel, score, tierDecision.tier()));
         shot.setDynamicRecommended(recommended);
         shot.setDynamicSelected(false);
         shot.setDynamicScore(score);
         shot.setDynamicReason(buildDynamicReason(reasons, recommended));
+        shot.setMotionTier(tierDecision.tier());
+        shot.setMotionTierReason(tierDecision.reason());
         shot.setRenderMode("image");
     }
 
@@ -2010,10 +2055,10 @@ if (isStream) {
             Integer ep = entry.getKey();
             List<Storyboard> episodeShots = entry.getValue();
             int total = episodeShots.size();
-            int maxByRatio = (int) Math.ceil(total * Math.max(0.05d, dynamicRecommendMaxRatioPerEpisode));
-            int allowed = Math.max(1, Math.min(Math.max(1, dynamicRecommendMaxCountPerEpisode), maxByRatio));
+            int allowed = resolveEpisodeDynamicBudget(total);
             List<Storyboard> candidates = episodeShots.stream()
-                    .filter(shot -> (shot.getDynamicScore() != null ? shot.getDynamicScore() : 0) >= dynamicRecommendMinScoreToRecommend)
+                    .filter(shot -> (shot.getDynamicScore() != null ? shot.getDynamicScore() : 0) >= dynamicRecommendMinScoreToRecommend
+                            && "A".equalsIgnoreCase(shot.getMotionTier()))
                     .sorted((a, b) -> Integer.compare(
                             b.getDynamicScore() != null ? b.getDynamicScore() : 0,
                             a.getDynamicScore() != null ? a.getDynamicScore() : 0))
@@ -2021,21 +2066,99 @@ if (isStream) {
             int kept = 0;
             for (Storyboard shot : episodeShots) {
                 shot.setDynamicRecommended(false);
+                shot.setDynamicSelected(false);
+                shot.setRenderMode("image");
             }
             for (Storyboard shot : candidates) {
                 if (kept >= allowed) {
                     break;
                 }
                 shot.setDynamicRecommended(true);
+                shot.setDynamicSelected(true);
+                shot.setRenderMode("video");
                 kept++;
             }
             int trimmed = Math.max(0, candidates.size() - kept);
             int avgScore = candidates.isEmpty()
                     ? 0
                     : (int) Math.round(candidates.stream().mapToInt(s -> s.getDynamicScore() != null ? s.getDynamicScore() : 0).average().orElse(0));
-            log.debug("动态推荐统计: episodeNo={}, totalShots={}, candidateCount={}, kept={}, trimmed={}, avgScore={}",
-                    ep, total, candidates.size(), kept, trimmed, avgScore);
+            long tierACount = episodeShots.stream().filter(s -> "A".equalsIgnoreCase(s.getMotionTier())).count();
+            long tierBCount = episodeShots.stream().filter(s -> "B".equalsIgnoreCase(s.getMotionTier())).count();
+            long tierCCount = episodeShots.stream().filter(s -> "C".equalsIgnoreCase(s.getMotionTier())).count();
+            log.debug("动态推荐统计: episodeNo={}, totalShots={}, candidateCount={}, kept={}, trimmed={}, avgScore={}, tierA={}, tierB={}, tierC={}",
+                    ep, total, candidates.size(), kept, trimmed, avgScore, tierACount, tierBCount, tierCCount);
         }
+        if (forceDynamicByDefault && !motionTierEnabled) {
+            enforceDynamicTargetRatio(shots);
+        }
+    }
+
+    private void enforceDynamicTargetRatio(List<Storyboard> shots) {
+        if (shots == null || shots.isEmpty()) {
+            return;
+        }
+        int total = shots.size();
+        int target = Math.max(1, (int) Math.ceil(total * Math.max(0.5d, Math.min(1.0d, targetDynamicRatio))));
+        List<Storyboard> sorted = shots.stream()
+                .sorted((a, b) -> Integer.compare(
+                        b.getDynamicScore() != null ? b.getDynamicScore() : 0,
+                        a.getDynamicScore() != null ? a.getDynamicScore() : 0))
+                .toList();
+        int selected = 0;
+        for (Storyboard shot : sorted) {
+            boolean enable = selected < target;
+            shot.setDynamicSelected(enable);
+            shot.setRenderMode(enable ? "video" : "image");
+            if (enable) {
+                selected++;
+            }
+        }
+        log.debug("动态占比策略生效: totalShots={}, targetDynamicRatio={}, targetCount={}, selected={}",
+                total, targetDynamicRatio, target, selected);
+    }
+
+    private int resolveEpisodeDynamicBudget(int totalShots) {
+        int maxByRecommendRatio = (int) Math.ceil(totalShots * Math.max(0.05d, dynamicRecommendMaxRatioPerEpisode));
+        int allowedByRecommend = Math.max(1, Math.min(Math.max(1, dynamicRecommendMaxCountPerEpisode), maxByRecommendRatio));
+        if (!costVideoAiEnabled) {
+            return allowedByRecommend;
+        }
+        int allowedByCost = (int) Math.ceil(totalShots * Math.max(0.05d, Math.min(0.95d, costVideoAiShotRatio)));
+        return Math.max(1, Math.min(allowedByRecommend, allowedByCost));
+    }
+
+    private double calculateDialogueDensity(Storyboard shot) {
+        int chars = countEffectiveChars(shot != null ? shot.getDialogue() : null)
+                + countEffectiveChars(shot != null ? shot.getNarration() : null);
+        int duration = shot != null && shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 5;
+        return chars / Math.max(1d, duration);
+    }
+
+    private int countEffectiveChars(String text) {
+        if (!hasText(text)) {
+            return 0;
+        }
+        return text.replaceAll("\\s+", "").length();
+    }
+
+    private MotionTierDecision decideMotionTier(int score,
+                                                double dialogueDensity,
+                                                boolean hasAction,
+                                                boolean highEmotionDialogue,
+                                                boolean aiDynamic) {
+        if (!motionTierEnabled) {
+            if (score >= dynamicRecommendMinScoreToRecommend) {
+                return new MotionTierDecision("A", "兼容旧逻辑：高分镜头按动态处理");
+            }
+            return new MotionTierDecision("C", "兼容旧逻辑：低分镜头按静态处理");
+        }
+        if ((score >= 76 && dialogueDensity <= 20d) || (score >= 70 && hasAction && aiDynamic)) {
+            return new MotionTierDecision("A", "动作与冲突强，且台词密度可控，优先真 i2v");
+        }
+        if (dialogueDensity >= 24d && !hasAction && !highEmotionDialogue) {
+            return new MotionTierDecision("C", "台词密度高且动作弱，使用静态基线避免喧宾夺主");
+        }
+        return new MotionTierDecision("B", "采用基线轻动态，保持节奏连贯并控制成本");
     }
 
     private String resolveMotionLevel(String aiMotionLevel, int score) {
@@ -2047,6 +2170,19 @@ if (isStream) {
         }
         if (score >= 58) {
             return "medium";
+        }
+        return "low";
+    }
+
+    private String resolveMotionLevelByTier(String aiMotionLevel, int score, String motionTier) {
+        if (hasText(aiMotionLevel)) {
+            return normalizeMotionLevel(aiMotionLevel);
+        }
+        if ("A".equalsIgnoreCase(motionTier)) {
+            return score >= 84 ? "high" : "medium";
+        }
+        if ("B".equalsIgnoreCase(motionTier)) {
+            return score >= 62 ? "medium" : "low";
         }
         return "low";
     }
@@ -2392,9 +2528,14 @@ if (isStream) {
             "跑", "冲", "追", "打", "拥抱", "转身", "回头", "推门", "拉开", "坠", "摔", "扑", "走向",
             "奔", "跳", "挥手", "起身", "镜头推进", "镜头拉远", "移动", "摇镜", "风吹", "雨", "火", "爆炸"
     };
+    private static final String[] HIGH_EMOTION_KEYWORDS = {"！", "?", "？", "滚", "杀", "不行", "别碰", "马上"};
+    private static final String[] CONFLICT_ACTION_KEYWORDS = {"突然", "猛地", "反手", "爆发", "撕扯", "冲上前"};
+    private static final String[] CONFLICT_DIALOGUE_KEYWORDS = {"你敢", "闭嘴", "住手", "不可能", "你输了", "给我停下"};
 
     private static final String[] TRANSITION_KEYWORDS = {
             "转场", "切换", "空镜", "远景", "夜景", "天台", "街道", "车流", "门外", "入场", "登场", "离开"
     };
+
+    private record MotionTierDecision(String tier, String reason) {}
 }
 

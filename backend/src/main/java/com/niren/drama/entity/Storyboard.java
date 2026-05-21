@@ -65,6 +65,10 @@ public class Storyboard extends BaseEntity {
     private Integer dynamicScore;
     /** Recommendation reason for UI display */
     private String dynamicReason;
+    /** Motion tier for render strategy: A (i2v) | B (enhanced still motion) | C (static baseline) */
+    private String motionTier;
+    /** Motion tier reason for explainability */
+    private String motionTierReason;
     /** image | video */
     private String renderMode;
     /** draft | image_generated | video_generated | audio_generated | completed */

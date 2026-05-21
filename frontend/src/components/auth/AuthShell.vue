@@ -1,5 +1,6 @@
 <template>
   <div class="auth-page notranslate" translate="no">
+    <div class="auth-bg" aria-hidden="true" />
     <div class="auth-shell">
       <div class="auth-brand">
         <div class="brand-icon">
@@ -33,17 +34,36 @@ withDefaults(
 
 <style scoped>
 .auth-page {
+  position: relative;
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
+  background: var(--bg-page);
+  overflow: hidden;
+}
+
+.auth-bg {
+  position: absolute;
+  inset: 0;
   background:
-    radial-gradient(circle at top, rgba(15, 23, 42, 0.05), transparent 28%),
-    linear-gradient(180deg, #f6f6f3 0%, #f3f3ef 100%);
+    url("/background/background1.png") center / cover no-repeat,
+    radial-gradient(ellipse 120% 80% at 50% 120%, rgba(30, 25, 45, 0.92) 0%, transparent 55%),
+    radial-gradient(ellipse 90% 60% at 70% 20%, rgba(60, 80, 120, 0.38) 0%, transparent 50%),
+    linear-gradient(165deg, #0a0a0f 0%, #0a0a0f 100%);
+  pointer-events: none;
+}
+.auth-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 15, 0.55);
 }
 
 .auth-shell {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: 420px;
   display: flex;
@@ -59,35 +79,39 @@ withDefaults(
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.03em;
-  color: #111827;
+  color: #f8fafc;
+  text-shadow: 0 1px 18px rgba(0, 0, 0, 0.55);
 }
 
 .brand-icon {
   width: 40px;
   height: 40px;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #111827;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+  background: var(--primary);
+  box-shadow: var(--shadow-primary);
 }
 
 .auth-card {
   width: 100%;
   padding: 32px 28px 28px;
-  border-radius: 24px;
-  border: 1px solid rgba(17, 24, 39, 0.08);
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(12px);
+  border-radius: var(--radius-xl);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(20, 20, 30, 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .auth-value {
   margin: 0;
   font-size: 14px;
   line-height: 1.7;
-  color: #52525b;
+  color: var(--text-secondary);
   text-align: center;
 }
 
@@ -95,9 +119,9 @@ withDefaults(
   margin: 10px 0 28px;
   font-size: 32px;
   line-height: 1.14;
-  letter-spacing: -0.05em;
+  letter-spacing: -0.02em;
   text-align: center;
-  color: #111827;
+  color: var(--text-primary);
 }
 
 @media (max-width: 640px) {
