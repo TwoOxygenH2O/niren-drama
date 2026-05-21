@@ -7,6 +7,7 @@ import com.niren.drama.entity.Asset;
 
 
 import com.niren.drama.service.AssetService;
+import com.niren.drama.service.ProjectService;
 import com.niren.drama.common.CurrentUserHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,6 +27,7 @@ import java.io.IOException;
 public class AssetController {
 
     private final AssetService assetService;
+    private final ProjectService projectService;
     private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "上传文件")
@@ -43,13 +45,20 @@ public class AssetController {
     @GetMapping("/project/{projectId}")
     public Result<PageResult<Asset>> list(@PathVariable Long projectId,
                                           @RequestParam(required = false) String type,
-                                          PageQuery query) {
+                                          PageQuery query,
+                                          @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        projectService.getProject(userId, projectId); // ownership check
         return Result.success(PageResult.of(assetService.listAssets(projectId, type, query)));
     }
 
     @Operation(summary = "删除素材")
     @DeleteMapping("/{id}")
-    public Result<Void> delete(@PathVariable Long id) {
+    public Result<Void> delete(@PathVariable Long id,
+                               @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Asset asset = assetService.getAsset(id);
+        projectService.getProject(userId, asset.getProjectId()); // ownership check
         assetService.deleteAsset(id);
         return Result.success();
     }

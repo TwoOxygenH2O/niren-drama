@@ -99,8 +99,8 @@ function goCharacters(id: number) {
   padding: 28px 40px 32px 112px;
   width: 100%;
   box-sizing: border-box;
-  background: #0a0a0c;
-  color: #e8eaef;
+  background: var(--bg-page);
+  color: var(--text-primary);
 }
 
 .sl-head {
@@ -112,14 +112,14 @@ function goCharacters(id: number) {
   font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: #f8fafc;
+  color: var(--text-primary);
 }
 
 .sl-desc {
   margin: 8px 0 0;
   font-size: 13px;
   line-height: 1.55;
-  color: rgba(148, 163, 184, 0.95);
+  color: var(--text-secondary);
   font-weight: 400;
 }
 
@@ -132,10 +132,10 @@ function goCharacters(id: number) {
   padding: 56px 16px;
   text-align: center;
   font-size: 14px;
-  color: rgba(148, 163, 184, 0.95);
-  border: 1px dashed rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  background: rgba(22, 24, 30, 0.45);
+  color: var(--text-muted);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-muted);
 }
 
 .sl-grid {
@@ -169,10 +169,10 @@ function goCharacters(id: number) {
   gap: 4px;
   padding: 4px;
   min-height: 280px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(22, 24, 30, 0.98);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
   user-select: none;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
@@ -180,13 +180,13 @@ function goCharacters(id: number) {
 }
 
 .sl-card:hover {
-  border-color: rgba(129, 140, 248, 0.35);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  border-color: var(--primary-light);
+  box-shadow: var(--shadow-lg);
   transform: translateY(-2px);
 }
 
 .sl-card:focus-visible {
-  outline: 2px solid rgba(129, 140, 248, 0.65);
+  outline: 2px solid var(--primary-light);
   outline-offset: 2px;
 }
 
@@ -226,9 +226,9 @@ function goCharacters(id: number) {
 .sl-card-title {
   font-size: 14px;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--text-primary);
   margin: 0;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.02em;
   line-height: 1.35;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -240,7 +240,7 @@ function goCharacters(id: number) {
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: rgba(148, 163, 184, 0.92);
+  color: var(--text-muted);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -248,12 +248,12 @@ function goCharacters(id: number) {
 }
 
 .subject-library-root :deep(.el-loading-mask) {
-  background-color: rgba(10, 10, 12, 0.72);
+  background-color: var(--bg-muted);
 }
 .subject-library-root :deep(.el-loading-spinner .path) {
-  stroke: rgba(129, 140, 248, 0.85);
+  stroke: var(--primary-light);
 }
 .subject-library-root :deep(.el-loading-text) {
-  color: rgba(226, 232, 240, 0.88);
+  color: var(--text-secondary);
 }
 </style>

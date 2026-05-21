@@ -1,0 +1,102 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary "主导航" [ref=e4]:
+      - generic "泥人剧场" [ref=e5] [cursor=pointer]:
+        - img [ref=e6]
+      - navigation "功能入口" [ref=e10]:
+        - link "首页" [ref=e11] [cursor=pointer]:
+          - /url: /dashboard
+          - img [ref=e12]
+        - link "我的空间" [ref=e15] [cursor=pointer]:
+          - /url: /projects
+          - img [ref=e16]
+        - link "主体库" [ref=e18] [cursor=pointer]:
+          - /url: /library/subjects
+          - img [ref=e19]
+        - link "AI配置" [ref=e23] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e24]
+      - generic [ref=e28]:
+        - button "系" [ref=e30] [cursor=pointer]:
+          - generic [ref=e31]: 系
+        - button "菜单" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+    - main [ref=e35]:
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - generic [ref=e39]:
+            - heading "AI 配置中心" [level=1] [ref=e40]
+            - paragraph [ref=e41]: 管理文本、图像、视频、语音等AI服务商的接入配置
+          - button "添加配置" [ref=e42] [cursor=pointer]:
+            - generic [ref=e43]:
+              - img [ref=e45]
+              - text: 添加配置
+        - generic [ref=e47]:
+          - generic [ref=e48] [cursor=pointer]:
+            - img [ref=e50]
+            - generic [ref=e53]:
+              - generic [ref=e54]: 文本大模型
+              - generic [ref=e55]: 1 个配置
+          - generic [ref=e56] [cursor=pointer]:
+            - img [ref=e58]
+            - generic [ref=e62]:
+              - generic [ref=e63]: 文生图
+              - generic [ref=e64]: 1 个配置
+          - generic [ref=e65] [cursor=pointer]:
+            - img [ref=e67]
+            - generic [ref=e70]:
+              - generic [ref=e71]: 文生视频
+              - generic [ref=e72]: 0 个配置
+          - generic [ref=e73] [cursor=pointer]:
+            - img [ref=e75]
+            - generic [ref=e78]:
+              - generic [ref=e79]: TTS 语音
+              - generic [ref=e80]: 0 个配置
+        - region "文生图 API 调试" [ref=e110]:
+          - generic [ref=e111]:
+            - heading "文生图 API 调试" [level=3] [ref=e112]
+            - paragraph [ref=e113]:
+              - text: 使用当前账号解析后的文生图配置（优先「默认」配置，否则回退服务端环境变量）发起一次生成；返回的图片会经素材服务写入
+              - strong [ref=e114]: 腾讯云 COS
+              - text: （未启用 COS 时保存到本地并通过 /api/files 访问）。
+          - generic [ref=e115]:
+            - textbox "输入中文或英文画面描述，例如：黄昏时分的江南水乡，青瓦白墙，电影感柔光，竖屏构图" [ref=e116]: 黄昏时分的江南水乡，青瓦白墙，电影感柔光，竖屏短剧分镜，高清细节
+            - generic [ref=e117]: 32 / 2000
+          - generic [ref=e118]:
+            - generic [ref=e119]:
+              - generic [ref=e120]: 输出尺寸
+              - generic [ref=e122] [cursor=pointer]:
+                - generic:
+                  - combobox [ref=e124]
+                  - generic [ref=e125]: 1024×1024（方图）
+                - img [ref=e128]
+            - button "生成并上传" [ref=e130] [cursor=pointer]:
+              - generic [ref=e131]: 生成并上传
+          - paragraph [ref=e160]: "Image generation failed: HTTP 400 - {\"error\": {\"type\": \"prompt_outputs_failed_validation\", \"message\": \"Prompt outputs failed validation\", \"details\": \"\", \"extra_info\": {}}, \"node_errors\": {\"1\": {\"errors\": [{\"type\": \"value_not_in_list\", \"message\": \"Value not in list\", \"details\": \"ckpt_name: 'qwen-image-2.0-pro' not in ['ltx-2-19b-distilled.safetensors']\", \"extra_info\": {\"input_name\": \"ckpt_name\", \"input_config\": [[\"ltx-2-19b-distilled.safetensors\"], {\"tooltip\": \"The name of the checkpoint (model) to load.\"}], \"received_value\": \"qwen-image-2.0-pro\"}}], \"dependent_outputs\": [\"7\"], \"class_type\": \"CheckpointLoaderSimple\"}}}"
+        - generic [ref=e132]:
+          - generic [ref=e133]:
+            - generic [ref=e134]:
+              - generic [ref=e135]: ComfyUI (本地)
+              - generic [ref=e159]: 默认
+            - generic [ref=e136]:
+              - button "编辑" [ref=e137] [cursor=pointer]:
+                - generic [ref=e138]:
+                  - img [ref=e140]
+                  - text: 编辑
+              - button "删除" [ref=e143] [cursor=pointer]:
+                - generic [ref=e144]:
+                  - img [ref=e146]
+                  - text: 删除
+          - generic [ref=e148]:
+            - generic [ref=e149]:
+              - generic [ref=e150]: 模型
+              - generic [ref=e151]: "-"
+            - generic [ref=e152]:
+              - generic [ref=e153]: Base URL
+              - generic [ref=e154]: http://localhost:8188
+            - generic [ref=e155]:
+              - generic [ref=e156]: API Key
+              - generic [ref=e157]: "-"
+  - alert [ref=e161]:
+    - img [ref=e163]
+    - paragraph [ref=e165]: "Image generation failed: HTTP 400 - {\"error\": {\"type\": \"prompt_outputs_failed_validation\", \"message\": \"Prompt outputs failed validation\", \"details\": \"\", \"extra_info\": {}}, \"node_errors\": {\"1\": {\"errors\": [{\"type\": \"value_not_in_list\", \"message\": \"Value not in list\", \"details\": \"ckpt_name: 'qwen-image-2.0-pro' not in ['ltx-2-19b-distilled.safetensors']\", \"extra_info\": {\"input_name\": \"ckpt_name\", \"input_config\": [[\"ltx-2-19b-distilled.safetensors\"], {\"tooltip\": \"The name of the checkpoint (model) to load.\"}], \"received_value\": \"qwen-image-2.0-pro\"}}], \"dependent_outputs\": [\"7\"], \"class_type\": \"CheckpointLoaderSimple\"}}}"

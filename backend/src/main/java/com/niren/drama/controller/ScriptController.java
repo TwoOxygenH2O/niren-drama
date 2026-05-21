@@ -9,7 +9,9 @@ import com.niren.drama.dto.script.ScriptSaveRequest;
 import com.niren.drama.entity.Script;
 import com.niren.drama.entity.TaskRecord;
 
+import com.niren.drama.entity.Project;
 import com.niren.drama.service.ScriptService;
+import com.niren.drama.service.ProjectService;
 import com.niren.drama.common.CurrentUserHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.niren.drama.common.sse.SseTextChunkFanout;
@@ -38,6 +40,7 @@ public class ScriptController {
     private static final long SSE_TIMEOUT_MILLIS = 3_600_000L;
 
     private final ScriptService scriptService;
+    private final ProjectService projectService;
     private final CurrentUserHelper currentUserHelper;
     private final ObjectMapper objectMapper;
 
@@ -162,26 +165,41 @@ public class ScriptController {
 
     @Operation(summary = "获取项目下所有剧本")
     @GetMapping("/project/{projectId}")
-    public Result<List<Script>> listByProject(@PathVariable Long projectId) {
+    public Result<List<Script>> listByProject(@PathVariable Long projectId,
+                                              @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        projectService.getProject(userId, projectId); // ownership check
         return Result.success(scriptService.listByProject(projectId));
     }
 
     @Operation(summary = "获取剧本详情")
     @GetMapping("/{id}")
-    public Result<Script> get(@PathVariable Long id) {
-        return Result.success(scriptService.getScript(id));
+    public Result<Script> get(@PathVariable Long id,
+                              @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Script script = scriptService.getScript(id);
+        projectService.getProject(userId, script.getProjectId()); // ownership check
+        return Result.success(script);
     }
 
     @Operation(summary = "更新剧本内容")
     @PutMapping("/{id}")
     public Result<Script> update(@PathVariable Long id,
-                                 @RequestBody Map<String, String> body) {
+                                 @RequestBody Map<String, String> body,
+                                 @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Script script = scriptService.getScript(id);
+        projectService.getProject(userId, script.getProjectId()); // ownership check
         return Result.success(scriptService.updateScript(id, body.get("content"), body.get("title"), body.get("summary")));
     }
 
     @Operation(summary = "删除剧本")
     @DeleteMapping("/{id}")
-    public Result<Void> delete(@PathVariable Long id) {
+    public Result<Void> delete(@PathVariable Long id,
+                               @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Script script = scriptService.getScript(id);
+        projectService.getProject(userId, script.getProjectId()); // ownership check
         scriptService.deleteScript(id);
         return Result.success();
     }

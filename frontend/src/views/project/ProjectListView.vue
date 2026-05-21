@@ -331,8 +331,8 @@ onUnmounted(() => {
   padding: 28px 40px 24px 112px;
   width: 100%;
   box-sizing: border-box;
-  background: #0a0a0c;
-  color: #e8eaef;
+  background: var(--bg-page);
+  color: var(--text-primary);
 }
 
 .space-tabs {
@@ -345,23 +345,23 @@ onUnmounted(() => {
 
 .space-tab {
   padding: 8px 16px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(226, 232, 240, 0.85);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.18s, color 0.18s, border-color 0.18s;
 }
 .space-tab:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
 }
 .space-tab--active {
-  background: rgba(99, 102, 241, 0.22);
-  border-color: rgba(129, 140, 248, 0.45);
-  color: #e0e7ff;
+  background: var(--primary-glow);
+  border-color: var(--primary-light);
+  color: var(--primary);
 }
 
 .space-toolbar {
@@ -378,12 +378,12 @@ onUnmounted(() => {
 }
 
 .space-search :deep(.el-input__wrapper) {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-muted);
   box-shadow: none;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
 .space-search :deep(.el-input__inner) {
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .space-cards-wrap {
@@ -396,7 +396,7 @@ onUnmounted(() => {
 .space-empty {
   padding: 48px 16px;
   text-align: center;
-  color: rgba(148, 163, 184, 0.95);
+  color: var(--text-muted);
   font-size: 14px;
 }
 
@@ -450,19 +450,19 @@ onUnmounted(() => {
   gap: 4px;
   padding: 4px;
   height: 320px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(22, 24, 30, 0.98);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
   user-select: none;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
   text-align: left;
 }
 .proj-card:hover {
-  border-color: rgba(129, 140, 248, 0.35);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
-  transform: translateY(-2px);
+  border-color: var(--primary-light);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-4px);
 }
 
 .proj-card-visual-wrap {
@@ -501,9 +501,9 @@ onUnmounted(() => {
 .proj-card-title {
   font-size: 14px;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--text-primary);
   margin: 0;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.02em;
   line-height: 1.35;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -520,14 +520,14 @@ onUnmounted(() => {
 }
 
 .proj-card-date {
-  color: rgba(148, 163, 184, 0.9);
+  color: var(--text-muted);
 }
 
 .proj-card-badge {
   padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(226, 232, 240, 0.85);
+  border-radius: var(--radius-full);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
   font-weight: 600;
 }
 
@@ -539,9 +539,9 @@ onUnmounted(() => {
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.45);
-  color: rgba(248, 250, 252, 0.85);
+  color: var(--text-primary);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
@@ -552,14 +552,14 @@ onUnmounted(() => {
   opacity: 1;
 }
 .proj-card-del:hover {
-  background: rgba(239, 68, 68, 0.35);
+  background: var(--color-danger);
   color: #fff;
 }
 
 .space-pager-bar {
   flex-shrink: 0;
   padding-top: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--border);
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
@@ -572,17 +572,17 @@ onUnmounted(() => {
 .space-pager :deep(.el-pagination__total),
 .space-pager :deep(.el-pagination__jump),
 .space-pager :deep(.el-pagination__sizes .el-select .el-input__wrapper) {
-  color: rgba(203, 213, 225, 0.92);
+  color: var(--text-secondary);
 }
 .space-pager :deep(.btn-prev),
 .space-pager :deep(.btn-next),
 .space-pager :deep(.number) {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-muted);
 }
 .space-pager :deep(.el-pagination.is-background .el-pager li) {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-muted);
 }
 .space-pager :deep(.el-pagination.is-background .el-pager li.is-active) {
-  background: rgba(99, 102, 241, 0.45);
+  background: var(--primary);
 }
 </style>

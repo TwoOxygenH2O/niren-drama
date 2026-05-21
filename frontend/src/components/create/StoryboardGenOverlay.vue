@@ -141,11 +141,11 @@ onBeforeUnmount(() => cancelAnimationFrame(raf))
 
 .sb-gen-panel {
   width: min(440px, 100%);
-  background: rgba(28, 28, 32, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   padding: 20px 18px 16px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-lg);
 }
 
 .sb-gen-list {
@@ -160,16 +160,16 @@ onBeforeUnmount(() => cancelAnimationFrame(raf))
   justify-content: space-between;
   gap: 12px;
   padding: 12px 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   font-size: 13px;
-  color: rgba(226, 232, 240, 0.92);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
 }
 .sb-gen-row:last-of-type {
   border-bottom: none;
 }
 .sb-gen-row.is-active {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-muted);
 }
 
 .sb-gen-label {
@@ -202,7 +202,7 @@ onBeforeUnmount(() => cancelAnimationFrame(raf))
 }
 
 .sb-gen-run {
-  color: #7dd3fc;
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -210,13 +210,13 @@ onBeforeUnmount(() => cancelAnimationFrame(raf))
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  border: 2px solid rgba(148, 163, 184, 0.35);
-  border-top-color: #94a3b8;
+  border: 2px solid var(--border);
+  border-top-color: var(--text-secondary);
   animation: sb-spin 0.75s linear infinite;
 }
 
 .sb-gen-wait {
-  color: rgba(148, 163, 184, 0.75);
+  color: var(--text-secondary);
 }
 
 .sb-gen-shutter {
@@ -225,7 +225,7 @@ onBeforeUnmount(() => cancelAnimationFrame(raf))
   border-radius: 4px;
   background: repeating-linear-gradient(
     90deg,
-    rgba(148, 163, 184, 0.25) 0 2px,
+    var(--border) 0 2px,
     transparent 2px 4px
   );
   opacity: 0.6;
@@ -235,7 +235,7 @@ onBeforeUnmount(() => cancelAnimationFrame(raf))
   margin: 14px 8px 4px;
   text-align: center;
   font-size: 13px;
-  color: rgba(203, 213, 225, 0.88);
+  color: var(--text-secondary);
 }
 
 @keyframes sb-spin {

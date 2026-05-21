@@ -269,8 +269,8 @@ function onRailHomeClick(e: MouseEvent) {
   flex-direction: column;
   align-items: center;
   z-index: 20;
-  background: linear-gradient(180deg, #0e0e12 0%, #070708 100%);
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -303,12 +303,10 @@ function onRailHomeClick(e: MouseEvent) {
   align-items: center;
   gap: 6px;
   padding: 12px 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  border-radius: var(--radius-full);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
 
 .rail-icon {
@@ -318,18 +316,18 @@ function onRailHomeClick(e: MouseEvent) {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(226, 232, 240, 0.85);
+  color: var(--text-secondary);
   text-decoration: none;
   transition: background 0.18s, color 0.18s, box-shadow 0.18s;
 }
 .rail-icon:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
 }
 .rail-icon--active {
-  background: rgba(99, 102, 241, 0.28);
-  color: #c7d2fe;
-  box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.35);
+  background: var(--primary-glow);
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary-light);
 }
 
 .rail-bottom {
@@ -355,7 +353,7 @@ function onRailHomeClick(e: MouseEvent) {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(145deg, #4f46e5, #7c3aed);
+  background: linear-gradient(145deg, var(--primary-dark), var(--secondary-dark));
   color: #fff;
   display: flex;
   align-items: center;
@@ -368,10 +366,10 @@ function onRailHomeClick(e: MouseEvent) {
 .rail-menu-btn {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(226, 232, 240, 0.9);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -379,9 +377,9 @@ function onRailHomeClick(e: MouseEvent) {
   transition: background 0.18s, border-color 0.18s, color 0.18s;
 }
 .rail-menu-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.18);
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
 }
 
 /* ——— Main ——— */
@@ -402,7 +400,6 @@ function onRailHomeClick(e: MouseEvent) {
   justify-content: space-between;
   padding: 0 24px;
   flex-shrink: 0;
-  box-shadow: var(--shadow-sm);
 }
 .topbar-left {
   display: flex;
@@ -485,9 +482,9 @@ function onRailHomeClick(e: MouseEvent) {
   width: 100%;
   padding: 10px 12px;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: transparent;
-  color: rgba(248, 250, 252, 0.96);
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -495,13 +492,13 @@ function onRailHomeClick(e: MouseEvent) {
   transition: background 0.15s ease;
 }
 .rail-more-item:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--bg-muted);
 }
 .rail-more-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(248, 250, 252, 0.92);
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 .rail-more-label {
@@ -513,12 +510,10 @@ function onRailHomeClick(e: MouseEvent) {
 /* Popover: frosted panel to the right of the rail menu button */
 .rail-more-popover.el-popper.is-light,
 .rail-more-popover.el-popper {
-  background: rgba(36, 36, 42, 0.94) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  border-radius: 18px !important;
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-lg);
   padding: 10px !important;
 }
 .rail-more-popover.el-popper .el-popper__arrow::before {

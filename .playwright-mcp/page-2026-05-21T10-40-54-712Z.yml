@@ -1,0 +1,16 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - menu [ref=e8]
+  - generic [ref=e9]:
+    - 'generic "icon: menu-fold" [ref=e11] [cursor=pointer]':
+      - img [ref=e12]
+    - tablist [ref=e22]:
+      - generic [ref=e23]:
+        - generic:
+          - generic:
+            - 'generic "icon: left"':
+              - img
+        - generic:
+          - generic:
+            - 'generic "icon: right"':
+              - img

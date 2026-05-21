@@ -112,8 +112,8 @@ onMounted(async () => {
 <style scoped>
 .ep-page {
   min-height: 100%;
-  background: #0a0a0c;
-  color: #e8eaef;
+  background: var(--bg-page);
+  color: var(--text-primary);
   display: flex;
   flex-direction: column;
   padding: 0 40px 48px 112px;
@@ -131,13 +131,13 @@ onMounted(async () => {
   padding: 6px 10px 6px 4px;
   border: none;
   background: none;
-  color: rgba(226, 232, 240, 0.9);
+  color: var(--text-primary);
   font-size: 15px;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 .ep-back:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-muted);
   color: #fff;
 }
 .ep-back-ico {
@@ -152,8 +152,8 @@ onMounted(async () => {
 .ep-title {
   font-size: 22px;
   font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #f8fafc;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
 }
 
 .ep-grid-wrap {
@@ -169,9 +169,9 @@ onMounted(async () => {
 
 .ep-card {
   text-align: left;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  background: rgba(32, 34, 40, 0.95);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
   padding: 0 0 16px;
   cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
@@ -179,8 +179,8 @@ onMounted(async () => {
   font: inherit;
 }
 .ep-card:hover {
-  border-color: rgba(129, 140, 248, 0.35);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  border-color: var(--primary);
+  box-shadow: var(--shadow-lg);
   transform: translateY(-2px);
 }
 
@@ -191,8 +191,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   margin: 12px 12px 0;
-  border-radius: 12px;
-  background: linear-gradient(145deg, rgba(55, 58, 68, 0.9), rgba(28, 30, 36, 0.98));
+  border-radius: var(--radius-md);
+  background: var(--bg-muted);
   overflow: hidden;
 }
 
@@ -200,18 +200,18 @@ onMounted(async () => {
   position: absolute;
   inset: 0;
   opacity: 0.35;
-  background: radial-gradient(circle at 30% 30%, rgba(99, 102, 241, 0.25), transparent 55%);
+  background: radial-gradient(circle at 30% 30%, var(--primary-glow), transparent 55%);
 }
 
 .ep-doc-ico {
   position: relative;
   font-size: 15px;
   font-weight: 700;
-  color: rgba(248, 250, 252, 0.95);
+  color: var(--text-primary);
   padding: 10px 18px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border);
 }
 
 .ep-card-meta {
@@ -222,7 +222,7 @@ onMounted(async () => {
 }
 
 .ep-doc-pin {
-  color: rgba(148, 163, 184, 0.85);
+  color: var(--text-secondary);
   margin-top: 2px;
   flex-shrink: 0;
 }
@@ -237,7 +237,7 @@ onMounted(async () => {
 .ep-card-name {
   font-size: 14px;
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--text-primary);
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -247,6 +247,6 @@ onMounted(async () => {
 
 .ep-card-time {
   font-size: 12px;
-  color: rgba(148, 163, 184, 0.9);
+  color: var(--text-secondary);
 }
 </style>

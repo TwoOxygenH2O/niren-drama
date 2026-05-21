@@ -21,6 +21,14 @@ public class AiConfigService {
                 .orderByAsc(AiConfig::getConfigType));
     }
 
+    public AiConfig getDefaultByType(Long userId, String configType) {
+        return aiConfigMapper.selectOne(new LambdaQueryWrapper<AiConfig>()
+                .eq(AiConfig::getUserId, userId)
+                .eq(AiConfig::getConfigType, configType)
+                .eq(AiConfig::getIsDefault, 1)
+                .last("LIMIT 1"));
+    }
+
     public AiConfig saveConfig(Long userId, AiConfig config) {
         config.setUserId(userId);
         // If set as default, clear other defaults of same type

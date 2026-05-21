@@ -19,4 +19,12 @@ export const aiConfigApi = {
   /** 文生图调试：按当前账号解析的配置生成图片并写入 COS */
   debugGenerateImage: (data: { prompt: string; size?: string }) =>
     request.post('/ai-configs/debug/generate-image', data, { timeout: 240000 }),
+
+  /** 获取 ComfyUI 可用工作流模板列表 */
+  listComfyUiWorkflows: () =>
+    request.get('/ai-configs/comfyui/workflows'),
+
+  /** 获取指定 ComfyUI 工作流模板详情 */
+  getComfyUiWorkflow: (name: string) =>
+    request.get('/ai-configs/comfyui/workflow', { params: { name } }),
 }

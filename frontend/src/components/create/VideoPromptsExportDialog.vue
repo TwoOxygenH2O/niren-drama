@@ -212,12 +212,12 @@ async function onOpen() {
 
 <style>
 .vp-export-dialog.el-dialog {
-  --el-dialog-bg-color: rgba(18, 20, 26, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
+  --el-dialog-bg-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
 }
 .vp-export-dialog .el-dialog__title {
-  color: #f1f5f9;
+  color: var(--text-primary);
   font-weight: 700;
 }
 .vp-export-dialog .el-dialog__body {
@@ -230,7 +230,7 @@ async function onOpen() {
   min-height: 120px;
   max-height: min(70vh, 720px);
   overflow-y: auto;
-  color: #e8eaef;
+  color: var(--text-primary);
 }
 
 .vp-err {
@@ -240,7 +240,7 @@ async function onOpen() {
 }
 
 .vp-empty {
-  color: rgba(148, 163, 184, 0.95);
+  color: var(--text-secondary);
   font-size: 13px;
   margin: 16px 0;
 }
@@ -248,25 +248,25 @@ async function onOpen() {
 .vp-block {
   margin-bottom: 16px;
   padding: 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(0, 0, 0, 0.35);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
 }
 
 .vp-block--global {
-  border-color: rgba(129, 140, 248, 0.25);
-  background: rgba(79, 70, 229, 0.08);
+  border-color: var(--primary);
+  background: var(--primary-glow);
 }
 
 .vp-block-title {
   margin: 0 0 10px;
   font-size: 13px;
   font-weight: 700;
-  color: #c7d2fe;
+  color: var(--primary-light);
 }
 
 .vp-block--shot {
-  background: rgba(15, 17, 22, 0.96);
+  background: var(--bg-card);
 }
 
 .vp-shot-head {
@@ -280,22 +280,22 @@ async function onOpen() {
 .vp-shot-no {
   font-size: 15px;
   font-weight: 800;
-  color: #f8fafc;
+  color: var(--text-primary);
 }
 
 .vp-tag {
   font-size: 11px;
   padding: 3px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: rgba(52, 211, 153, 0.15);
   color: #6ee7b7;
   border: 1px solid rgba(52, 211, 153, 0.35);
 }
 
 .vp-tag--muted {
-  background: rgba(148, 163, 184, 0.12);
-  color: rgba(226, 232, 240, 0.85);
-  border-color: rgba(148, 163, 184, 0.25);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  border-color: var(--border);
 }
 
 .vp-field {
@@ -305,7 +305,7 @@ async function onOpen() {
 .vp-label {
   display: block;
   font-size: 11px;
-  color: rgba(148, 163, 184, 0.95);
+  color: var(--text-secondary);
   margin-bottom: 6px;
 }
 
@@ -315,9 +315,9 @@ async function onOpen() {
 
 .vp-ref-img-inner {
   margin-top: 6px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
   max-width: 280px;
   background: #000;
 }
@@ -336,17 +336,17 @@ async function onOpen() {
   word-break: break-word;
   font-size: 12px;
   line-height: 1.55;
-  color: rgba(226, 232, 240, 0.95);
+  color: var(--text-primary);
   font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--bg-muted);
   padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
 }
 
 .vp-pre--sm {
   font-size: 11px;
-  color: rgba(203, 213, 225, 0.88);
+  color: var(--text-secondary);
 }
 
 .vp-shot-actions {
@@ -360,12 +360,12 @@ async function onOpen() {
   border: none;
   cursor: pointer;
   padding: 8px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   font-weight: 600;
-  color: #e0e7ff;
-  background: rgba(99, 102, 241, 0.25);
-  border: 1px solid rgba(129, 140, 248, 0.35);
+  color: var(--primary-light);
+  background: var(--primary-glow);
+  border: 1px solid var(--primary);
 }
 .vp-copy:hover {
   background: rgba(99, 102, 241, 0.4);

@@ -3,6 +3,8 @@ package com.niren.drama.ai;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.niren.drama.ai.impl.AliyunImageProvider;
 import com.niren.drama.ai.impl.AliyunTtsProvider;
+import com.niren.drama.ai.impl.ComfyUiImageProvider;
+import com.niren.drama.ai.impl.ComfyUiVideoProvider;
 import com.niren.drama.ai.impl.ExternalImageProvider;
 import com.niren.drama.ai.impl.MockTtsProvider;
 import com.niren.drama.ai.impl.OpenAiImageProvider;
@@ -99,6 +101,10 @@ public class AiProviderFactory {
             return new ExternalImageProvider(baseUrl, apiKey, model, provider, uploadPath, uploadBaseUrl);
         }
 
+        if ("comfyui".equalsIgnoreCase(provider)) {
+            return new ComfyUiImageProvider(baseUrl, apiKey, model, resolved.extra(), uploadPath, uploadBaseUrl);
+        }
+
         return new OpenAiImageProvider(baseUrl, apiKey, model, uploadPath, uploadBaseUrl);
     }
 
@@ -113,6 +119,20 @@ public class AiProviderFactory {
             return new AliyunTtsProvider(resolved.baseUrl(), apiKey, resolved.model(), provider);
         }
         return new OpenAiTtsProvider(resolved.baseUrl(), apiKey, resolved.model(), provider);
+    }
+
+    public VideoAiProvider getVideoProvider(Long userId) {
+        AiResolvedConfig resolved = resolveConfig(userId, "video");
+        String provider = resolved.provider();
+        String baseUrl = resolved.baseUrl();
+        String apiKey = resolved.apiKey();
+        String model = resolved.model();
+
+        if ("comfyui".equalsIgnoreCase(provider)) {
+            return new ComfyUiVideoProvider(baseUrl, apiKey, model, resolved.extra(), uploadPath, uploadBaseUrl);
+        }
+
+        throw new RuntimeException("暂不支持的视频生成服务商: " + provider);
     }
 
     public AiResolvedConfig resolveConfig(Long userId, String configType) {
@@ -233,6 +253,7 @@ public class AiProviderFactory {
             case "volcengine" -> "https://openspeech.bytedance.com/api/v1";
             case "xunfei" -> "https://spark-api-open.xf-yun.com/v1";
             case "sd" -> "http://localhost:7860";
+            case "comfyui" -> "http://localhost:8188";
             case "external" -> "";
             default -> "https://api.openai.com/v1";
         };
@@ -288,6 +309,11 @@ public class AiProviderFactory {
             case "runway" -> "gen-3";
             case "volcengine" -> "zh_female_qingxin";
             case "sd" -> "stable-diffusion-xl";
+            case "comfyui" -> switch (configType) {
+                case "image" -> "";
+                case "video" -> "";
+                default -> "";
+            };
             case "external" -> "";
             default -> "gpt-4o";
         };

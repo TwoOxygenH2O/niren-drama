@@ -321,8 +321,8 @@ onMounted(() => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: #060608;
-  color: #e8eaef;
+  background: var(--bg-page);
+  color: var(--text-primary);
 }
 
 .wb-top {
@@ -334,27 +334,27 @@ onMounted(() => {
   flex-wrap: nowrap;
   min-width: 0;
   padding: 0 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(0, 0, 0, 0.45);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
 }
 
 .wb-back {
   border: none;
-  background: rgba(255, 255, 255, 0.06);
-  color: #e2e8f0;
+  background: var(--bg-muted);
+  color: var(--text-primary);
   padding: 8px 14px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 13px;
 }
 .wb-back:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-card-hover);
 }
 
 .wb-title {
   font-size: 14px;
   font-weight: 700;
-  color: rgba(248, 250, 252, 0.95);
+  color: var(--text-primary);
 }
 
 .wb-title-tag {
@@ -362,11 +362,11 @@ onMounted(() => {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: rgba(94, 234, 212, 0.95);
+  color: var(--accent);
   padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(94, 234, 212, 0.35);
-  background: rgba(94, 234, 212, 0.08);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--accent);
+  background: rgba(6, 182, 212, 0.08);
 }
 
 .wb-video-tab-actions {
@@ -380,28 +380,28 @@ onMounted(() => {
 
 .wb-video-tab-hint {
   font-size: 12px;
-  color: rgba(148, 163, 184, 0.9);
+  color: var(--text-secondary);
   flex: 1;
   min-width: 0;
 }
 
 .wb-link-btn {
   border: none;
-  background: rgba(255, 255, 255, 0.06);
-  color: #a5b4fc;
+  background: var(--bg-muted);
+  color: var(--primary);
   padding: 6px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
 .wb-link-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-card-hover);
 }
 
 .wb-link-btn--primary {
   margin-top: 12px;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: var(--primary);
   color: #fff;
 }
 
@@ -417,7 +417,7 @@ onMounted(() => {
   gap: 8px;
   text-align: center;
   padding: 16px;
-  color: rgba(148, 163, 184, 0.75);
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
@@ -436,9 +436,9 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(12, 14, 18, 0.92);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
   overflow: hidden;
 }
 
@@ -446,7 +446,7 @@ onMounted(() => {
   padding: 12px 14px;
   font-size: 13px;
   font-weight: 700;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border);
 }
 
 .wb-chat-messages {
@@ -459,17 +459,17 @@ onMounted(() => {
 }
 
 .wb-msg.ai {
-  color: rgba(226, 232, 240, 0.88);
+  color: var(--text-secondary);
   margin-bottom: 10px;
 }
 .wb-msg.user {
-  color: #a5b4fc;
+  color: var(--primary);
   margin-bottom: 10px;
 }
 
 .wb-chat-input-wrap {
   padding: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -478,10 +478,10 @@ onMounted(() => {
 .wb-chat-input {
   width: 100%;
   resize: none;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.35);
-  color: #e8eaef;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-primary);
   padding: 8px 10px;
   font-size: 12px;
 }
@@ -489,12 +489,12 @@ onMounted(() => {
 .wb-chat-send {
   align-self: flex-end;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 8px 16px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: var(--primary);
   color: #fff;
 }
 
@@ -511,22 +511,22 @@ onMounted(() => {
   width: 100%;
   border: none;
   background: transparent;
-  color: rgba(248, 250, 252, 0.38);
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   padding: 10px 4px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
 }
 .wb-rail-btn:hover {
-  color: rgba(248, 250, 252, 0.78);
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  background: var(--bg-muted);
 }
 .wb-rail-btn.active {
-  color: #a5b4fc;
-  background: rgba(99, 102, 241, 0.15);
+  color: var(--primary);
+  background: var(--primary-glow);
 }
 
 .wb-rail-ico {
@@ -540,9 +540,9 @@ onMounted(() => {
 
 .wb-side-panel {
   flex: 0 0 min(376px, 34vw);
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(10, 11, 14, 0.96);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
   padding: 16px 14px;
   overflow-y: auto;
   min-width: 0;
@@ -561,7 +561,7 @@ onMounted(() => {
 .wb-label {
   display: block;
   font-size: 11px;
-  color: rgba(148, 163, 184, 0.9);
+  color: var(--text-secondary);
   margin-bottom: 6px;
 }
 
@@ -569,14 +569,14 @@ onMounted(() => {
   margin: 0;
   font-size: 13px;
   line-height: 1.55;
-  color: rgba(226, 232, 240, 0.92);
+  color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .wb-muted {
   font-size: 12px;
-  color: rgba(148, 163, 184, 0.85);
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 
@@ -585,9 +585,9 @@ onMounted(() => {
   margin-top: 8px;
   font-size: 11px;
   padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(99, 102, 241, 0.2);
-  color: #c7d2fe;
+  border-radius: var(--radius-full);
+  background: var(--primary-glow);
+  color: var(--primary-light);
 }
 
 .wb-music-placeholder {
@@ -595,17 +595,17 @@ onMounted(() => {
   padding: 0;
   margin: 12px 0 0;
   font-size: 13px;
-  color: rgba(226, 232, 240, 0.85);
+  color: var(--text-secondary);
 }
 .wb-music-placeholder li {
   padding: 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   gap: 8px;
 }
 .wb-time {
-  color: rgba(148, 163, 184, 0.75);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -621,8 +621,8 @@ onMounted(() => {
 .wb-canvas {
   flex: 1;
   min-height: 200px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
   background: #000;
   display: flex;
   align-items: center;
@@ -639,21 +639,21 @@ onMounted(() => {
 .wb-external-panel {
   flex-shrink: 0;
   padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(129, 140, 248, 0.22);
-  background: rgba(79, 70, 229, 0.06);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--primary);
+  background: var(--primary-glow);
 }
 .wb-external-title {
   font-size: 13px;
   font-weight: 700;
-  color: #e0e7ff;
+  color: var(--primary-light);
   margin-bottom: 6px;
 }
 .wb-external-tip {
   margin: 0 0 10px;
   font-size: 11px;
   line-height: 1.45;
-  color: rgba(148, 163, 184, 0.92);
+  color: var(--text-secondary);
 }
 .wb-external-row {
   display: flex;
@@ -665,22 +665,22 @@ onMounted(() => {
   flex: 1;
   min-width: 0;
   padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.45);
-  color: #e8eaef;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-primary);
   font-size: 12px;
 }
 .wb-external-btn {
   flex-shrink: 0;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 10px 16px;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  color: #0f172a;
-  background: linear-gradient(135deg, #a5b4fc, #818cf8);
+  color: #fff;
+  background: var(--primary);
 }
 .wb-external-btn:disabled {
   opacity: 0.45;
@@ -706,16 +706,16 @@ onMounted(() => {
   flex: 0 0 96px;
   width: 96px;
   height: 72px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 2px solid transparent;
   padding: 0;
   overflow: hidden;
   cursor: pointer;
-  background: rgba(30, 32, 38, 0.96);
+  background: var(--bg-card);
 }
 .wb-thumb.active {
-  border-color: rgba(129, 140, 248, 0.95);
-  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.35);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary-glow);
 }
 
 .wb-thumb img {
@@ -732,7 +732,7 @@ onMounted(() => {
   height: 100%;
   font-size: 18px;
   font-weight: 700;
-  color: rgba(148, 163, 184, 0.55);
+  color: var(--text-muted);
 }
 
 .wb-thumb-no {

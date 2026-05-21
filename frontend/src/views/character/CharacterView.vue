@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <span class="page-title">👤 角色管理</span>
+      <span class="page-title">角色管理</span>
       <el-button type="primary" :icon="Plus" @click="showCreate = true">添加角色</el-button>
     </div>
 
@@ -236,37 +236,37 @@ onMounted(async () => {
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
 
 .char-card {
-  background: #fff;
-  border-radius: 12px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
 }
 
 .char-avatar {
   height: 200px;
-  background: linear-gradient(135deg, #e0e7ff, #f3e8ff);
+  background: linear-gradient(135deg, var(--primary-glow), rgba(236, 72, 153, 0.1));
   overflow: hidden;
 }
 .char-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .char-placeholder { height: 100%; display: flex; align-items: center; justify-content: center; }
 
 .char-info { padding: 16px; flex: 1; }
-.char-name { font-size: 16px; font-weight: 700; color: #1a202c; margin-bottom: 6px; }
+.char-name { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; }
 .char-meta { display: flex; gap: 8px; margin-bottom: 8px; }
-.char-gender, .char-age { font-size: 12px; color: #718096; background: #f0f0f0; padding: 2px 8px; border-radius: 8px; }
-.char-desc { font-size: 13px; color: #4a5568; margin-bottom: 8px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.char-voice { font-size: 12px; color: #6366f1; display: flex; align-items: center; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
-.char-rate { color: #64748b; font-weight: 500; }
-.char-tts-note { font-size: 11px; color: #64748b; margin-bottom: 12px; line-height: 1.4; }
+.char-gender, .char-age { font-size: 12px; color: var(--text-muted); background: var(--bg-muted); padding: 2px 8px; border-radius: var(--radius-sm); }
+.char-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.char-voice { font-size: 12px; color: var(--primary); display: flex; align-items: center; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
+.char-rate { color: var(--text-muted); font-weight: 500; }
+.char-tts-note { font-size: 11px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; }
 .char-audio { width: 100%; margin-bottom: 10px; }
-.field-hint { margin-left: 8px; font-size: 12px; color: #94a3b8; }
+.field-hint { margin-left: 8px; font-size: 12px; color: var(--text-muted); }
 .char-actions { display: flex; gap: 8px; }
-.voice-tip { margin-top: 8px; font-size: 12px; line-height: 1.5; color: #64748b; }
+.voice-tip { margin-top: 8px; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
 .voice-option { display: flex; flex-direction: column; gap: 4px; padding: 2px 0; }
 .voice-option-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.voice-option-name { font-weight: 600; color: #0f172a; }
-.voice-option-id { font-size: 12px; color: #64748b; }
-.voice-option-desc { font-size: 12px; line-height: 1.4; color: #475569; white-space: normal; }
+.voice-option-name { font-weight: 600; color: var(--text-primary); }
+.voice-option-id { font-size: 12px; color: var(--text-muted); }
+.voice-option-desc { font-size: 12px; line-height: 1.4; color: var(--text-secondary); white-space: normal; }
 </style>

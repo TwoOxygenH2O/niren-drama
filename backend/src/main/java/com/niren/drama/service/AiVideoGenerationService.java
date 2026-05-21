@@ -82,7 +82,8 @@ public class AiVideoGenerationService {
     public VideoTaskQueryResult querySubmittedVideoTask(Long userId, Storyboard shot) {
         AiResolvedConfig config = aiProviderFactory.resolveConfig(userId, "video");
         String provider = hasText(shot.getVideoTaskProvider()) ? shot.getVideoTaskProvider() : config.provider();
-        if (!hasText(config.apiKey())) {
+        boolean isComfyUi = "comfyui".equalsIgnoreCase(provider);
+        if (!isComfyUi && !hasText(config.apiKey())) {
             throw new BusinessException("未配置视频生成 API Key，请先在 AI 配置中设置视频服务");
         }
         String statusUrl = resolveSubmittedTaskStatusUrl(provider, config.baseUrl(), shot.getVideoTaskStatusUrl(), shot.getVideoTaskId());
@@ -122,7 +123,8 @@ public class AiVideoGenerationService {
 
     public VideoTaskQueryResult queryReferenceVideoTask(Long userId, String taskId, String statusUrl) {
         AiResolvedConfig config = aiProviderFactory.resolveConfig(userId, "video");
-        if (!hasText(config.apiKey())) {
+        boolean isComfyUi = "comfyui".equalsIgnoreCase(config.provider());
+        if (!isComfyUi && !hasText(config.apiKey())) {
             throw new BusinessException("未配置视频生成 API Key，请先在 AI 配置中设置视频服务");
         }
         String resolvedStatusUrl = resolveSubmittedTaskStatusUrl(config.provider(), config.baseUrl(), statusUrl, taskId);
@@ -329,7 +331,8 @@ public class AiVideoGenerationService {
                                                       String referenceImageUrl,
                                                       int duration,
                                                       Storyboard shot) {
-        if (!hasText(config.apiKey())) {
+        boolean isComfyUi = "comfyui".equalsIgnoreCase(config.provider());
+        if (!isComfyUi && !hasText(config.apiKey())) {
             throw new BusinessException("未配置自定义视频接口 API Key");
         }
         if (!hasText(prompt)) {

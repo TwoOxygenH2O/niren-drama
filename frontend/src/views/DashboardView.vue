@@ -113,20 +113,24 @@
 
         <div class="feature-cards">
           <button type="button" class="feature-card" @click="goFromInspiration">
-            <div class="feature-card-visual feature-card-visual--portrait">
-              <span class="thumb t1" />
-              <span class="thumb t2" />
-              <span class="thumb t3" />
+            <div class="feature-card-icon" aria-hidden="true">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+              </svg>
             </div>
             <span class="feature-card-title">对话剧情</span>
+            <span class="feature-card-desc">多角色对话驱动的短剧形式，适合都市情感、悬疑推理等题材</span>
           </button>
           <button type="button" class="feature-card" @click="goFromInspiration">
-            <div class="feature-card-visual feature-card-visual--landscape">
-              <span class="thumb t1" />
-              <span class="thumb t2" />
-              <span class="thumb t3" />
+            <div class="feature-card-icon feature-card-icon--cyan" aria-hidden="true">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                <path d="M19 10v2a7 7 0 01-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+              </svg>
             </div>
             <span class="feature-card-title">旁白解说</span>
+            <span class="feature-card-desc">旁白解说驱动叙事，适合知识分享、故事讲解等内容</span>
           </button>
         </div>
       </div>
@@ -282,20 +286,18 @@ async function goFromInspiration() {
   inset: 0;
   pointer-events: none;
   background:
+    url("/background/background1.png") center / cover no-repeat,
     radial-gradient(ellipse 120% 80% at 50% 120%, rgba(30, 25, 45, 0.92) 0%, transparent 55%),
     radial-gradient(ellipse 90% 60% at 70% 20%, rgba(60, 80, 120, 0.38) 0%, transparent 50%),
     radial-gradient(ellipse 70% 50% at 20% 60%, rgba(90, 60, 40, 0.22) 0%, transparent 45%),
-    linear-gradient(165deg, rgba(13, 15, 20, 0.88) 0%, rgba(26, 21, 40, 0.82) 35%, rgba(18, 24, 32, 0.86) 70%, rgba(10, 12, 16, 0.92) 100%),
-    url('/background/background1.png') center / cover no-repeat;
+    linear-gradient(165deg, #0a0a0f 0%, #0a0a0f 100%);
 }
 
 .dashboard-bg::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
-  opacity: 0.5;
-  mix-blend-mode: overlay;
+  background: rgba(10, 10, 15, 0.45);
 }
 
 .dashboard-inner {
@@ -318,7 +320,7 @@ async function goFromInspiration() {
   font-size: clamp(26px, 4.5vw, 38px);
   font-weight: 700;
   color: #fff;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.02em;
   text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
   transition: opacity 0.35s ease;
 }
@@ -674,90 +676,49 @@ async function goFromInspiration() {
 
 .feature-card {
   text-align: left;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  padding: 14px 14px 16px;
-  background: rgba(15, 17, 24, 0.55);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  background: var(--bg-card);
   cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
 }
 .feature-card:hover {
-  border-color: rgba(255, 255, 255, 0.18);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
-  transform: translateY(-2px);
+  border-color: var(--primary-light);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-4px);
 }
 
-.feature-card-visual {
-  position: relative;
-  height: 120px;
-  margin-bottom: 12px;
-  border-radius: 12px;
-  overflow: visible;
+.feature-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--primary-glow);
+  color: var(--primary-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
 }
-.feature-card-visual--portrait .thumb {
-  position: absolute;
-  width: 52px;
-  height: 78px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-}
-.feature-card-visual--portrait .t1 {
-  left: 12px;
-  bottom: 0;
-  background: linear-gradient(160deg, #4c1d95, #7c3aed);
-  transform: rotate(-8deg);
-  z-index: 1;
-}
-.feature-card-visual--portrait .t2 {
-  left: 50%;
-  bottom: 4px;
-  transform: translateX(-50%);
-  background: linear-gradient(160deg, #1e3a5f, #38bdf8);
-  z-index: 2;
-}
-.feature-card-visual--portrait .t3 {
-  right: 12px;
-  bottom: 0;
-  background: linear-gradient(160deg, #831843, #fb7185);
-  transform: rotate(8deg);
-  z-index: 1;
+.feature-card-icon--cyan {
+  background: rgba(6, 182, 212, 0.15);
+  color: var(--accent-light);
 }
 
-.feature-card-visual--landscape .thumb {
-  position: absolute;
-  height: 44px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+.feature-card-desc {
+  display: block;
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
-.feature-card-visual--landscape .t1 {
-  width: 72px;
-  left: 8px;
-  bottom: 12px;
-  background: linear-gradient(135deg, #0f172a, #334155);
-  transform: rotate(-6deg);
-}
-.feature-card-visual--landscape .t2 {
-  width: 80px;
-  left: 50%;
-  bottom: 8px;
-  transform: translateX(-50%);
-  background: linear-gradient(135deg, #422006, #ea580c);
-  z-index: 2;
-}
-.feature-card-visual--landscape .t3 {
-  width: 72px;
-  right: 8px;
-  bottom: 12px;
-  background: linear-gradient(135deg, #134e4a, #14b8a6);
-  transform: rotate(6deg);
-}
+
 
 .feature-card-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: rgba(248, 250, 252, 0.95);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
 }
 
 @media (max-width: 640px) {

@@ -7,6 +7,7 @@ import com.niren.drama.entity.TaskRecord;
 
 
 import com.niren.drama.service.SceneService;
+import com.niren.drama.service.ProjectService;
 import com.niren.drama.common.CurrentUserHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,36 +27,55 @@ import java.util.List;
 public class SceneController {
 
     private final SceneService sceneService;
+    private final ProjectService projectService;
     private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "创建场景")
     @PostMapping
-    public Result<Scene> create(@RequestBody @Valid SceneCreateRequest request) {
+    public Result<Scene> create(@RequestBody @Valid SceneCreateRequest request,
+                                @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        projectService.getProject(userId, request.getProjectId()); // ownership check
         return Result.success(sceneService.createScene(request));
     }
 
     @Operation(summary = "获取项目场景列表")
     @GetMapping("/project/{projectId}")
-    public Result<List<Scene>> listByProject(@PathVariable Long projectId) {
+    public Result<List<Scene>> listByProject(@PathVariable Long projectId,
+                                             @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        projectService.getProject(userId, projectId); // ownership check
         return Result.success(sceneService.listByProject(projectId));
     }
 
     @Operation(summary = "获取场景详情")
     @GetMapping("/{id}")
-    public Result<Scene> get(@PathVariable Long id) {
-        return Result.success(sceneService.getScene(id));
+    public Result<Scene> get(@PathVariable Long id,
+                             @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Scene scene = sceneService.getScene(id);
+        projectService.getProject(userId, scene.getProjectId()); // ownership check
+        return Result.success(scene);
     }
 
     @Operation(summary = "更新场景")
     @PutMapping("/{id}")
     public Result<Scene> update(@PathVariable Long id,
-                                @RequestBody SceneCreateRequest request) {
+                                @RequestBody SceneCreateRequest request,
+                                @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Scene scene = sceneService.getScene(id);
+        projectService.getProject(userId, scene.getProjectId()); // ownership check
         return Result.success(sceneService.updateScene(id, request));
     }
 
     @Operation(summary = "删除场景")
     @DeleteMapping("/{id}")
-    public Result<Void> delete(@PathVariable Long id) {
+    public Result<Void> delete(@PathVariable Long id,
+                               @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Scene scene = sceneService.getScene(id);
+        projectService.getProject(userId, scene.getProjectId()); // ownership check
         sceneService.deleteScene(id);
         return Result.success();
     }

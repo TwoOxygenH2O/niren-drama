@@ -7,7 +7,10 @@ import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
 
 
+import com.niren.drama.entity.Script;
 import com.niren.drama.service.StoryboardService;
+import com.niren.drama.service.ScriptService;
+import com.niren.drama.service.ProjectService;
 import com.niren.drama.common.CurrentUserHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.niren.drama.common.sse.SseTextChunkFanout;
@@ -37,6 +40,8 @@ public class StoryboardController {
     private static final long SSE_TIMEOUT_MILLIS = 3_600_000L;
 
     private final StoryboardService storyboardService;
+    private final ScriptService scriptService;
+    private final ProjectService projectService;
     private final CurrentUserHelper currentUserHelper;
     private final ObjectMapper objectMapper;
 
@@ -100,26 +105,41 @@ public class StoryboardController {
 
     @Operation(summary = "获取项目下所有分镜")
     @GetMapping("/project/{projectId}")
-    public Result<List<Storyboard>> listByProject(@PathVariable Long projectId) {
+    public Result<List<Storyboard>> listByProject(@PathVariable Long projectId,
+                                                   @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        projectService.getProject(userId, projectId); // ownership check
         return Result.success(storyboardService.listByProject(projectId));
     }
 
     @Operation(summary = "获取脚本下所有分镜")
     @GetMapping("/script/{scriptId}")
-    public Result<List<Storyboard>> listByScript(@PathVariable Long scriptId) {
+    public Result<List<Storyboard>> listByScript(@PathVariable Long scriptId,
+                                                  @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Script script = scriptService.getScript(scriptId);
+        projectService.getProject(userId, script.getProjectId()); // ownership check
         return Result.success(storyboardService.listByScript(scriptId));
     }
 
     @Operation(summary = "获取分镜详情")
     @GetMapping("/{id}")
-    public Result<Storyboard> get(@PathVariable Long id) {
-        return Result.success(storyboardService.getStoryboard(id));
+    public Result<Storyboard> get(@PathVariable Long id,
+                                  @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Storyboard sb = storyboardService.getStoryboard(id);
+        projectService.getProject(userId, sb.getProjectId()); // ownership check
+        return Result.success(sb);
     }
 
     @Operation(summary = "更新分镜")
     @PutMapping("/{id}")
     public Result<Storyboard> update(@PathVariable Long id,
-                                     @RequestBody Storyboard update) {
+                                     @RequestBody Storyboard update,
+                                     @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Storyboard sb = storyboardService.getStoryboard(id);
+        projectService.getProject(userId, sb.getProjectId()); // ownership check
         return Result.success(storyboardService.updateStoryboard(id, update));
     }
 

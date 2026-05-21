@@ -124,13 +124,13 @@ onMounted(load)
 
 .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
 
-.asset-card { background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.07); }
-.asset-preview { height: 140px; background: #f7f8fa; overflow: hidden; }
+.asset-card { background: var(--bg-card); border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm); }
+.asset-preview { height: 140px; background: var(--bg-muted); overflow: hidden; }
 .asset-preview img { width: 100%; height: 100%; object-fit: cover; }
 .asset-placeholder { height: 100%; display: flex; align-items: center; justify-content: center; }
 .asset-info { padding: 10px; }
-.asset-name { font-size: 12px; color: #1a202c; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
+.asset-name { font-size: 12px; color: var(--text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
 .asset-meta { display: flex; justify-content: space-between; margin-bottom: 8px; }
-.asset-type { font-size: 11px; color: #6366f1; background: #e0e7ff; padding: 1px 6px; border-radius: 6px; }
-.asset-size { font-size: 11px; color: #718096; }
+.asset-type { font-size: 11px; color: var(--primary); background: var(--primary-glow); padding: 1px 6px; border-radius: var(--radius-sm); }
+.asset-size { font-size: 11px; color: var(--text-muted); }
 </style>

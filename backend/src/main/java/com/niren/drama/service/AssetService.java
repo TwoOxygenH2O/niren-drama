@@ -51,6 +51,14 @@ public class AssetService {
         return assetMapper.selectPage(page, wrapper);
     }
 
+    public Asset getAsset(Long id) {
+        Asset asset = assetMapper.selectById(id);
+        if (asset == null) {
+            throw new com.niren.drama.exception.BusinessException("素材不存在");
+        }
+        return asset;
+    }
+
     public void deleteAsset(Long id) {
         Asset asset = assetMapper.selectById(id);
         if (asset != null) {

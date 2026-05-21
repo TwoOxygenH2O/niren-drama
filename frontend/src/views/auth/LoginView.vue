@@ -104,18 +104,18 @@ function goToRegister() {
 
 :deep(.el-input__wrapper) {
   min-height: 52px;
-  border-radius: 14px;
+  border-radius: 12px;
   padding: 0 14px;
-  background: #fff;
-  box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.12) inset;
+  background: var(--bg-card);
+  box-shadow: 0 0 0 1px var(--border) inset;
 }
 
 :deep(.el-input__wrapper:hover) {
-  box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.22) inset;
+  box-shadow: 0 0 0 1px var(--border-strong) inset;
 }
 
 :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.18);
+  box-shadow: 0 0 0 2px var(--primary-glow);
 }
 
 :deep(.el-form-item.is-error .el-input__wrapper) {
@@ -132,17 +132,17 @@ function goToRegister() {
   height: 50px;
   margin-top: 4px;
   border: none;
-  border-radius: 14px;
-  background: #111827;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
   font-size: 15px;
   font-weight: 600;
-  box-shadow: none;
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.28);
 }
 
 .primary-btn:hover {
-  background: #09090b;
-  transform: translateY(-1px);
-  box-shadow: none;
+  box-shadow: 0 8px 28px rgba(99, 102, 241, 0.45);
+  transform: translateY(-4px);
 }
 
 .auth-footer {
@@ -152,7 +152,7 @@ function goToRegister() {
   justify-content: center;
   gap: 6px;
   font-size: 14px;
-  color: #71717a;
+  color: var(--text-muted);
 }
 
 .text-link {
@@ -162,10 +162,10 @@ function goToRegister() {
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
-  color: #111827;
+  color: var(--text-primary);
 }
 
 .text-link:hover {
-  color: #000;
+  color: var(--primary);
 }
 </style>

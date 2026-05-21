@@ -7,6 +7,7 @@ import com.niren.drama.entity.TaskRecord;
 
 
 import com.niren.drama.service.CharacterService;
+import com.niren.drama.service.ProjectService;
 import com.niren.drama.common.CurrentUserHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,36 +28,55 @@ import java.util.Map;
 public class CharacterController {
 
     private final CharacterService characterService;
+    private final ProjectService projectService;
     private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "创建角色")
     @PostMapping
-    public Result<Character> create(@RequestBody @Valid CharacterCreateRequest request) {
+    public Result<Character> create(@RequestBody @Valid CharacterCreateRequest request,
+                                    @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        projectService.getProject(userId, request.getProjectId()); // ownership check
         return Result.success(characterService.createCharacter(request));
     }
 
     @Operation(summary = "获取项目角色列表")
     @GetMapping("/project/{projectId}")
-    public Result<List<Character>> listByProject(@PathVariable Long projectId) {
+    public Result<List<Character>> listByProject(@PathVariable Long projectId,
+                                                  @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        projectService.getProject(userId, projectId); // ownership check
         return Result.success(characterService.listByProject(projectId));
     }
 
     @Operation(summary = "获取角色详情")
     @GetMapping("/{id}")
-    public Result<Character> get(@PathVariable Long id) {
-        return Result.success(characterService.getCharacter(id));
+    public Result<Character> get(@PathVariable Long id,
+                                 @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Character character = characterService.getCharacter(id);
+        projectService.getProject(userId, character.getProjectId()); // ownership check
+        return Result.success(character);
     }
 
     @Operation(summary = "更新角色")
     @PutMapping("/{id}")
     public Result<Character> update(@PathVariable Long id,
-                                    @RequestBody CharacterCreateRequest request) {
+                                    @RequestBody CharacterCreateRequest request,
+                                    @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Character character = characterService.getCharacter(id);
+        projectService.getProject(userId, character.getProjectId()); // ownership check
         return Result.success(characterService.updateCharacter(id, request));
     }
 
     @Operation(summary = "删除角色")
     @DeleteMapping("/{id}")
-    public Result<Void> delete(@PathVariable Long id) {
+    public Result<Void> delete(@PathVariable Long id,
+                               @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Character character = characterService.getCharacter(id);
+        projectService.getProject(userId, character.getProjectId()); // ownership check
         characterService.deleteCharacter(id);
         return Result.success();
     }

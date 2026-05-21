@@ -933,8 +933,8 @@ onUnmounted(() => {
   margin-bottom: 24px;
 }
 .ov-card {
-  background: #fff;
-  border-radius: 12px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
   padding: 20px;
   display: flex;
   align-items: center;
@@ -945,7 +945,7 @@ onUnmounted(() => {
 .ov-icon {
   width: 48px;
   height: 48px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -965,8 +965,8 @@ onUnmounted(() => {
 
 /* Action section */
 .action-section {
-  background: #fff;
-  border-radius: 14px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
   padding: 24px;
   margin-bottom: 24px;
   border: 1px solid var(--border);
@@ -989,7 +989,7 @@ onUnmounted(() => {
   gap: 14px;
   padding: 16px;
   background: var(--bg-muted);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
 .step-num {
   width: 32px;
@@ -1023,8 +1023,8 @@ onUnmounted(() => {
 
 /* Task progress */
 .task-progress-card {
-  background: #fff;
-  border-radius: 14px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
   padding: 20px 24px;
   margin-bottom: 24px;
   border: 1px solid var(--border);
@@ -1045,7 +1045,7 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 600;
   padding: 2px 10px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
 }
 .task-status.status-pending { background: #fef3c7; color: #92400e; }
 .task-status.status-running { background: #dbeafe; color: #1e40af; }
@@ -1059,17 +1059,17 @@ onUnmounted(() => {
 .task-diagnostics {
   margin-top: 10px;
   padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px dashed #cbd5e1;
-  background: #f8fafc;
-  color: #475569;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
   font-size: 12px;
   display: grid;
   gap: 4px;
 }
 .task-trace-panel {
   margin-top: 16px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border);
   padding-top: 16px;
 }
 .task-trace-header {
@@ -1094,10 +1094,10 @@ onUnmounted(() => {
   gap: 12px;
 }
 .task-trace-item {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   padding: 12px;
-  background: #fafafa;
+  background: var(--bg-card);
 }
 .task-trace-item-head {
   display: flex;
@@ -1113,16 +1113,16 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 700;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
-.task-trace-index { background: #e5e7eb; color: #374151; }
+.task-trace-index { background: var(--bg-muted); color: var(--text-secondary); }
 .task-trace-shot { background: #dbeafe; color: #1d4ed8; }
 .task-trace-method { background: #ede9fe; color: #6d28d9; }
 .task-trace-url {
   flex: 1;
   min-width: 280px;
   font-size: 12px;
-  color: #111827;
+  color: var(--text-primary);
   word-break: break-all;
 }
 .task-trace-status.is-success { background: #d1fae5; color: #065f46; }
@@ -1147,9 +1147,9 @@ onUnmounted(() => {
 .task-trace-block pre {
   margin: 0;
   padding: 10px;
-  border-radius: 8px;
-  background: #111827;
-  color: #e5e7eb;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  color: var(--text-primary);
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -1158,7 +1158,7 @@ onUnmounted(() => {
 .task-trace-error {
   margin-top: 10px;
   padding: 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: #fef2f2;
   color: #b91c1c;
   font-size: 12px;
@@ -1167,7 +1167,7 @@ onUnmounted(() => {
 .task-async-panel {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px dashed #d1d5db;
+  border-top: 1px dashed var(--border);
 }
 .task-async-list {
   display: grid;
@@ -1176,10 +1176,10 @@ onUnmounted(() => {
   margin-top: 12px;
 }
 .task-async-item {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   padding: 12px;
-  background: #fff;
+  background: var(--bg-card);
 }
 .task-async-head {
   display: flex;
@@ -1196,15 +1196,15 @@ onUnmounted(() => {
 }
 .task-async-value {
   font-size: 12px;
-  color: #111827;
+  color: var(--text-primary);
   line-height: 1.5;
   word-break: break-all;
 }
 
 /* Video section */
 .video-section {
-  background: #fff;
-  border-radius: 14px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
   padding: 24px;
   margin-bottom: 24px;
   border: 1px solid var(--border);
@@ -1220,7 +1220,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: center;
   background: #000;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   margin-bottom: 16px;
 }
@@ -1245,8 +1245,8 @@ onUnmounted(() => {
 
 /* Shots section */
 .shots-section {
-  background: #fff;
-  border-radius: 14px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
   padding: 24px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
@@ -1288,7 +1288,7 @@ onUnmounted(() => {
   font-size: 11px;
   font-weight: 600;
   padding: 1px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 .shot-status.status-draft { background: #f3f4f6; color: #6b7280; }
 .shot-status.status-image_generated { background: #dbeafe; color: #1e40af; }
@@ -1301,7 +1301,7 @@ onUnmounted(() => {
 
 .shot-image {
   aspect-ratio: 9/16;
-  background: #f3f4f6;
+  background: var(--bg-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1332,7 +1332,7 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--text-muted);
 }
-.dynamic-selected { color: #7c3aed; }
+.dynamic-selected { color: var(--secondary); }
 .audio-ready { color: var(--color-success); }
 .audio-pending { color: var(--text-muted); }
 
@@ -1381,7 +1381,7 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 600;
   padding: 2px 10px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
 }
 .status-draft { background: #f3f4f6; color: #6b7280; }
 .status-generating { background: #dbeafe; color: #1e40af; }

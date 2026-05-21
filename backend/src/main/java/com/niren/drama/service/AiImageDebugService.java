@@ -28,7 +28,8 @@ public class AiImageDebugService {
             throw new BusinessException("请输入提示词");
         }
         AiResolvedConfig resolved = aiProviderFactory.resolveConfig(userId, "image");
-        if (resolved.apiKey() == null || resolved.apiKey().isBlank()) {
+        boolean isComfyUi = "comfyui".equalsIgnoreCase(resolved.provider());
+        if (!isComfyUi && (resolved.apiKey() == null || resolved.apiKey().isBlank())) {
             throw new BusinessException("未配置文生图 API Key：请在下方添加文生图配置并设为默认，或在服务端环境变量 AI_IMAGE_API_KEY 中配置");
         }
         ImageAiProvider provider = aiProviderFactory.getImageProvider(userId);
