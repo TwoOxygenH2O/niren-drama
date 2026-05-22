@@ -202,10 +202,10 @@
               </ul>
             </section>
 
-            <section class="plan-block plan-block--script">
+            <section class="plan-block">
               <h3 class="plan-block-title">分镜剧本</h3>
               <p v-if="!episodeScriptBody.trim()" class="plan-muted">
-                暂无本集剧本正文；可在「剧本生成」页撰写，或完成大纲确认与剧本生成后查看。
+                暂无本集剧本正文；完成角色确认后自动生成。
               </p>
               <pre v-else class="plan-script-body">{{ episodeScriptBody }}</pre>
             </section>
@@ -451,7 +451,7 @@ function scrollToBottom() {
   })
 }
 
-watch([outlineContent, chatTail, generating], () => scrollToBottom())
+watch([outlineContent, chatTail, generating, charactersReady, scriptReady], () => scrollToBottom())
 
 watch(activeEpisode, async () => {
   episodeStoryboardReady.value = false
@@ -1306,6 +1306,14 @@ onMounted(async () => {
   width: 22px;
   height: 22px;
 }
+.plan-block {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.plan-block:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
 .plan-block-title {
   margin: 0 0 8px;
   font-size: 12px;
@@ -1397,12 +1405,6 @@ onMounted(async () => {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-.plan-block--script {
-  min-height: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
 }
 .plan-script-body {
   margin: 0;

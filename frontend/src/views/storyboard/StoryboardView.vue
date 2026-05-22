@@ -415,19 +415,13 @@ function extractStoryboardPreviewErrorData(error: any): StoryboardPreviewErrorDa
 }
 
 async function loadStoryboards() {
+  const res = await storyboardApi.listByProject(projectId as string)
+  let incoming = res.data.data || []
+  // 按选中的剧本过滤
   const scriptId = genForm.value.scriptId
-  let res
   if (scriptId) {
-    try {
-      res = await storyboardApi.listByScript(scriptId as string)
-    } catch {
-      // 按剧本查询失败时降级为按项目查询
-      res = await storyboardApi.listByProject(projectId as string)
-    }
-  } else {
-    res = await storyboardApi.listByProject(projectId as string)
+    incoming = incoming.filter((s: any) => String(s.scriptId) === String(scriptId))
   }
-  const incoming = res.data.data || []
   // 自动刷新时保留正在编辑的字段，避免覆盖用户输入
   const editingIds = new Set(
     storyboards.value
