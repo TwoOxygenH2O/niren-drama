@@ -220,7 +220,7 @@
           <button
             type="button"
             class="btn-plan-prompts"
-            :disabled="!activePlanScript?.id || !scriptConfirmed"
+            :disabled="!activePlanScript?.id || !scriptReady"
             @click="videoPromptsOpen = true"
           >
             生成视频提示词
@@ -424,7 +424,7 @@ const videoPromptsOpen = ref(false)
 const primaryVideoLabel = computed(() => (hasProjectVideo.value ? '查看成片' : '生成分镜视频'))
 
 const primaryVideoDisabled = computed(() => {
-  if (!scriptConfirmed.value) return true
+  if (!scriptReady.value) return true
   if (hasProjectVideo.value) return false
   return (
     !episodeScriptBody.value.trim() ||
@@ -644,9 +644,10 @@ async function onPrimaryVideoAction() {
   mediaTaskProgress.value = 0
   mediaTaskMessage.value = '正在提交视频生成任务…'
   try {
-    const scriptId = Number(activePlanScript.value.id)
-    const listRes = await storyboardApi.listByScript(scriptId)
-    const shots = (listRes as any).data?.data ?? []
+    const scriptId = String(activePlanScript.value.id)
+    const listRes = await storyboardApi.listByProject(projectId.value)
+    const allShots = (listRes as any).data?.data ?? []
+    const shots = allShots.filter((s: any) => String(s.scriptId) === scriptId)
     const shotIds = (Array.isArray(shots) ? shots : [])
       .map((s: { id?: unknown }) => s.id)
       .filter((id: unknown) => id != null)
