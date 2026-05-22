@@ -234,6 +234,41 @@
             <span class="btn-plan-video-ico" aria-hidden="true">✦</span>
             {{ primaryVideoLabel }}
           </button>
+          <el-popover
+            v-if="!hasProjectVideo && episodeStoryboardReady && episodeShots.length > 0"
+            placement="top"
+            :width="280"
+            trigger="click"
+            :show-arrow="false"
+            popper-class="shot-select-popover"
+          >
+            <template #reference>
+              <button type="button" class="btn-shot-select" :class="{ 'has-selection': selectedShotIds.length > 0 && !allSelected }">
+                {{ shotSelectLabel }}
+                <span class="btn-shot-select-arrow">▾</span>
+              </button>
+            </template>
+            <div class="shot-select-panel">
+              <div class="shot-select-header">
+                <button type="button" class="shot-select-all-btn" @click="toggleSelectAll">
+                  {{ allSelected ? '取消全选' : '全选' }}
+                </button>
+                <span class="shot-select-count">{{ selectedShotIds.length }} / {{ episodeShots.length }}</span>
+              </div>
+              <el-checkbox-group v-model="selectedShotIds" class="shot-select-list">
+                <el-checkbox
+                  v-for="shot in episodeShots"
+                  :key="shot.id"
+                  :value="String(shot.id)"
+                  class="shot-select-item"
+                >
+                  <span class="shot-select-item-no">镜头 {{ shot.shotNo }}</span>
+                  <span v-if="shot.videoUrl" class="shot-select-item-status shot-select-item-status--done">已有视频</span>
+                  <span v-else-if="shot.dynamicSelected" class="shot-select-item-status">动态</span>
+                </el-checkbox>
+              </el-checkbox-group>
+            </div>
+          </el-popover>
           <div v-if="mediaSubmitLoading && mediaTaskMessage" class="plan-video-progress">
             <span class="plan-video-progress-text">{{ mediaTaskMessage }}{{ mediaTaskProgress > 0 ? ` ${mediaTaskProgress}%` : '' }}</span>
             <div class="plan-video-progress-bar" :style="{ width: mediaTaskProgress + '%' }" />
@@ -421,6 +456,25 @@ let sbEnsureGeneration = 0
 
 const videoPromptsOpen = ref(false)
 
+/** 分镜视频生成 - 镜头多选 */
+const episodeShots = ref<any[]>([])
+const selectedShotIds = ref<string[]>([])
+const allShotIds = computed(() => episodeShots.value.map((s: any) => String(s.id)))
+const allSelected = computed(() => episodeShots.value.length > 0 && selectedShotIds.value.length === episodeShots.value.length)
+const shotSelectLabel = computed(() => {
+  if (!selectedShotIds.value.length) return '选择镜头'
+  if (allSelected.value) return `全部 ${episodeShots.value.length} 镜`
+  return `已选 ${selectedShotIds.value.length} / ${episodeShots.value.length} 镜`
+})
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selectedShotIds.value = []
+  } else {
+    selectedShotIds.value = [...allShotIds.value]
+  }
+}
+
 const primaryVideoLabel = computed(() => (hasProjectVideo.value ? '查看成片' : '生成分镜视频'))
 
 const primaryVideoDisabled = computed(() => {
@@ -455,6 +509,8 @@ watch([outlineContent, chatTail, generating, charactersReady, scriptReady], () =
 watch(activeEpisode, async () => {
   episodeStoryboardReady.value = false
   episodeStoryboardErr.value = ''
+  episodeShots.value = []
+  selectedShotIds.value = []
   sbEnsureGeneration += 1
   outlineContent.value = ''
   if (workflowPhase.value === 'plan_ready') {
@@ -557,6 +613,20 @@ async function refreshVideoOverview() {
   }
 }
 
+async function loadEpisodeShots() {
+  const sid = activePlanScript.value?.id
+  if (!sid) { episodeShots.value = []; selectedShotIds.value = []; return }
+  try {
+    const res = await storyboardApi.listByProject(projectId.value)
+    const all = (res as any).data?.data ?? []
+    episodeShots.value = all
+      .filter((s: any) => String(s.scriptId) === String(sid))
+      .sort((a: any, b: any) => (Number(a.shotNo) || 0) - (Number(b.shotNo) || 0))
+    // 默认全选
+    selectedShotIds.value = episodeShots.value.map((s: any) => String(s.id))
+  } catch { episodeShots.value = []; selectedShotIds.value = [] }
+}
+
 async function ensureEpisodeStoryboard() {
   const gen = ++sbEnsureGeneration
   episodeStoryboardErr.value = ''
@@ -577,6 +647,7 @@ async function ensureEpisodeStoryboard() {
     const existing = allStoryboards.filter((s: any) => String(s.scriptId) === scriptId)
     if (existing.length > 0) {
       episodeStoryboardReady.value = true
+      await loadEpisodeShots()
       await refreshVideoOverview()
       return
     }
@@ -594,6 +665,7 @@ async function ensureEpisodeStoryboard() {
       throw new Error('分镜生成完成但未查到镜头，请稍后重试')
     }
     episodeStoryboardReady.value = true
+    await loadEpisodeShots()
     await refreshVideoOverview()
   } catch (e: unknown) {
     if (gen !== sbEnsureGeneration) return
@@ -639,22 +711,17 @@ async function onPrimaryVideoAction() {
     return
   }
   if (!activePlanScript.value?.id || !episodeStoryboardReady.value) return
+  const shotIds = selectedShotIds.value.length > 0
+    ? [...selectedShotIds.value]
+    : allShotIds.value
+  if (!shotIds.length) {
+    ElMessage.warning('暂无本集分镜数据，请先生成分镜')
+    return
+  }
   mediaSubmitLoading.value = true
   mediaTaskProgress.value = 0
-  mediaTaskMessage.value = '正在提交视频生成任务…'
+  mediaTaskMessage.value = `正在提交 ${shotIds.length} 个镜头的视频生成任务…`
   try {
-    const scriptId = String(activePlanScript.value.id)
-    const listRes = await storyboardApi.listByProject(projectId.value)
-    const allShots = (listRes as any).data?.data ?? []
-    const shots = allShots.filter((s: any) => String(s.scriptId) === scriptId)
-    const shotIds = (Array.isArray(shots) ? shots : [])
-      .map((s: { id?: unknown }) => s.id)
-      .filter((id: unknown) => id != null)
-      .map((id: unknown) => String(id))
-    if (!shotIds.length) {
-      ElMessage.warning('暂无本集分镜数据')
-      return
-    }
 
     const dynRes = await videoApi.generateStoryboardVideos(projectId.value, shotIds)
     const tid = extractTaskId(dynRes)
@@ -924,6 +991,7 @@ async function sendFollowUp() {
         if (ttype === 'STORYBOARD_GEN') {
           episodeStoryboardReady.value = true
           episodeStoryboardErr.value = ''
+          await loadEpisodeShots()
           await refreshVideoOverview()
         }
         chatTail.value.push({
@@ -1496,6 +1564,24 @@ onMounted(async () => {
   transform: none;
   box-shadow: none;
 }
+
+.btn-shot-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s;
+}
+.btn-shot-select:hover { border-color: var(--primary); }
+.btn-shot-select.has-selection { border-color: var(--primary); color: var(--primary-light); }
+.btn-shot-select-arrow { font-size: 10px; opacity: 0.6; }
 
 .plan-video-progress {
   position: relative;
@@ -2236,5 +2322,68 @@ onMounted(async () => {
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 4px;
+}
+
+/* 镜头多选弹出层 */
+.shot-select-popover {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-lg) !important;
+  padding: 0 !important;
+}
+.shot-select-popover .el-popover__arrow { display: none; }
+.shot-select-panel { padding: 8px; }
+.shot-select-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.shot-select-all-btn {
+  border: none;
+  background: var(--primary-glow);
+  color: var(--primary-light);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.shot-select-all-btn:hover { background: rgba(99,102,241,0.3); }
+.shot-select-count {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.shot-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(50vh, 360px);
+  overflow-y: auto;
+}
+.shot-select-item {
+  display: flex;
+  align-items: center;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  margin: 0;
+  height: auto;
+}
+.shot-select-item:hover { background: var(--bg-muted); }
+.shot-select-item .el-checkbox__label { display: flex; align-items: center; gap: 8px; }
+.shot-select-item-no { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.shot-select-item-status {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--primary-glow);
+  color: var(--primary-light);
+}
+.shot-select-item-status--done {
+  background: rgba(52,211,153,0.15);
+  color: #6ee7b7;
 }
 </style>

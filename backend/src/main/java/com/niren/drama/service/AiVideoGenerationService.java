@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.AiResolvedConfig;
+import com.niren.drama.ai.VideoAiProvider;
 import com.niren.drama.ai.trace.AiTraceSupport;
 import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.entity.Character;
@@ -68,6 +69,13 @@ public class AiVideoGenerationService {
         if (isAliyunProvider(config.provider())) {
             return generateAliyunVideo(config, shot);
         }
+        if (isComfyUiProvider(config.provider())) {
+            VideoTaskSubmission submission = submitComfyUiVideoTask(userId, config, shot);
+            if (hasText(submission.videoUrl())) {
+                return submission.videoUrl();
+            }
+            throw new RuntimeException("ComfyUI 视频生成未返回视频地址");
+        }
         return generateCustomVideo(config, shot);
     }
 
@@ -82,6 +90,9 @@ public class AiVideoGenerationService {
                 hasText(shot.getImageUrl()));
         if (isAliyunProvider(config.provider())) {
             return submitAliyunVideoTask(config, shot);
+        }
+        if (isComfyUiProvider(config.provider())) {
+            return submitComfyUiVideoTask(userId, config, shot);
         }
         return submitCustomVideoTask(config, shot);
     }
@@ -801,6 +812,45 @@ public class AiVideoGenerationService {
         return "aliyun".equals(normalized)
                 || "dashscope".equals(normalized)
                 || "wanx".equals(normalized);
+    }
+
+    private boolean isComfyUiProvider(String provider) {
+        return "comfyui".equalsIgnoreCase(provider != null ? provider.trim() : "");
+    }
+
+    private VideoTaskSubmission submitComfyUiVideoTask(Long userId, AiResolvedConfig config, Storyboard shot) {
+        String prompt = resolvePrompt(shot);
+        if (!hasText(prompt)) {
+            throw new BusinessException("动态镜头缺少视频提示词，无法发起 ComfyUI 视频生成");
+        }
+        VideoGenerationProfile profile = resolveVideoGenerationProfile(shot, resolveDuration(shot));
+        String resolution = profile.resolution();
+        String quality = profile.qualityTier();
+        int duration = profile.durationSeconds();
+        String referenceImageUrl = resolveReferenceImageUrl(shot);
+
+        log.debug("Start ComfyUI video generation: shotId={}, shotNo={}, hasImage={}, duration={}, resolution={}",
+                shot.getId(), shot.getShotNo(), hasText(referenceImageUrl), duration, resolution);
+
+        try {
+            VideoAiProvider provider = aiProviderFactory.getVideoProvider(userId);
+            String videoUrl;
+            if (hasText(referenceImageUrl)) {
+                videoUrl = provider.generateVideoFromImage(referenceImageUrl, prompt, duration, resolution, quality, false);
+            } else {
+                videoUrl = provider.generateVideoFromText(prompt, duration, resolution, quality, false);
+            }
+            if (hasText(videoUrl)) {
+                videoUrl = persistVideoUrl(videoUrl);
+            }
+            log.debug("ComfyUI video generation completed: shotId={}, shotNo={}, videoUrl={}",
+                    shot.getId(), shot.getShotNo(), videoUrl);
+            return new VideoTaskSubmission("comfyui", null, null, videoUrl);
+        } catch (Exception e) {
+            log.error("ComfyUI video generation failed for shot {}", shot.getShotNo(), e);
+            maybeDowngradeToTierB(shot, e.getMessage());
+            throw new RuntimeException("视频生成失败: " + e.getMessage(), e);
+        }
     }
 
     private String resolveReferenceImageUrl(Storyboard shot) {
