@@ -10,9 +10,11 @@ import com.niren.drama.ai.trace.AiTraceSupport;
 import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.entity.Character;
 import com.niren.drama.entity.Project;
+import com.niren.drama.entity.Scene;
 import com.niren.drama.entity.Storyboard;
 import com.niren.drama.exception.BusinessException;
 import com.niren.drama.mapper.CharacterMapper;
+import com.niren.drama.mapper.SceneMapper;
 import com.niren.drama.mapper.StoryboardMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,8 +25,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -37,6 +43,7 @@ public class AiVideoGenerationService {
     private final AiProviderFactory aiProviderFactory;
     private final ProjectService projectService;
     private final CharacterMapper characterMapper;
+    private final SceneMapper sceneMapper;
     private final StoryboardMapper storyboardMapper;
     private final PublicAssetStorageService publicAssetStorageService;
     private final ObjectMapper objectMapper;
@@ -318,8 +325,9 @@ public class AiVideoGenerationService {
     private VideoTaskSubmission submitCustomVideoTask(AiResolvedConfig config, Storyboard shot) {
         String prompt = resolvePrompt(shot);
         String referenceImageUrl = resolveReferenceImageUrl(shot);
+        List<String> referenceImageUrls = resolveReferenceImageUrls(shot);
         try {
-            return submitCustomVideoTask(config, prompt, referenceImageUrl, resolveDuration(shot), shot);
+            return submitCustomVideoTask(config, prompt, referenceImageUrl, referenceImageUrls, resolveDuration(shot), shot);
         } catch (RuntimeException ex) {
             maybeDowngradeToTierB(shot, ex.getMessage());
             throw ex;
@@ -331,6 +339,18 @@ public class AiVideoGenerationService {
                                                       String referenceImageUrl,
                                                       int duration,
                                                       Storyboard shot) {
+        return submitCustomVideoTask(config, prompt, referenceImageUrl,
+                hasText(referenceImageUrl) ? List.of(referenceImageUrl) : List.of(),
+                duration,
+                shot);
+    }
+
+    private VideoTaskSubmission submitCustomVideoTask(AiResolvedConfig config,
+                                                      String prompt,
+                                                      String referenceImageUrl,
+                                                      List<String> referenceImageUrls,
+                                                      int duration,
+                                                      Storyboard shot) {
         boolean isComfyUi = "comfyui".equalsIgnoreCase(config.provider());
         if (!isComfyUi && !hasText(config.apiKey())) {
             throw new BusinessException("未配置自定义视频接口 API Key");
@@ -338,7 +358,8 @@ public class AiVideoGenerationService {
         if (!hasText(prompt)) {
             throw new BusinessException("动态镜头缺少视频提示词，无法发起自定义视频接口");
         }
-        String effectiveReferenceImageUrl = publicAssetStorageService.ensurePublicUrl(referenceImageUrl, "reference-images", "png");
+        List<String> effectiveReferenceImageUrls = normalizeReferenceImageUrls(referenceImageUrls, referenceImageUrl);
+        String effectiveReferenceImageUrl = effectiveReferenceImageUrls.isEmpty() ? null : effectiveReferenceImageUrls.get(0);
 
         String endpoint = resolveCustomVideoEndpoint(config.baseUrl());
         VideoGenerationProfile profile = resolveVideoGenerationProfile(shot, duration);
@@ -364,6 +385,14 @@ public class AiVideoGenerationService {
             body.put("prompt", prompt);
             if (hasText(effectiveReferenceImageUrl)) {
                 body.put("image_url", effectiveReferenceImageUrl);
+            }
+            if (!effectiveReferenceImageUrls.isEmpty()) {
+                body.putArray("image_urls").addAll(effectiveReferenceImageUrls.stream()
+                        .map(objectMapper.getNodeFactory()::textNode)
+                        .toList());
+                body.putArray("reference_images").addAll(effectiveReferenceImageUrls.stream()
+                        .map(objectMapper.getNodeFactory()::textNode)
+                        .toList());
             }
             body.put("duration", profile.durationSeconds());
             body.put("size", "A".equalsIgnoreCase(resolveMotionTier(shot)) ? "1080x1920" : "720x1280");
@@ -436,6 +465,17 @@ public class AiVideoGenerationService {
                     hasText(videoUrl) ? videoUrl : effectiveReferenceImageUrl,
                     error);
         }
+    }
+
+    private List<String> normalizeReferenceImageUrls(List<String> imageUrls, String fallbackImageUrl) {
+        Set<String> normalized = new LinkedHashSet<>();
+        if (imageUrls != null) {
+            for (String imageUrl : imageUrls) {
+                addPublicReference(normalized, imageUrl);
+            }
+        }
+        addPublicReference(normalized, fallbackImageUrl);
+        return new ArrayList<>(normalized);
     }
 
     private String waitForVideoResult(String provider, String apiKey, String statusUrl) throws Exception {
@@ -764,37 +804,63 @@ public class AiVideoGenerationService {
     }
 
     private String resolveReferenceImageUrl(Storyboard shot) {
+        List<String> referenceImages = resolveReferenceImageUrls(shot);
+        return referenceImages.isEmpty() ? null : referenceImages.get(0);
+    }
+
+    private List<String> resolveReferenceImageUrls(Storyboard shot) {
         if (shot == null) {
-            return null;
+            return List.of();
         }
-        if (hasText(shot.getImageUrl())) {
-            return publicAssetStorageService.ensurePublicUrl(shot.getImageUrl(), "reference-images", "png");
-        }
+        Set<String> references = new LinkedHashSet<>();
+        addPublicReference(references, shot.getImageUrl());
+
         if (shot.getCharacterId() != null) {
             Character character = characterMapper.selectById(shot.getCharacterId());
-            if (character != null && hasText(character.getImageUrl())) {
-                return publicAssetStorageService.ensurePublicUrl(character.getImageUrl(), "reference-images", "png");
+            if (character != null) {
+                addPublicReference(references, character.getImageUrl());
             }
         }
+        if (shot.getSceneId() != null) {
+            Scene scene = sceneMapper.selectById(shot.getSceneId());
+            if (scene != null) {
+                addPublicReference(references, scene.getImageUrl());
+            }
+        }
+        addPublicReference(references, findPreviousCharacterReference(shot));
+        addPublicReference(references, findPreviousProjectReference(shot));
+        return new ArrayList<>(references);
+    }
+
+    private void addPublicReference(Set<String> references, String imageUrl) {
+        if (!hasText(imageUrl)) {
+            return;
+        }
+        String publicUrl = publicAssetStorageService.ensurePublicUrl(imageUrl, "reference-images", "png");
+        if (hasText(publicUrl)) {
+            references.add(publicUrl);
+        }
+    }
+
+    private String findPreviousCharacterReference(Storyboard shot) {
+        if (shot.getProjectId() == null || shot.getShotNo() == null || shot.getCharacterId() == null) {
+            return null;
+        }
+        Storyboard previousWithSameCharacter = storyboardMapper.selectOne(
+                new LambdaQueryWrapper<Storyboard>()
+                        .eq(Storyboard::getProjectId, shot.getProjectId())
+                        .eq(Storyboard::getCharacterId, shot.getCharacterId())
+                        .lt(Storyboard::getShotNo, shot.getShotNo())
+                        .isNotNull(Storyboard::getImageUrl)
+                        .orderByDesc(Storyboard::getShotNo)
+                        .last("LIMIT 1"));
+        return previousWithSameCharacter != null ? previousWithSameCharacter.getImageUrl() : null;
+    }
+
+    private String findPreviousProjectReference(Storyboard shot) {
         if (shot.getProjectId() == null || shot.getShotNo() == null) {
             return null;
         }
-
-        Storyboard previousWithSameCharacter = null;
-        if (shot.getCharacterId() != null) {
-            previousWithSameCharacter = storyboardMapper.selectOne(
-                    new LambdaQueryWrapper<Storyboard>()
-                            .eq(Storyboard::getProjectId, shot.getProjectId())
-                            .eq(Storyboard::getCharacterId, shot.getCharacterId())
-                            .lt(Storyboard::getShotNo, shot.getShotNo())
-                            .isNotNull(Storyboard::getImageUrl)
-                            .orderByDesc(Storyboard::getShotNo)
-                            .last("LIMIT 1"));
-        }
-        if (previousWithSameCharacter != null && hasText(previousWithSameCharacter.getImageUrl())) {
-            return publicAssetStorageService.ensurePublicUrl(previousWithSameCharacter.getImageUrl(), "reference-images", "png");
-        }
-
         Storyboard previousAnyShot = storyboardMapper.selectOne(
                 new LambdaQueryWrapper<Storyboard>()
                         .eq(Storyboard::getProjectId, shot.getProjectId())
@@ -802,10 +868,7 @@ public class AiVideoGenerationService {
                         .isNotNull(Storyboard::getImageUrl)
                         .orderByDesc(Storyboard::getShotNo)
                         .last("LIMIT 1"));
-        if (previousAnyShot != null && hasText(previousAnyShot.getImageUrl())) {
-            return publicAssetStorageService.ensurePublicUrl(previousAnyShot.getImageUrl(), "reference-images", "png");
-        }
-        return null;
+        return previousAnyShot != null ? previousAnyShot.getImageUrl() : null;
     }
 
     private String resolveAliyunVideoModel(String configuredModel, String referenceImageUrl) {

@@ -98,10 +98,6 @@ function handleCancel() {
 </script>
 
 <style scoped>
-.ai-preview-dialog :deep(.el-dialog) {
-  background: var(--bg-card);
-}
-
 .preview-hero {
   position: relative;
   overflow: hidden;

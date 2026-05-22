@@ -112,6 +112,20 @@
             </template>
           </div>
 
+          <!-- 角色确认按钮 -->
+          <div v-if="charactersReady && !charactersConfirmed" class="chat-action-row">
+            <button type="button" class="btn-confirm-step" @click="confirmCharacters">
+              确认角色，生成剧本
+            </button>
+          </div>
+
+          <!-- 剧本确认按钮 -->
+          <div v-if="scriptReady && !scriptConfirmed" class="chat-action-row">
+            <button type="button" class="btn-confirm-step" @click="confirmScript">
+              确认剧本
+            </button>
+          </div>
+
           <div v-if="streamError" class="stream-err">{{ streamError }}</div>
         </div>
 
@@ -156,6 +170,7 @@
             <span class="plan-ep-badge">第 {{ String(activeEpisode).padStart(2, '0') }} 集</span>
             <h2 class="plan-title">{{ activePlanScript?.title || '—' }}</h2>
             <p class="plan-ai-note">内容由 AI 生成</p>
+            <button type="button" class="plan-close-btn" title="收起策划栏" @click="workflowPhase = 'outline'">✕</button>
           </header>
 
           <div v-if="scriptWorkflowLoading" class="plan-loading">
@@ -173,10 +188,11 @@
               <h3 class="plan-block-title">主体列表</h3>
               <p v-if="!planCharacters.length" class="plan-muted">暂无主体，大纲保存后将同步角色库。</p>
               <ul v-else class="plan-subject-list">
-                <li v-for="c in planCharacters" :key="c.id" class="plan-subject-item">
+                <li v-for="c in planCharacters" :key="c.id" class="plan-subject-item" @click="openCharGallery(c)">
                   <div class="plan-subject-avatar">
                     <img v-if="c.imageUrl" :src="c.imageUrl" :alt="c.name" />
-                    <span v-else class="plan-avatar-ph">{{ portraitRefreshing ? '…' : '·' }}</span>
+                    <span v-else-if="portraitRefreshing" class="plan-avatar-ph plan-avatar-ph--loading">生成中</span>
+                    <span v-else class="plan-avatar-ph">·</span>
                   </div>
                   <div class="plan-subject-meta">
                     <span class="plan-subject-name">{{ c.name }}</span>
@@ -197,14 +213,14 @@
         </div>
 
         <div v-if="showGenVideoFab && !scriptWorkflowLoading" class="plan-actions plan-actions--dock">
-          <p v-if="episodeStoryboardGenerating" class="plan-action-hint">正在拆解本集分镜并计算动态/静态推荐，请稍候…</p>
-          <p v-else-if="episodeStoryboardReady" class="plan-action-hint plan-action-hint--ok">本集分镜已就绪；点击下方将按推荐生成静态图与动态片段（动态优先）。</p>
+          <p v-if="episodeStoryboardGenerating" class="plan-action-hint">正在拆解本集分镜并准备视频镜头，请稍候…</p>
+          <p v-else-if="episodeStoryboardReady" class="plan-action-hint plan-action-hint--ok">本集分镜已就绪；点击下方将为每个分镜生成视频镜头。</p>
           <p v-else-if="episodeStoryboardErr" class="plan-action-hint plan-action-hint--err">{{ episodeStoryboardErr }}</p>
           <p v-else class="plan-action-hint">等待分镜任务…</p>
           <button
             type="button"
             class="btn-plan-prompts"
-            :disabled="!activePlanScript?.id"
+            :disabled="!activePlanScript?.id || !scriptConfirmed"
             @click="videoPromptsOpen = true"
           >
             生成视频提示词
@@ -218,6 +234,10 @@
             <span class="btn-plan-video-ico" aria-hidden="true">✦</span>
             {{ primaryVideoLabel }}
           </button>
+          <div v-if="mediaSubmitLoading && mediaTaskMessage" class="plan-video-progress">
+            <span class="plan-video-progress-text">{{ mediaTaskMessage }}{{ mediaTaskProgress > 0 ? ` ${mediaTaskProgress}%` : '' }}</span>
+            <div class="plan-video-progress-bar" :style="{ width: mediaTaskProgress + '%' }" />
+          </div>
         </div>
       </aside>
     </div>
@@ -270,13 +290,24 @@
       :project="project"
     />
 
+    <!-- 角色图片画廊 -->
+    <el-dialog v-model="charGalleryVisible" :title="charGalleryChar?.name + ' — 角色形象'" width="720px" destroy-on-close append-to-body>
+      <div v-if="charGalleryImages.length" class="char-gallery-grid">
+        <div v-for="(url, idx) in charGalleryImages" :key="idx" class="char-gallery-item">
+          <img :src="url" :alt="`${charGalleryChar?.name} 形象 ${idx + 1}`" />
+          <span v-if="idx === 0" class="char-gallery-tag">主图</span>
+        </div>
+      </div>
+      <el-empty v-else description="暂无角色图片" />
+    </el-dialog>
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { characterApi } from '@/api/character'
 import { projectApi } from '@/api/project'
 import { scriptApi } from '@/api/script'
@@ -308,6 +339,16 @@ const scriptWorkflowPhaseText = ref('正在生成第 1 集剧本…')
 const projectScripts = ref<any[]>([])
 const planCharacters = ref<any[]>([])
 const portraitRefreshing = ref(false)
+/** 角色确认流程 */
+const charactersReady = ref(false)
+const charactersConfirmed = ref(false)
+/** 剧本确认流程 */
+const scriptReady = ref(false)
+const scriptConfirmed = ref(false)
+/** 角色图片画廊 */
+const charGalleryVisible = ref(false)
+const charGalleryChar = ref<any>(null)
+const charGalleryImages = ref<string[]>([])
 const streamError = ref('')
 const scrollRef = ref<HTMLElement | null>(null)
 
@@ -373,14 +414,17 @@ const episodeStoryboardReady = ref(false)
 const episodeStoryboardErr = ref('')
 const hasProjectVideo = ref(false)
 const mediaSubmitLoading = ref(false)
+const mediaTaskProgress = ref(0)
+const mediaTaskMessage = ref('')
 /** 剧集切换或重复调度时递增，用于取消过期的分镜拉取/生成流程 */
 let sbEnsureGeneration = 0
 
 const videoPromptsOpen = ref(false)
 
-const primaryVideoLabel = computed(() => (hasProjectVideo.value ? '查看视频' : '生成视频'))
+const primaryVideoLabel = computed(() => (hasProjectVideo.value ? '查看成片' : '生成分镜视频'))
 
 const primaryVideoDisabled = computed(() => {
+  if (!scriptConfirmed.value) return true
   if (hasProjectVideo.value) return false
   return (
     !episodeScriptBody.value.trim() ||
@@ -413,6 +457,7 @@ watch(activeEpisode, async () => {
   episodeStoryboardReady.value = false
   episodeStoryboardErr.value = ''
   sbEnsureGeneration += 1
+  outlineContent.value = ''
   if (workflowPhase.value === 'plan_ready') {
     try {
       await loadPlanSideData()
@@ -420,6 +465,8 @@ watch(activeEpisode, async () => {
     } catch {
       /* ignore */
     }
+  } else {
+    workflowPhase.value = 'outline'
   }
 })
 
@@ -565,6 +612,22 @@ watch(
   },
 )
 
+// 切换集数时如果已在 plan_ready 状态，需确认后再重新生成分镜
+watch(activeEpisode, async (_newEp, oldEp) => {
+  if (oldEp == null) return // 初始加载不弹
+  if (!showPlanPanel.value || workflowPhase.value !== 'plan_ready') return
+  try {
+    await ElMessageBox.confirm(
+      `切换到第 ${_newEp} 集，需要重新生成分镜，是否继续？`,
+      '切换集数',
+      { confirmButtonText: '生成', cancelButtonText: '稍后', type: 'info' },
+    )
+    void ensureEpisodeStoryboard()
+  } catch {
+    // 用户取消
+  }
+})
+
 async function onPrimaryVideoAction() {
   if (hasProjectVideo.value) {
     router.push({
@@ -575,6 +638,8 @@ async function onPrimaryVideoAction() {
   }
   if (!activePlanScript.value?.id || !episodeStoryboardReady.value) return
   mediaSubmitLoading.value = true
+  mediaTaskProgress.value = 0
+  mediaTaskMessage.value = '正在提交视频生成任务…'
   try {
     const scriptId = Number(activePlanScript.value.id)
     const listRes = await storyboardApi.listByScript(scriptId)
@@ -588,36 +653,52 @@ async function onPrimaryVideoAction() {
       return
     }
 
-    const polls: Promise<unknown>[] = []
+    const dynRes = await videoApi.generateStoryboardVideos(projectId.value, shotIds)
+    const tid = extractTaskId(dynRes)
+    if (!tid) throw new Error('未返回任务 ID')
 
-    try {
-      const imgRes = await videoApi.generateImages(projectId.value, shotIds)
-      const tid = extractTaskId(imgRes)
-      if (tid) polls.push(pollTaskUntilDone(tid))
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (!msg.includes('均已勾选动态')) throw e
+    ElMessage.success('视频生成任务已提交，可在合成页查看进度')
+    mediaTaskMessage.value = '视频生成中，请稍候…'
+
+    // 非阻塞轮询：更新进度但不阻塞 UI
+    const deadline = Date.now() + 45 * 60 * 1000
+    const poll = async () => {
+      if (!mediaSubmitLoading.value) return
+      if (Date.now() > deadline) {
+        mediaSubmitLoading.value = false
+        mediaTaskMessage.value = ''
+        ElMessage.warning('视频生成超时，请到合成页查看进度')
+        return
+      }
+      try {
+        const ax = await taskApi.get(tid)
+        const task = ax.data?.data ?? ax.data
+        mediaTaskProgress.value = Number(task?.progress ?? 0)
+        mediaTaskMessage.value = task?.message || '视频生成中…'
+        if (task?.status === 'SUCCESS') {
+          mediaSubmitLoading.value = false
+          mediaTaskMessage.value = ''
+          await refreshVideoOverview()
+          router.push({
+            path: `/projects/${projectId.value}/immersive/workbench`,
+            query: { episode: String(activeEpisode.value) },
+          })
+          return
+        }
+        if (task?.status === 'FAILED') {
+          mediaSubmitLoading.value = false
+          mediaTaskMessage.value = ''
+          ElMessage.error(task?.message || '视频生成失败')
+          return
+        }
+      } catch { /* ignore poll errors */ }
+      setTimeout(poll, 3000)
     }
-
-    try {
-      const dynRes = await videoApi.generateDynamic(projectId.value, shotIds)
-      const tid = extractTaskId(dynRes)
-      if (tid) polls.push(pollTaskUntilDone(tid))
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (!msg.includes('没有选中的动态镜头')) throw e
-    }
-
-    if (polls.length) await Promise.all(polls)
-
-    router.push({
-      path: `/projects/${projectId.value}/immersive/workbench`,
-      query: { episode: String(activeEpisode.value) },
-    })
+    setTimeout(poll, 3000)
   } catch (e: unknown) {
-    ElMessage.error(e instanceof Error ? e.message : '素材生成失败')
-  } finally {
     mediaSubmitLoading.value = false
+    mediaTaskMessage.value = ''
+    ElMessage.error(e instanceof Error ? e.message : '分镜视频生成失败')
   }
 }
 
@@ -656,6 +737,47 @@ async function triggerCharacterPortraits() {
 
 async function runScriptAndAssetsPipeline() {
   scriptWorkflowLoading.value = true
+  charactersReady.value = false
+  charactersConfirmed.value = false
+  scriptReady.value = false
+  scriptConfirmed.value = false
+  try {
+    // Step 1: 生成角色 + 加载策划信息
+    scriptWorkflowPhaseText.value = '正在生成角色与策划信息…'
+    await loadPlanSideData()
+    workflowPhase.value = 'plan_ready'
+
+    // Step 2: 生成角色形象
+    scriptWorkflowPhaseText.value = '正在生成人物形象…'
+    await triggerCharacterPortraits().catch(() => {
+      ElMessage.warning('部分角色形象生成失败，可在「角色管理」页手动重试')
+    })
+    await refreshCharactersOnly()
+    charactersReady.value = true
+    scriptWorkflowLoading.value = false
+    scriptWorkflowPhaseText.value = ''
+    chatTail.value.push({
+      role: 'ai',
+      text: '角色形象已生成完毕，请在右侧查看角色列表。确认角色无误后，点击下方「确认角色」按钮生成剧本。',
+    })
+  } catch (e: unknown) {
+    workflowPhase.value = 'outline'
+    scriptWorkflowLoading.value = false
+    scriptWorkflowPhaseText.value = ''
+    const msg = e instanceof Error ? e.message : '生成失败'
+    throw new Error(msg)
+  }
+}
+
+/** 用户确认角色后，生成剧本 */
+async function confirmCharacters() {
+  if (charactersConfirmed.value) return
+  charactersConfirmed.value = true
+  chatTail.value.push({ role: 'user', text: '确认角色' })
+  await nextTick()
+  scrollToBottom()
+
+  scriptWorkflowLoading.value = true
   scriptWorkflowPhaseText.value = '正在生成第 1 集剧本…'
   try {
     const genRes = await scriptApi.generate({
@@ -667,22 +789,34 @@ async function runScriptAndAssetsPipeline() {
     const taskId = taskPayload?.id
     if (!taskId) throw new Error('未返回剧本生成任务')
     await pollTaskUntilDone(String(taskId))
-    scriptWorkflowPhaseText.value = '正在加载策划信息…'
     await loadPlanSideData()
-    scriptWorkflowPhaseText.value = '正在生成人物形象…'
-    await triggerCharacterPortraits()
-    workflowPhase.value = 'plan_ready'
+    scriptReady.value = true
+    scriptWorkflowLoading.value = false
+    scriptWorkflowPhaseText.value = ''
     chatTail.value.push({
       role: 'ai',
-      text: '第 1 集剧本与右侧策划信息已就绪；角色形象已提交生成（若较慢可在「角色管理」查看）。打开右侧策划栏将自动拆解本集分镜；分镜就绪后可生成素材并进入镜头工作台。',
+      text: '剧本已生成完毕，请在右侧查看剧本内容。确认无误后，点击下方「确认剧本」按钮保存。',
     })
   } catch (e: unknown) {
-    workflowPhase.value = 'outline'
-    const msg = e instanceof Error ? e.message : '生成失败'
-    throw new Error(msg)
-  } finally {
     scriptWorkflowLoading.value = false
+    scriptWorkflowPhaseText.value = ''
+    charactersConfirmed.value = false
+    const msg = e instanceof Error ? e.message : '剧本生成失败'
+    ElMessage.error(msg)
   }
+}
+
+/** 用户确认剧本后，保存剧本 */
+async function confirmScript() {
+  if (scriptConfirmed.value) return
+  scriptConfirmed.value = true
+  chatTail.value.push({ role: 'user', text: '确认剧本' })
+  await nextTick()
+  scrollToBottom()
+  chatTail.value.push({
+    role: 'ai',
+    text: '剧本已保存。右侧「生成分镜视频」按钮已可点击，可开始生成分镜视频。',
+  })
 }
 
 async function saveOutlineAndAdvance() {
@@ -855,6 +989,26 @@ function noopBell() {
   ElMessage.info('暂无新通知')
 }
 
+function parseImageUrls(raw: any): string[] {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw.filter(Boolean)
+  if (typeof raw === 'string') {
+    try {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) return arr.filter(Boolean)
+    } catch { /* not JSON */ }
+    return raw.split(',').map((s: string) => s.trim()).filter(Boolean)
+  }
+  return []
+}
+
+function openCharGallery(char: any) {
+  charGalleryChar.value = char
+  const urls = parseImageUrls(char.imageUrls)
+  charGalleryImages.value = urls.length > 0 ? urls : (char.imageUrl ? [char.imageUrl] : [])
+  charGalleryVisible.value = true
+}
+
 function noopAttach() {
   ElMessage.info('附件能力敬请期待')
 }
@@ -948,8 +1102,8 @@ onMounted(async () => {
     await refreshVideoOverview()
   }
 
-  if (!outlineContent.value.trim()) {
-    ElMessage.warning('暂无大纲内容：请在「工作台」输入灵感并发起的项目，或在剧本页生成后再进入策划。')
+  if (!outlineContent.value.trim() && workflowPhase.value === 'outline') {
+    // 静默：新项目或从剧集入口进入时无大纲属正常状态，不弹 warning
   }
 })
 </script>
@@ -1089,8 +1243,30 @@ onMounted(async () => {
   box-shadow: var(--shadow-sm);
 }
 .plan-head {
+  position: relative;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
+}
+.plan-close-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.plan-close-btn:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
 }
 .plan-ep-badge {
   display: inline-block;
@@ -1162,6 +1338,13 @@ onMounted(async () => {
   display: flex;
   gap: 10px;
   align-items: flex-start;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+.plan-subject-item:hover {
+  background: var(--bg-muted);
 }
 .plan-subject-avatar {
   width: 44px;
@@ -1185,6 +1368,15 @@ onMounted(async () => {
   height: 100%;
   font-size: 14px;
   color: var(--text-muted);
+}
+.plan-avatar-ph--loading {
+  font-size: 11px;
+  color: var(--primary-light);
+  animation: plan-avatar-pulse 1.5s ease-in-out infinite;
+}
+@keyframes plan-avatar-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 .plan-subject-meta {
   display: flex;
@@ -1298,6 +1490,33 @@ onMounted(async () => {
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
+}
+
+.plan-video-progress {
+  position: relative;
+  margin-top: 8px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+.plan-video-progress-bar {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  border-radius: 10px;
+  transition: width 0.4s ease;
+}
+.plan-video-progress-text {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 11px;
+  color: #fff;
 }
 
 .episode-rail {
@@ -1960,5 +2179,57 @@ onMounted(async () => {
 .btn-ep-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 聊天区确认按钮行 */
+.chat-action-row {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
+}
+.btn-confirm-step {
+  padding: 10px 28px;
+  border-radius: 24px;
+  border: none;
+  background: linear-gradient(135deg, var(--primary), #ec4899);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.3);
+}
+.btn-confirm-step:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+}
+
+/* 角色图片画廊 */
+.char-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+.char-gallery-item {
+  position: relative;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  aspect-ratio: 3 / 4;
+  background: var(--bg-muted);
+}
+.char-gallery-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.char-gallery-tag {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
 }
 </style>

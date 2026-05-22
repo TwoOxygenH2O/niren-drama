@@ -10,9 +10,11 @@ import com.niren.drama.ai.trace.AiTraceSupport;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
@@ -20,8 +22,8 @@ import java.util.UUID;
 @Slf4j
 public class ComfyUiVideoProvider implements VideoAiProvider {
 
-    private static final int MAX_POLL_ATTEMPTS = 180;
-    private static final long POLL_INTERVAL_MS = 3000L;
+    private static final int DEFAULT_MAX_POLL_ATTEMPTS = 180;
+    private static final long DEFAULT_POLL_INTERVAL_MS = 3000L;
 
     private final String apiBaseUrl;
     private final String apiKey;
@@ -29,17 +31,28 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     private final String uploadPath;
     private final String publicBaseUrl;
     private final String extra;
+    private final int maxPollAttempts;
+    private final long pollIntervalMs;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
     public ComfyUiVideoProvider(String baseUrl, String apiKey, String model, String extra,
                                 String uploadPath, String publicBaseUrl) {
+        this(baseUrl, apiKey, model, extra, uploadPath, publicBaseUrl,
+                DEFAULT_MAX_POLL_ATTEMPTS, DEFAULT_POLL_INTERVAL_MS);
+    }
+
+    ComfyUiVideoProvider(String baseUrl, String apiKey, String model, String extra,
+                         String uploadPath, String publicBaseUrl,
+                         int maxPollAttempts, long pollIntervalMs) {
         this.apiBaseUrl = normalizeBaseUrl(baseUrl);
         this.apiKey = apiKey;
         this.model = hasText(model) ? model : "";
         this.extra = extra;
         this.uploadPath = uploadPath;
         this.publicBaseUrl = publicBaseUrl;
+        this.maxPollAttempts = maxPollAttempts;
+        this.pollIntervalMs = pollIntervalMs;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
                 .build();
@@ -233,7 +246,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     }
 
     private ObjectNode buildImageToVideoWorkflow(String imageUrl, String prompt,
-                                                  int width, int height, int frames) {
+                                                  int width, int height, int frames) throws Exception {
         String workflowFile = null;
         if (hasText(extra)) {
             try {
@@ -242,7 +255,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 if (workflowNode.isObject()) {
                     ObjectNode wf = (ObjectNode) workflowNode.deepCopy();
                     injectPromptIntoWorkflow(wf, prompt);
-                    injectImageIntoWorkflow(wf, imageUrl);
+                    injectImageIntoWorkflow(wf, uploadImageIfRemote(imageUrl));
                     return wf;
                 }
                 workflowFile = extraJson.path("workflowFile").asText(null);
@@ -258,12 +271,13 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             template = ComfyUiWorkflowLoader.loadDefaultWorkflow(apiBaseUrl, httpClient, "video_ltx2_i2v_distilled.json", "video");
         }
         if (template != null) {
+            String comfyImage = uploadImageIfRemote(imageUrl);
             ComfyUiWorkflowLoader.injectPrompt(template, prompt);
-            ComfyUiWorkflowLoader.injectImage(template, imageUrl);
+            ComfyUiWorkflowLoader.injectImage(template, comfyImage);
             return template;
         }
 
-        return buildDefaultVideoWorkflow(prompt, imageUrl, width, height, frames);
+        return buildDefaultVideoWorkflow(prompt, uploadImageIfRemote(imageUrl), width, height, frames);
     }
 
     private ObjectNode buildDefaultVideoWorkflow(String prompt, String imageUrl,
@@ -380,10 +394,89 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         }
     }
 
+    private String uploadImageIfRemote(String imageUrl) throws Exception {
+        if (!isHttpUrl(imageUrl)) {
+            return imageUrl;
+        }
+
+        HttpRequest downloadRequest = HttpRequest.newBuilder()
+                .uri(URI.create(imageUrl))
+                .GET()
+                .timeout(Duration.ofSeconds(180))
+                .build();
+        HttpResponse<byte[]> downloadResponse = httpClient.send(downloadRequest, HttpResponse.BodyHandlers.ofByteArray());
+        byte[] imageBytes = downloadResponse.body();
+        if (downloadResponse.statusCode() >= 400 || imageBytes == null || imageBytes.length == 0) {
+            throw new RuntimeException("下载图生视频输入图片失败: HTTP " + downloadResponse.statusCode());
+        }
+
+        String boundary = "----niren-comfyui-" + UUID.randomUUID().toString().replace("-", "");
+        String filename = resolveUploadFilename(imageUrl, downloadResponse.headers().firstValue("Content-Type").orElse(null));
+        byte[] body = buildMultipartBody(boundary, filename, imageBytes);
+        HttpRequest uploadRequest = HttpRequest.newBuilder()
+                .uri(URI.create(apiBaseUrl + "/upload/image"))
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                .timeout(Duration.ofSeconds(180))
+                .build();
+        HttpResponse<String> uploadResponse = httpClient.send(uploadRequest, HttpResponse.BodyHandlers.ofString());
+        if (uploadResponse.statusCode() >= 400) {
+            throw new RuntimeException("上传图片到 ComfyUI 失败: HTTP " + uploadResponse.statusCode() + " - " + uploadResponse.body());
+        }
+
+        JsonNode root = objectMapper.readTree(uploadResponse.body());
+        String name = root.path("name").asText(null);
+        String subfolder = root.path("subfolder").asText("");
+        if (!hasText(name)) {
+            throw new RuntimeException("ComfyUI 上传图片未返回文件名: " + uploadResponse.body());
+        }
+        return hasText(subfolder) ? subfolder + "/" + name : name;
+    }
+
+    private byte[] buildMultipartBody(String boundary, String filename, byte[] imageBytes) {
+        String header = "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"image\"; filename=\"" + filename + "\"\r\n"
+                + "Content-Type: application/octet-stream\r\n\r\n";
+        String footer = "\r\n--" + boundary + "--\r\n";
+        byte[] headerBytes = header.getBytes(StandardCharsets.UTF_8);
+        byte[] footerBytes = footer.getBytes(StandardCharsets.UTF_8);
+        byte[] body = new byte[headerBytes.length + imageBytes.length + footerBytes.length];
+        System.arraycopy(headerBytes, 0, body, 0, headerBytes.length);
+        System.arraycopy(imageBytes, 0, body, headerBytes.length, imageBytes.length);
+        System.arraycopy(footerBytes, 0, body, headerBytes.length + imageBytes.length, footerBytes.length);
+        return body;
+    }
+
+    private String resolveUploadFilename(String imageUrl, String contentType) {
+        String extension = "png";
+        if (hasText(contentType)) {
+            String normalized = contentType.toLowerCase();
+            if (normalized.contains("jpeg") || normalized.contains("jpg")) {
+                extension = "jpg";
+            } else if (normalized.contains("webp")) {
+                extension = "webp";
+            }
+        }
+        try {
+            String path = URI.create(imageUrl).getPath();
+            int slash = path.lastIndexOf('/');
+            String name = slash >= 0 ? path.substring(slash + 1) : path;
+            if (hasText(name) && name.contains(".")) {
+                return URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
+            }
+        } catch (Exception ignored) {
+        }
+        return UUID.randomUUID().toString().replace("-", "") + "." + extension;
+    }
+
+    private boolean isHttpUrl(String value) {
+        return hasText(value) && (value.startsWith("http://") || value.startsWith("https://"));
+    }
+
     private String pollForResult(String promptId) throws Exception {
         String historyUrl = apiBaseUrl + "/history/" + promptId;
-        for (int attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
-            Thread.sleep(POLL_INTERVAL_MS);
+        for (int attempt = 0; attempt < maxPollAttempts; attempt++) {
+            Thread.sleep(pollIntervalMs);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(historyUrl))
@@ -446,7 +539,47 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 }
             }
         }
-        throw new RuntimeException("ComfyUI 视频生成轮询超时 (prompt_id=" + promptId + ")");
+        throw new RuntimeException(resolveTimeoutMessage(promptId));
+    }
+
+    private String resolveTimeoutMessage(String promptId) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(apiBaseUrl + "/queue"))
+                    .GET()
+                    .timeout(Duration.ofSeconds(30))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() >= 400) {
+                return "ComfyUI 视频生成轮询超时 (prompt_id=" + promptId + ")";
+            }
+            JsonNode queue = objectMapper.readTree(response.body());
+            if (containsPromptId(queue.path("queue_running"), promptId)) {
+                return "ComfyUI 视频任务仍在执行中，请稍后到 ComfyUI 查看结果 (prompt_id=" + promptId + ")";
+            }
+            if (containsPromptId(queue.path("queue_pending"), promptId)) {
+                return "ComfyUI 视频任务仍在队列中等待执行，请稍后到 ComfyUI 查看结果 (prompt_id=" + promptId + ")";
+            }
+        } catch (Exception e) {
+            log.debug("查询 ComfyUI 队列状态失败: {}", e.getMessage());
+        }
+        return "ComfyUI 视频生成轮询超时 (prompt_id=" + promptId + ")";
+    }
+
+    private boolean containsPromptId(JsonNode queueItems, String promptId) {
+        if (!queueItems.isArray()) {
+            return false;
+        }
+        for (JsonNode item : queueItems) {
+            if (item.isArray()) {
+                for (JsonNode value : item) {
+                    if (promptId.equals(value.asText(null))) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private int[] parseResolution(String resolution) {

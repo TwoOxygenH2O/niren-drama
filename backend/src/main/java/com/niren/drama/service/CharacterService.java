@@ -18,6 +18,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -139,22 +140,53 @@ public class CharacterService {
         if (task == null) return;
         try {
             task.setStatus("RUNNING");
-            task.setProgress(20);
-            task.setMessage("AI正在生成角色图片...");
+            task.setProgress(10);
+            task.setMessage("AI正在生成角色图片（共3张）...");
             taskRecordMapper.updateById(task);
 
             ImageAiProvider imageProvider = aiProviderFactory.getImageProvider(userId);
             Project project = projectService.getProject(character.getProjectId());
-            String prompt = buildCharacterImagePrompt(character, project);
-            String imageUrl = imageProvider.generateImage(prompt, "1024x1024", "vivid");
+            String basePrompt = buildCharacterImagePrompt(character, project);
 
-            character.setImageUrl(imageUrl);
+            String[] angleHints = {
+                "，半身正面照，直视镜头，自信微笑",
+                "，四分之三侧面照，微微低头，沉思神态",
+                "，半身侧面回眸照，带一丝神秘感"
+            };
+
+            List<String> imageUrls = new ArrayList<>();
+            for (int i = 0; i < 3; i++) {
+                try {
+                    String url = imageProvider.generateImage(basePrompt + angleHints[i], "1024x1024", "vivid");
+                    if (url != null && !url.isBlank()) {
+                        imageUrls.add(url);
+                    }
+                } catch (Exception e) {
+                    log.warn("Character image generation failed for shot {}/3: {}", i + 1, e.getMessage());
+                }
+                task.setProgress(10 + (i + 1) * 25);
+                task.setMessage(String.format("AI正在生成角色图片（%d/3）...", i + 1));
+                taskRecordMapper.updateById(task);
+            }
+
+            if (imageUrls.isEmpty()) {
+                throw new RuntimeException("3张图片全部生成失败");
+            }
+
+            // 主图取第一张，所有图片存入 imageUrls
+            character.setImageUrl(imageUrls.get(0));
+            try {
+                String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(imageUrls);
+                character.setImageUrls(json);
+            } catch (Exception e) {
+                log.warn("Failed to serialize imageUrls", e);
+            }
             characterMapper.updateById(character);
 
             task.setStatus("SUCCESS");
             task.setProgress(100);
-            task.setMessage("角色图片生成完成");
-            task.setResult(imageUrl);
+            task.setMessage(String.format("角色图片生成完成（%d/3张）", imageUrls.size()));
+            task.setResult(String.join(",", imageUrls));
             taskRecordMapper.updateById(task);
 
         } catch (Exception e) {

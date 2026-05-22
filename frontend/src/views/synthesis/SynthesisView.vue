@@ -18,24 +18,17 @@
         </div>
       </div>
       <div class="ov-card">
-        <div class="ov-icon" style="background:rgba(129,140,248,0.12)">✨</div>
-        <div class="ov-body">
-          <div class="ov-value">{{ overview.dynamicRecommended }}</div>
-          <div class="ov-label">推荐动态镜头</div>
-        </div>
-      </div>
-      <div class="ov-card">
         <div class="ov-icon" style="background:rgba(59,130,246,0.12)">🎞️</div>
         <div class="ov-body">
-          <div class="ov-value">{{ overview.dynamicReady }} / {{ overview.dynamicSelected }}</div>
-          <div class="ov-label">已选动态镜头</div>
+          <div class="ov-value">{{ videoReadyCount }} / {{ overview.totalShots }}</div>
+          <div class="ov-label">分镜视频已就绪</div>
         </div>
       </div>
       <div class="ov-card">
         <div class="ov-icon" style="background:rgba(16,185,129,0.1)">🖼️</div>
         <div class="ov-body">
           <div class="ov-value">{{ overview.imagesReady }} / {{ overview.totalShots }}</div>
-          <div class="ov-label">图片已就绪</div>
+          <div class="ov-label">参考图片资产</div>
         </div>
       </div>
       <div class="ov-card">
@@ -59,7 +52,7 @@
     <el-card class="mix-config-card" shadow="never">
       <template #header>
         <div class="copy-check-header">
-          <span>动态主链路与旁白混音策略</span>
+          <span>分镜视频合成与旁白混音策略</span>
         </div>
       </template>
       <div class="mix-config-grid">
@@ -93,29 +86,28 @@
     <div class="action-section">
       <div class="action-title">生成流程</div>
       <div class="action-steps">
-        <div class="action-step">
+        <div class="action-step action-step--asset">
           <div class="step-num">1</div>
           <div class="step-info">
-            <div class="step-name">生成分镜图片</div>
-            <div class="step-desc">AI 为每个分镜生成关键帧画面</div>
-            <div class="step-tip">{{ overview.imagesReady }} / {{ overview.totalShots }} 已就绪</div>
+            <div class="step-name">准备参考资产</div>
+            <div class="step-desc">在角色和场景页维护形象图、场景图等一致性素材</div>
+            <div class="step-tip">当前检测到 {{ overview.imagesReady }} 张旧分镜图，可作为参考资产兼容使用</div>
           </div>
-          <el-button type="primary" :loading="imageLoading" @click="openDialog('images')"
-                     :disabled="imageEligibleShots.length === 0">
-            {{ overview.imagesReady === overview.totalShots && overview.totalShots > 0 ? '重新生成' : '开始生成' }}
+          <el-button @click="$router.push(`/projects/${projectId}/characters`)">
+            去准备资产
           </el-button>
         </div>
 
         <div class="action-step">
           <div class="step-num">2</div>
           <div class="step-info">
-            <div class="step-name">生成动态镜头</div>
-            <div class="step-desc">按镜头提示词调用视频接口生成动态片段</div>
-            <div class="step-tip">{{ overview.dynamicReady }} / {{ overview.dynamicSelected }} 已生成</div>
+            <div class="step-name">生成分镜视频</div>
+            <div class="step-desc">为每个分镜生成视频镜头，并自动带入可用参考资产</div>
+            <div class="step-tip">{{ videoReadyCount }} / {{ overview.totalShots }} 已生成</div>
           </div>
           <el-button type="primary" :loading="dynamicLoading" @click="openDialog('dynamic')"
                      :disabled="dynamicEligibleShots.length === 0">
-            {{ overview.dynamicReady === overview.dynamicSelected && overview.dynamicSelected > 0 ? '重新生成' : '开始生成' }}
+            {{ videoReadyCount === overview.totalShots && overview.totalShots > 0 ? '重新生成' : '开始生成' }}
           </el-button>
         </div>
 
@@ -135,121 +127,97 @@
         <div class="action-step">
           <div class="step-num">4</div>
           <div class="step-info">
-            <div class="step-name">合成视频</div>
-            <div class="step-desc">优先使用动态片段，没有则回退到静态图片</div>
-            <div class="step-tip">支持动态与静态镜头混合输出</div>
+            <div class="step-name">合成成片</div>
+            <div class="step-desc">使用已生成的分镜视频、配音和字幕合成最终短剧</div>
+            <div class="step-tip">{{ videoReadyCount > 0 ? `${videoReadyCount} / ${overview.totalShots} 已生成，可部分合成` : `还缺少 ${missingVideoCount} 个分镜视频` }}</div>
           </div>
           <el-button type="success" :loading="composeLoading" @click="openDialog('compose')"
-                     :disabled="overview.imagesReady === 0">
+                     :disabled="videoReadyCount === 0 || overview.totalShots === 0">
             {{ overview.videoUrl ? '重新合成' : '开始合成' }}
           </el-button>
         </div>
       </div>
     </div>
 
-    <!-- Current task progress -->
-    <div v-if="currentTask" class="task-progress-card">
+    <!-- Active tasks progress -->
+    <div v-for="(task, taskIdx) in activeTasks" :key="task.id" class="task-progress-card" :class="{ 'is-current': task === currentTask }">
       <div class="task-header">
-        <span class="task-type">{{ taskTypeLabel(currentTask.taskType) }}</span>
-        <span :class="`task-status status-${currentTask.status?.toLowerCase()}`">
-          {{ currentTask.status }}
-        </span>
+        <span class="task-type">{{ taskTypeLabel(task.taskType) }}</span>
+        <span :class="`task-status status-${task.status?.toLowerCase()}`">{{ task.status }}</span>
       </div>
       <el-progress
-        :percentage="currentTask.progress || 0"
-        :status="currentTask.status === 'SUCCESS' ? 'success' : currentTask.status === 'FAILED' ? 'exception' : undefined"
+        :percentage="task.progress || 0"
+        :status="task.status === 'SUCCESS' ? 'success' : task.status === 'FAILED' ? 'exception' : undefined"
         :stroke-width="10"
       />
-      <div class="task-message">{{ currentTask.message }}</div>
-      <div v-if="hasTaskDiagnostics" class="task-diagnostics">
-        <div v-if="currentTask.totalElapsedMs != null">
-          总耗时：{{ formatMs(currentTask.totalElapsedMs) }}
+      <div class="task-message">{{ task.message }}</div>
+      <template v-if="task === currentTask">
+        <div v-if="hasTaskDiagnostics" class="task-diagnostics">
+          <div v-if="task.totalElapsedMs != null">总耗时：{{ formatMs(task.totalElapsedMs) }}</div>
+          <div v-if="task.externalApiCallCount != null">
+            外部调用：{{ task.externalApiCallCount }} 次
+            <span v-if="task.externalApiErrorRatio != null">，错误占比 {{ formatRatio(task.externalApiErrorRatio) }}</span>
+          </div>
+          <div v-if="failureDistributionText">失败类型分布：{{ failureDistributionText }}</div>
+          <div v-if="stepDurationText">步骤耗时：{{ stepDurationText }}</div>
+          <div v-if="composeSummaryText">合成摘要：{{ composeSummaryText }}</div>
         </div>
-        <div v-if="currentTask.externalApiCallCount != null">
-          外部调用：{{ currentTask.externalApiCallCount }} 次
-          <span v-if="currentTask.externalApiErrorRatio != null">
-            ，错误占比 {{ formatRatio(currentTask.externalApiErrorRatio) }}
-          </span>
-        </div>
-        <div v-if="failureDistributionText">
-          失败类型分布：{{ failureDistributionText }}
-        </div>
-        <div v-if="stepDurationText">
-          步骤耗时：{{ stepDurationText }}
-        </div>
-        <div v-if="composeSummaryText">
-          合成摘要：{{ composeSummaryText }}
-        </div>
-      </div>
-      <div v-if="taskTrace" class="task-trace-panel">
-        <div class="task-trace-header">
-          <div>
-            <div class="task-trace-title">外部接口调用明细</div>
-            <div class="task-trace-summary">
-              已记录 {{ taskTrace.storedCalls || 0 }} 次调用
-              <span v-if="taskTrace.omittedCalls">，另有 {{ taskTrace.omittedCalls }} 次未展示</span>
+        <div v-if="taskTrace" class="task-trace-panel">
+          <div class="task-trace-header">
+            <div>
+              <div class="task-trace-title">外部接口调用明细</div>
+              <div class="task-trace-summary">
+                已记录 {{ taskTrace.storedCalls || 0 }} 次调用
+                <span v-if="taskTrace.omittedCalls">，另有 {{ taskTrace.omittedCalls }} 次未展示</span>
+              </div>
             </div>
           </div>
-        </div>
-        <div v-if="taskTrace.calls?.length" class="task-trace-list">
-          <div v-for="(call, index) in taskTrace.calls" :key="`${index}-${call.url}`" class="task-trace-item">
-            <div class="task-trace-item-head">
-              <span class="task-trace-index">#{{ Number(index) + 1 }}</span>
-              <span v-if="call.shotNo" class="task-trace-shot">镜头 {{ call.shotNo }}</span>
-              <span class="task-trace-method">{{ call.method }}</span>
-              <span class="task-trace-url">{{ call.url }}</span>
-              <span :class="['task-trace-status', call.success ? 'is-success' : 'is-failed']">
-                {{ call.statusCode || '-' }}
-              </span>
+          <div v-if="taskTrace.calls?.length" class="task-trace-list">
+            <div v-for="(call, index) in taskTrace.calls" :key="`${index}-${call.url}`" class="task-trace-item">
+              <div class="task-trace-item-head">
+                <span class="task-trace-index">#{{ Number(index) + 1 }}</span>
+                <span v-if="call.shotNo" class="task-trace-shot">镜头 {{ call.shotNo }}</span>
+                <span class="task-trace-method">{{ call.method }}</span>
+                <span class="task-trace-url">{{ call.url }}</span>
+                <span :class="['task-trace-status', call.success ? 'is-success' : 'is-failed']">{{ call.statusCode || '-' }}</span>
+              </div>
+              <div class="task-trace-meta">
+                <span>动作：{{ call.action || '-' }}</span>
+                <span v-if="call.provider">服务商：{{ call.provider }}</span>
+                <span v-if="call.responseBytes">响应大小：{{ call.responseBytes }} bytes</span>
+                <span v-if="call.outputUrl">输出：{{ call.outputUrl }}</span>
+              </div>
+              <div v-if="call.requestHeaders" class="task-trace-block">
+                <div class="trace-label">请求头</div><pre>{{ formatTraceBody(call.requestHeaders) }}</pre>
+              </div>
+              <div v-if="call.requestBody" class="task-trace-block">
+                <div class="trace-label">请求参数</div><pre>{{ formatTraceBody(call.requestBody) }}</pre>
+              </div>
+              <div v-if="call.responseBody" class="task-trace-block">
+                <div class="trace-label">响应内容</div><pre>{{ formatTraceBody(call.responseBody) }}</pre>
+              </div>
+              <div v-if="call.error" class="task-trace-error">{{ call.error }}</div>
             </div>
-            <div class="task-trace-meta">
-              <span>动作：{{ call.action || '-' }}</span>
-              <span v-if="call.provider">服务商：{{ call.provider }}</span>
-              <span v-if="call.responseBytes">响应大小：{{ call.responseBytes }} bytes</span>
-              <span v-if="call.outputUrl">输出：{{ call.outputUrl }}</span>
-            </div>
-            <div v-if="call.requestHeaders" class="task-trace-block">
-              <div class="trace-label">请求头</div>
-              <pre>{{ formatTraceBody(call.requestHeaders) }}</pre>
-            </div>
-            <div v-if="call.requestBody" class="task-trace-block">
-              <div class="trace-label">请求参数</div>
-              <pre>{{ formatTraceBody(call.requestBody) }}</pre>
-            </div>
-            <div v-if="call.responseBody" class="task-trace-block">
-              <div class="trace-label">响应内容</div>
-              <pre>{{ formatTraceBody(call.responseBody) }}</pre>
-            </div>
-            <div v-if="call.error" class="task-trace-error">{{ call.error }}</div>
           </div>
-        </div>
-        <div v-if="asyncTaskDetails.length" class="task-async-panel">
-          <div class="task-trace-title">阿里云任务明细</div>
-          <div class="task-async-list">
-            <div v-for="item in asyncTaskDetails" :key="`${item.shotId}-${item.taskId || item.statusUrl}`" class="task-async-item">
-              <div class="task-async-head">
-                <span class="task-trace-shot">镜头 {{ item.shotNo || '-' }}</span>
-                <span v-if="item.provider" class="task-trace-method">{{ item.provider }}</span>
-                <span :class="['task-trace-status', isTaskItemSuccess(item) ? 'is-success' : isTaskItemFailed(item) ? 'is-failed' : '']">
-                  {{ item.taskStatus || item.renderStatus || '-' }}
-                </span>
-              </div>
-              <div class="task-async-field">
-                <span class="trace-label">taskId</span>
-                <span class="task-async-value">{{ item.taskId || '-' }}</span>
-              </div>
-              <div class="task-async-field">
-                <span class="trace-label">statusUrl</span>
-                <span class="task-async-value">{{ item.statusUrl || '-' }}</span>
-              </div>
-              <div v-if="item.videoUrl" class="task-async-field">
-                <span class="trace-label">videoUrl</span>
-                <span class="task-async-value">{{ item.videoUrl }}</span>
+          <div v-if="asyncTaskDetails.length" class="task-async-panel">
+            <div class="task-trace-title">阿里云任务明细</div>
+            <div class="task-async-list">
+              <div v-for="item in asyncTaskDetails" :key="`${item.shotId}-${item.taskId || item.statusUrl}`" class="task-async-item">
+                <div class="task-async-head">
+                  <span class="task-trace-shot">镜头 {{ item.shotNo || '-' }}</span>
+                  <span v-if="item.provider" class="task-trace-method">{{ item.provider }}</span>
+                  <span :class="['task-trace-status', isTaskItemSuccess(item) ? 'is-success' : isTaskItemFailed(item) ? 'is-failed' : '']">
+                    {{ item.taskStatus || item.renderStatus || '-' }}
+                  </span>
+                </div>
+                <div class="task-async-field"><span class="trace-label">taskId</span><span class="task-async-value">{{ item.taskId || '-' }}</span></div>
+                <div class="task-async-field"><span class="trace-label">statusUrl</span><span class="task-async-value">{{ item.statusUrl || '-' }}</span></div>
+                <div v-if="item.videoUrl" class="task-async-field"><span class="trace-label">videoUrl</span><span class="task-async-value">{{ item.videoUrl }}</span></div>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      </template>
     </div>
 
     <!-- Video preview -->
@@ -282,17 +250,19 @@
             <span class="shot-no">#{{ shot.shotNo }}</span>
             <span :class="`shot-status status-${shot.status}`">{{ shotStatusLabel(shot.status) }}</span>
           </div>
-          <div class="shot-image">
-            <img v-if="shot.imageUrl" :src="shot.imageUrl" :alt="`镜头${shot.shotNo}`" />
-            <div v-else class="no-image">🖼️ 待生成</div>
+          <div class="shot-media">
+            <video v-if="shot.videoUrl" :src="shot.videoUrl" controls preload="metadata" />
+            <img v-else-if="shot.imageUrl" :src="shot.imageUrl" :alt="`镜头${shot.shotNo}参考图`" class="legacy-reference-image" />
+            <div v-else class="no-video">🎞️ 待生成分镜视频</div>
           </div>
           <div class="shot-detail">
             <div class="shot-desc" :title="shot.description">{{ truncate(shot.description, 60) }}</div>
             <div class="shot-meta">
               <span v-if="shot.duration">⏱️ {{ shot.duration }}s</span>
-              <span v-if="shot.dynamicSelected" class="dynamic-selected">
-                {{ shot.videoUrl ? '🎞️ 动态已就绪' : '🎞️ 已选动态' }}
+              <span :class="shot.videoUrl ? 'video-ready' : 'video-pending'">
+                {{ shot.videoUrl ? '🎞️ 分镜视频已就绪' : '🎞️ 待生成视频' }}
               </span>
+              <span v-if="shot.imageUrl" class="reference-ready">🖼️ 有参考图</span>
               <span v-if="shot.audioUrl" class="audio-ready">🔊 有配音</span>
               <span v-else class="audio-pending">🔇 无配音</span>
             </div>
@@ -324,11 +294,10 @@
           <el-table-column type="selection" width="55" :selectable="selectableMethod" />
           <el-table-column prop="shotNo" label="镜头号" width="80" />
           <el-table-column prop="description" label="画面描述" min-width="200" show-overflow-tooltip />
-          <el-table-column label="状态 (图/音/动)" width="150" align="center">
+          <el-table-column label="状态 (视频/音频)" width="150" align="center">
             <template #default="{ row }">
-              <span v-if="row.imageUrl" title="图片就绪">🖼️ </span>
+              <span v-if="row.videoUrl" title="分镜视频就绪">🎬 </span>
               <span v-if="row.audioUrl" title="配音就绪">🎵 </span>
-              <span v-if="row.videoUrl" title="动态就绪">🎬 </span>
             </template>
           </el-table-column>
         </el-table>
@@ -354,11 +323,10 @@
               <el-table-column type="selection" width="55" :selectable="selectableMethod" />
               <el-table-column prop="shotNo" label="镜头号" width="80" />
               <el-table-column prop="description" label="画面描述" min-width="200" show-overflow-tooltip />
-              <el-table-column label="状态 (图/音/动)" width="150" align="center">
+              <el-table-column label="状态 (视频/音频)" width="150" align="center">
                 <template #default="{ row }">
-                  <span v-if="row.imageUrl" title="图片就绪">🖼️ </span>
+                  <span v-if="row.videoUrl" title="分镜视频就绪">🎬 </span>
                   <span v-if="row.audioUrl" title="配音就绪">🎵 </span>
-                  <span v-if="row.videoUrl" title="动态就绪">🎬 </span>
                 </template>
               </el-table-column>
             </el-table>
@@ -383,11 +351,10 @@
               <el-table-column type="selection" width="55" :selectable="selectableMethod" />
               <el-table-column prop="shotNo" label="镜头号" width="80" />
               <el-table-column prop="description" label="画面描述" min-width="200" show-overflow-tooltip />
-              <el-table-column label="状态 (图/音/动)" width="150" align="center">
+              <el-table-column label="状态 (视频/音频)" width="150" align="center">
                 <template #default="{ row }">
-                  <span v-if="row.imageUrl" title="图片就绪">🖼️ </span>
+                  <span v-if="row.videoUrl" title="分镜视频就绪">🎬 </span>
                   <span v-if="row.audioUrl" title="配音就绪">🎵 </span>
-                  <span v-if="row.videoUrl" title="动态就绪">🎬 </span>
                 </template>
               </el-table-column>
             </el-table>
@@ -427,8 +394,8 @@ const overview = ref<any>({
   videoUrl: '',
 })
 const shots = ref<any[]>([])
-const currentTask = ref<any>(null)
-const imageLoading = ref(false)
+const activeTasks = ref<any[]>([])
+const currentTask = computed(() => activeTasks.value[0] ?? null)
 const dynamicLoading = ref(false)
 const audioLoading = ref(false)
 const composeLoading = ref(false)
@@ -439,11 +406,11 @@ const composeOptions = ref({
   dialoguePriority: true,
 })
 
-type DialogType = 'images' | 'dynamic' | 'audio' | 'compose'
+type DialogType = 'dynamic' | 'audio' | 'compose'
 type DialogGroup = 'pending' | 'generated'
 
 const showSelectDialog = ref(false)
-const dialogType = ref<DialogType>('images')
+const dialogType = ref<DialogType>('dynamic')
 const expandedDialogGroups = ref<DialogGroup[]>(['pending'])
 const pendingSelectedIds = ref<Array<number | string>>([])
 const generatedSelectedIds = ref<Array<number | string>>([])
@@ -452,6 +419,9 @@ const pendingTableRef = ref<any>(null)
 const generatedTableRef = ref<any>(null)
 const composeTableRef = ref<any>(null)
 const submitLoading = ref(false)
+
+const videoReadyCount = computed(() => shots.value.filter((shot) => !!shot?.videoUrl).length)
+const missingVideoCount = computed(() => Math.max(0, Number(overview.value.totalShots || 0) - videoReadyCount.value))
 
 const selectedShotIds = computed(() => {
   if (dialogType.value === 'compose') {
@@ -485,13 +455,13 @@ const composeSummaryText = computed(() => {
   const payload = parseAnyTaskResult(currentTask.value?.result)
   if (!payload) return ''
   const total = Number(payload.totalShots || 0)
-  const dynamic = Number(payload.dynamicShots || 0)
-  const ratio = Number(payload.dynamicRatio || 0)
+  const videoShots = Number(payload.videoShots ?? payload.dynamicShots ?? 0)
+  const ratio = Number(payload.videoRatio ?? payload.dynamicRatio ?? 0)
   if (total <= 0) return ''
   const narration = payload.globalNarrationEnabled
     ? `旁白轨 ${Number(payload.globalNarrationDurationSeconds || 0).toFixed(1)}s`
     : '无旁白轨'
-  return `动态 ${dynamic}/${total} (${formatRatio(ratio)})，${narration}`
+  return `分镜视频 ${videoShots}/${total} (${formatRatio(ratio)})，${narration}`
 })
 const asyncTaskDetails = computed(() => {
   const items = taskTrace.value?.summary?.asyncTasks
@@ -500,8 +470,7 @@ const asyncTaskDetails = computed(() => {
 
 const dialogTitle = computed(() => {
   switch(dialogType.value) {
-    case 'images': return '选择需要生成图片的分镜'
-    case 'dynamic': return '选择需要生成动态的分镜'
+    case 'dynamic': return '选择需要生成分镜视频的镜头'
     case 'audio': return '选择需要生成配音的分镜'
     case 'compose': return '选择参与合成的分镜'
     default: return '选择分镜'
@@ -510,8 +479,7 @@ const dialogTitle = computed(() => {
 
 const pendingGroupTitle = computed(() => {
   switch (dialogType.value) {
-    case 'images': return '待生成图片'
-    case 'dynamic': return '待生成动态视频'
+    case 'dynamic': return '待生成分镜视频'
     case 'audio': return '待生成配音'
     default: return '待处理分镜'
   }
@@ -519,37 +487,28 @@ const pendingGroupTitle = computed(() => {
 
 const generatedGroupTitle = computed(() => {
   switch (dialogType.value) {
-    case 'images': return '已生成图片'
-    case 'dynamic': return '已生成动态视频'
+    case 'dynamic': return '已生成分镜视频'
     case 'audio': return '已生成配音'
     default: return '已生成内容'
   }
 })
 
-const isImageEligibleShot = (shot: any) => !shot?.dynamicSelected
-
-const isDynamicEligibleShot = (shot: any) => !!shot?.dynamicSelected
+const isDynamicEligibleShot = (shot: any) => !!shot?.videoPrompt || !!shot?.description
 
 const isGeneratedShotForDialog = (shot: any) => {
-  if (dialogType.value === 'images') return !!shot?.imageUrl
   if (dialogType.value === 'dynamic') return !!shot?.videoUrl
   if (dialogType.value === 'audio') return !!shot?.audioUrl
   return false
 }
 
-const imageEligibleShots = computed(() => shots.value.filter((shot) => isImageEligibleShot(shot)))
-
 const dynamicEligibleShots = computed(() => shots.value.filter((shot) => isDynamicEligibleShot(shot)))
 
 const dialogShots = computed(() => {
-  if (dialogType.value === 'images') {
-    return imageEligibleShots.value
-  }
   if (dialogType.value === 'dynamic') {
-    return dynamicEligibleShots.value.filter((shot) => !!shot.videoPrompt || !!shot.description)
+    return dynamicEligibleShots.value
   }
   if (dialogType.value === 'compose') {
-    return shots.value.filter((shot) => !!shot.imageUrl || !!shot.videoUrl)
+    return shots.value.filter((shot) => !!shot.videoUrl)
   }
   return shots.value
 })
@@ -559,9 +518,8 @@ const pendingDialogShots = computed(() => dialogShots.value.filter((shot) => !is
 const generatedDialogShots = computed(() => dialogShots.value.filter((shot) => isGeneratedShotForDialog(shot)))
 
 const selectableMethod = (row: any) => {
-  if (dialogType.value === 'images') return isImageEligibleShot(row)
-  if (dialogType.value === 'dynamic') return isDynamicEligibleShot(row) && (!!row.videoPrompt || !!row.description)
-  if (dialogType.value === 'compose') return !!row.imageUrl || !!row.videoUrl
+  if (dialogType.value === 'dynamic') return isDynamicEligibleShot(row)
+  if (dialogType.value === 'compose') return !!row.videoUrl
   return true
 }
 
@@ -614,38 +572,35 @@ const confirmGenerate = async () => {
   }
 
   const shotIds = [...selectedShotIds.value]
-  showSelectDialog.value = false
+  const currentDialogType = dialogType.value
   submitLoading.value = true
-  
+
   try {
     let res
-    if (dialogType.value === 'images') {
-      imageLoading.value = true
-      res = await videoApi.generateImages(projectId, shotIds)
-      ElMessage.success('分镜图片生成任务已提交')
-    } else if (dialogType.value === 'dynamic') {
+    if (currentDialogType === 'dynamic') {
       dynamicLoading.value = true
-      res = await videoApi.generateDynamic(projectId, shotIds)
-      ElMessage.success('动态镜头生成任务已提交')
-    } else if (dialogType.value === 'audio') {
+      res = await videoApi.generateStoryboardVideos(projectId, shotIds)
+      ElMessage.success('分镜视频生成任务已提交')
+    } else if (currentDialogType === 'audio') {
       audioLoading.value = true
       res = await videoApi.generateAudio(projectId, shotIds)
       ElMessage.success('分镜配音生成任务已提交')
-    } else if (dialogType.value === 'compose') {
+    } else if (currentDialogType === 'compose') {
       composeLoading.value = true
       res = await videoApi.compose(projectId, shotIds, composeOptions.value)
       ElMessage.success('视频合成任务已提交')
     }
+    showSelectDialog.value = false
     if (res && res.data && res.data.data) {
-      currentTask.value = res.data.data
-      startPolling(currentTask.value.id)
+      const newTask = res.data.data
+      activeTasks.value.unshift(newTask)
+      startTaskPolling(newTask.id)
       setTimeout(loadOverview, 2000)
     }
   } catch(e: any) {
      ElMessage.error(e.response?.data?.message || '提交失败')
   } finally {
      submitLoading.value = false
-     imageLoading.value = false
      dynamicLoading.value = false
      audioLoading.value = false
      composeLoading.value = false
@@ -654,10 +609,6 @@ const confirmGenerate = async () => {
 
 const TASK_POLL_INTERVAL_MS = 5000
 const TASK_POLL_EXPIRE_MS = 60 * 60 * 1000
-
-let pollTimer: ReturnType<typeof setTimeout> | null = null
-let pollStartedAt = 0
-let pollInFlight = false
 
 async function loadOverview() {
   try {
@@ -719,80 +670,80 @@ function handleDownload() {
   }, 5000)
 }
 
-function startPolling(taskId: string | number) {
-  stopPolling()
-  pollStartedAt = Date.now()
-  void startPollingCycle(taskId)
+// Per-task poll state: taskId -> { timer, startedAt, inFlight }
+const taskPollState = new Map<string, { timer: ReturnType<typeof setTimeout> | null; startedAt: number; inFlight: boolean }>()
+
+function startTaskPolling(taskId: string | number) {
+  const key = String(taskId)
+  if (taskPollState.has(key)) return
+  taskPollState.set(key, { timer: null, startedAt: Date.now(), inFlight: false })
+  void pollTaskCycle(key)
+}
+
+function stopTaskPolling(key: string) {
+  const state = taskPollState.get(key)
+  if (state?.timer) clearTimeout(state.timer)
+  taskPollState.delete(key)
 }
 
 function stopPolling() {
-  if (pollTimer) {
-    clearTimeout(pollTimer)
-    pollTimer = null
-  }
-  pollInFlight = false
-  pollStartedAt = 0
+  for (const key of taskPollState.keys()) stopTaskPolling(key)
 }
 
-function scheduleNextPoll(taskId: string | number) {
-  if (pollTimer) {
-    clearTimeout(pollTimer)
-  }
-  pollTimer = setTimeout(() => {
-    void startPollingCycle(taskId)
-  }, TASK_POLL_INTERVAL_MS)
-}
-
-async function startPollingCycle(taskId: string | number) {
-  if (pollInFlight) {
-    scheduleNextPoll(taskId)
-    return
-  }
-  if (Date.now() - pollStartedAt >= TASK_POLL_EXPIRE_MS) {
-    stopPolling()
+async function pollTaskCycle(key: string) {
+  const state = taskPollState.get(key)
+  if (!state || state.inFlight) return
+  if (Date.now() - state.startedAt >= TASK_POLL_EXPIRE_MS) {
+    stopTaskPolling(key)
     ElMessage.error('任务轮询已超过 1 小时，请稍后刷新页面查看最新状态')
     return
   }
-
-  pollInFlight = true
+  state.inFlight = true
   try {
-    const res = await taskApi.get(taskId)
-    currentTask.value = res.data.data
-    if (currentTask.value.status === 'SUCCESS') {
-      stopPolling()
-      ElMessage.success(currentTask.value.message || '任务完成！')
+    const res = await taskApi.get(key)
+    const updated = res.data.data
+    const idx = activeTasks.value.findIndex((t) => String(t.id) === key)
+    if (idx !== -1) activeTasks.value[idx] = updated
+    if (updated.status === 'SUCCESS') {
+      stopTaskPolling(key)
+      ElMessage.success(updated.message || '任务完成！')
       await loadOverview()
       await loadShots()
-    } else if (currentTask.value.status === 'FAILED') {
-      stopPolling()
-      ElMessage.error(currentTask.value.message || '任务失败')
+    } else if (updated.status === 'FAILED') {
+      stopTaskPolling(key)
+      ElMessage.error(updated.message || '任务失败')
     } else {
-      scheduleNextPoll(taskId)
+      state.inFlight = false
+      state.timer = setTimeout(() => void pollTaskCycle(key), TASK_POLL_INTERVAL_MS)
+      return
     }
   } catch (e: any) {
     console.error('Poll error:', e)
-    scheduleNextPoll(taskId)
-  } finally {
-    pollInFlight = false
+    if (taskPollState.has(key)) {
+      state.inFlight = false
+      state.timer = setTimeout(() => void pollTaskCycle(key), TASK_POLL_INTERVAL_MS)
+      return
+    }
   }
+  state.inFlight = false
 }
 
 const taskTypeLabel = (t: string) => ({
-  IMAGE_GEN: '🖼️ 分镜图片生成',
-  DYNAMIC_VIDEO_GEN: '🎞️ 动态镜头生成',
+  IMAGE_GEN: '🖼️ 参考资产生成',
+  DYNAMIC_VIDEO_GEN: '🎞️ 分镜视频生成',
   AUDIO_GEN: '🎙️ 配音生成',
   VIDEO_COMPOSE: '🎬 视频合成',
 }[t] || t)
 
 const shotStatusLabel = (s: string) => ({
   draft: '待处理',
-  image_generated: '图片就绪',
-  video_submitted: '动态任务已提交',
-  video_polling: '动态生成中',
-  video_generated: '动态片段就绪',
+  image_generated: '参考图就绪',
+  video_submitted: '分镜视频任务已提交',
+  video_polling: '分镜视频生成中',
+  video_generated: '分镜视频就绪',
   audio_generated: '配音就绪',
-  image_failed: '图片失败',
-  video_failed: '动态失败',
+  image_failed: '参考图失败',
+  video_failed: '分镜视频失败',
   audio_failed: '配音失败',
   completed: '已完成',
 }[s] || s)
@@ -864,13 +815,15 @@ function isTaskItemFailed(item: any) {
 
 onMounted(async () => {
   await Promise.all([loadOverview(), loadShots()])
-  // Check for ongoing tasks
   try {
-    const res = await videoApi.getStatus(projectId)
-    const task = res.data.data
-    if (task && (task.status === 'PENDING' || task.status === 'RUNNING')) {
-      currentTask.value = task
-      startPolling(task.id)
+    const res = await taskApi.listByProject(projectId)
+    const tasks = res.data.data || []
+    const running = tasks.filter((t: any) => t.status === 'PENDING' || t.status === 'RUNNING')
+    if (running.length > 0) {
+      activeTasks.value = running
+      for (const task of running) {
+        startTaskPolling(task.id)
+      }
     }
   } catch (e: any) {
     console.error('Failed to check task status:', e)
@@ -1004,6 +957,9 @@ onUnmounted(() => {
   font-weight: 700;
   flex-shrink: 0;
 }
+.action-step--asset {
+  border: 1px dashed var(--border);
+}
 .step-info { flex: 1; }
 .step-name {
   font-size: 14px;
@@ -1029,6 +985,13 @@ onUnmounted(() => {
   margin-bottom: 24px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
+  opacity: 0.7;
+  transition: opacity 0.2s, border-color 0.2s;
+}
+.task-progress-card.is-current {
+  opacity: 1;
+  border-color: var(--primary-light);
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--primary-light);
 }
 .task-header {
   display: flex;
@@ -1047,10 +1010,10 @@ onUnmounted(() => {
   padding: 2px 10px;
   border-radius: var(--radius-md);
 }
-.task-status.status-pending { background: #fef3c7; color: #92400e; }
-.task-status.status-running { background: #dbeafe; color: #1e40af; }
-.task-status.status-success { background: #d1fae5; color: #065f46; }
-.task-status.status-failed { background: #fee2e2; color: #991b1b; }
+.task-status.status-pending { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+.task-status.status-running { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+.task-status.status-success { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+.task-status.status-failed { background: rgba(239, 68, 68, 0.15); color: #f87171; }
 .task-message {
   margin-top: 8px;
   font-size: 13px;
@@ -1159,8 +1122,8 @@ onUnmounted(() => {
   margin-top: 10px;
   padding: 10px;
   border-radius: var(--radius-sm);
-  background: #fef2f2;
-  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
   font-size: 12px;
   white-space: pre-wrap;
 }
@@ -1240,7 +1203,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 5px;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--el-color-warning);
+  font-weight: 600;
 }
 
 /* Shots section */
@@ -1290,16 +1254,17 @@ onUnmounted(() => {
   padding: 1px 8px;
   border-radius: var(--radius-sm);
 }
-.shot-status.status-draft { background: #f3f4f6; color: #6b7280; }
-.shot-status.status-image_generated { background: #dbeafe; color: #1e40af; }
-.shot-status.status-video_generated { background: #ede9fe; color: #6d28d9; }
-.shot-status.status-audio_generated { background: #fef3c7; color: #92400e; }
-.shot-status.status-image_failed { background: #fee2e2; color: #991b1b; }
-.shot-status.status-video_failed { background: #fee2e2; color: #991b1b; }
-.shot-status.status-audio_failed { background: #fee2e2; color: #991b1b; }
-.shot-status.status-completed { background: #d1fae5; color: #065f46; }
+.shot-status.status-draft { background: var(--bg-muted); color: var(--text-muted); }
+.shot-status.status-image_generated { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+.shot-status.status-video_generated { background: var(--primary-glow); color: var(--primary-light); }
+.shot-status.status-audio_generated { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+.shot-status.status-image_failed { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+.shot-status.status-video_failed { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+.shot-status.status-audio_failed { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+.shot-status.status-completed { background: rgba(16, 185, 129, 0.15); color: #34d399; }
 
-.shot-image {
+.shot-media {
+  position: relative;
   aspect-ratio: 9/16;
   background: var(--bg-muted);
   display: flex;
@@ -1307,13 +1272,19 @@ onUnmounted(() => {
   justify-content: center;
   overflow: hidden;
 }
-.shot-image img {
+.shot-media video,
+.shot-media img.legacy-reference-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-.no-image {
-  font-size: 24px;
+.legacy-reference-image {
+  opacity: 0.68;
+}
+.no-video {
+  padding: 14px;
+  text-align: center;
+  font-size: 13px;
   color: var(--text-muted);
 }
 .shot-detail {
@@ -1332,7 +1303,9 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--text-muted);
 }
-.dynamic-selected { color: var(--secondary); }
+.video-ready { color: var(--secondary); }
+.video-pending { color: var(--text-muted); }
+.reference-ready { color: var(--color-success); }
 .audio-ready { color: var(--color-success); }
 .audio-pending { color: var(--text-muted); }
 
@@ -1383,9 +1356,9 @@ onUnmounted(() => {
   padding: 2px 10px;
   border-radius: var(--radius-md);
 }
-.status-draft { background: #f3f4f6; color: #6b7280; }
-.status-generating { background: #dbeafe; color: #1e40af; }
-.status-completed { background: #d1fae5; color: #065f46; }
-.status-failed { background: #fee2e2; color: #991b1b; }
+.status-draft { background: var(--bg-muted); color: var(--text-muted); }
+.status-generating { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+.status-completed { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+.status-failed { background: rgba(239, 68, 68, 0.15); color: #f87171; }
 </style>
     

@@ -212,7 +212,6 @@ async function onOpen() {
 
 <style>
 .vp-export-dialog.el-dialog {
-  --el-dialog-bg-color: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }

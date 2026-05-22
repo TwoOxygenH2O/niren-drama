@@ -8,7 +8,8 @@
       <template #header><b>AI 生成分镜</b></template>
       <el-form :model="genForm" inline>
         <el-form-item label="选择剧本">
-          <el-select v-model="genForm.scriptId" placeholder="请选择剧本" style="width: 260px">
+          <el-select v-model="genForm.scriptId" placeholder="请选择剧本" style="width: 260px"
+          @change="loadStoryboards()">
             <el-option
               v-for="script in scripts"
               :key="script.id"
@@ -29,12 +30,12 @@
     <el-card v-if="storyboards.length" class="recommend-card">
       <div class="recommend-header">
         <div>
-          <div class="recommend-title">动态镜头推荐</div>
-          <div class="recommend-sub">系统会先给出建议，你可以决定哪些镜头用动态片段替代静态图片。</div>
+          <div class="recommend-title">视频镜头规划</div>
+          <div class="recommend-sub">每个分镜都会生成视频，系统建议仅用于提示运动强度和生成档位，不再作为是否生成视频的开关。</div>
         </div>
         <div class="recommend-stats">
-          <span>推荐 {{ recommendedCount }}</span>
-          <span>已选择 {{ selectedCount }}</span>
+          <span>建议高运动 {{ recommendedCount }}</span>
+          <span>已设视频模式 {{ selectedCount }}</span>
         </div>
       </div>
 
@@ -62,10 +63,10 @@
           active-text="仅当前剧本"
         />
         <el-button size="small" @click="applyRecommendations" :loading="selectionLoading" :disabled="recommendedCount === 0">
-          应用推荐
+          标记高运动镜头
         </el-button>
         <el-button size="small" @click="clearDynamicSelection" :loading="selectionLoading" :disabled="selectedCount === 0">
-          清空动态选择
+          清空手动标记
         </el-button>
         <el-button size="small" @click="applyDerivedTexts" :loading="selectionLoading" :disabled="!storyboards.length">
           一键应用派生文案
@@ -86,11 +87,12 @@
         class="shot-card"
         :class="{ recommended: !!shot.dynamicRecommended, selected: !!shot.dynamicSelected }"
       >
-        <div class="shot-image">
-          <img v-if="shot.imageUrl" :src="shot.imageUrl" alt="shot" />
+        <div class="shot-media">
+          <video v-if="shot.videoUrl" :src="shot.videoUrl" controls preload="metadata" />
+          <img v-else-if="shot.imageUrl" :src="shot.imageUrl" alt="reference" />
           <div v-else class="shot-placeholder">
             <el-icon size="32" color="#a0aec0"><Picture /></el-icon>
-            <div class="shot-no">镜头 {{ shot.shotNo }}</div>
+            <div class="shot-no">镜头 {{ shot.shotNo }} 待生成视频</div>
           </div>
         </div>
         <div class="shot-info">
@@ -106,7 +108,11 @@
           <div v-if="shot.narration" class="shot-narration">
             <el-icon size="12"><Reading /></el-icon> {{ shot.narration }}
           </div>
-          <div class="shot-text-panel">
+          <div class="shot-text-toggle" @click="shot._textExpanded = !shot._textExpanded">
+            <el-icon><ArrowDown v-if="shot._textExpanded" /><ArrowRight v-else /></el-icon>
+            <span>字幕与配音编辑</span>
+          </div>
+          <div v-if="shot._textExpanded" class="shot-text-panel">
             <div class="text-field">
               <div class="text-field-head">
                 <span>上屏字幕</span>
@@ -160,21 +166,21 @@
           <div class="dynamic-card">
             <div class="dynamic-top">
               <div class="dynamic-labels">
-                <span v-if="shot.dynamicRecommended" class="dynamic-badge recommended">推荐动态</span>
-                <span v-if="shot.dynamicSelected" class="dynamic-badge selected">已选动态</span>
+                <span v-if="shot.dynamicRecommended" class="dynamic-badge recommended">建议高运动</span>
+                <span v-if="shot.dynamicSelected" class="dynamic-badge selected">已设视频模式</span>
                 <span class="dynamic-badge">{{ motionTierLabel(shot.motionTier) }}</span>
                 <span class="dynamic-score">{{ shot.dynamicScore || 0 }} 分</span>
               </div>
               <span class="dynamic-motion">{{ motionLevelLabel(shot.motionLevel) }}</span>
             </div>
 
-            <div class="dynamic-reason">{{ shot.dynamicReason || '当前镜头更适合保留为静态图片' }}</div>
-            <div class="dynamic-reason subtle">{{ shot.motionTierReason || '按镜头语义自动分配动效档位' }}</div>
+            <div class="dynamic-reason">{{ shot.dynamicReason || '当前镜头按默认视频镜头处理' }}</div>
+            <div class="dynamic-reason subtle">{{ shot.motionTierReason || '按镜头语义自动分配视频运动档位' }}</div>
 
             <div class="dynamic-toggle-row">
               <div>
-                <div class="dynamic-toggle-title">用动态镜头代替图片</div>
-                <div class="dynamic-toggle-sub">将基于关键帧生成独立动态片段</div>
+                <div class="dynamic-toggle-title">标记为高运动视频镜头</div>
+                <div class="dynamic-toggle-sub">用于影响运动档位和生成策略，所有分镜仍会生成视频</div>
               </div>
               <el-switch
                 :model-value="!!shot.dynamicSelected"
@@ -187,7 +193,8 @@
       </div>
     </div>
 
-    <el-empty v-else description="暂无分镜，请先生成剧本再拆解分镜" />
+    <el-empty v-else-if="!genForm.scriptId" description="请先选择剧本" />
+    <el-empty v-else description="该剧本暂无分镜，点击「AI 拆解分镜」生成" />
 
     <AiPreviewDialog
       v-model="previewDialog.visible"
@@ -238,7 +245,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AiPreviewDialog from '@/components/AiPreviewDialog.vue'
@@ -258,6 +265,7 @@ const storyboards = ref<any[]>([])
 const selectionLoading = ref(false)
 const updatingIds = ref(new Set<number>())
 const genForm = ref({ scriptId: '' })
+let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 const previewDialog = ref({
   visible: false,
@@ -309,8 +317,8 @@ const shotStatusLabel = (status: string) => ({
   completed: '已完成',
 }[status] || status)
 
-const motionLevelLabel = (level: string) => ({ low: '轻动态', medium: '中动态', high: '强动态' }[level] || '轻动态')
-const motionTierLabel = (tier: string) => ({ A: 'A档 真i2v', B: 'B档 轻动态', C: 'C档 静帧' }[(tier || 'C').toUpperCase()] || 'C档 静帧')
+const motionLevelLabel = (level: string) => ({ low: '轻运动', medium: '中运动', high: '强运动' }[level] || '轻运动')
+const motionTierLabel = (tier: string) => ({ A: 'A档 视频生成', B: 'B档 轻运动', C: 'C档 基础视频' }[(tier || 'C').toUpperCase()] || 'C档 基础视频')
 
 function resetPreviewDialog() {
   previewDialog.value.visible = false
@@ -407,12 +415,32 @@ function extractStoryboardPreviewErrorData(error: any): StoryboardPreviewErrorDa
 }
 
 async function loadStoryboards() {
-  const res = await storyboardApi.listByProject(projectId as string)
-  storyboards.value = res.data.data || []
-  for (const s of storyboards.value) {
-    s.userLockedSubtitle = !!s.userLockedSubtitle
-    s.userLockedTts = !!s.userLockedTts
+  const scriptId = genForm.value.scriptId
+  let res
+  if (scriptId) {
+    try {
+      res = await storyboardApi.listByScript(scriptId as string)
+    } catch {
+      // 按剧本查询失败时降级为按项目查询
+      res = await storyboardApi.listByProject(projectId as string)
+    }
+  } else {
+    res = await storyboardApi.listByProject(projectId as string)
   }
+  const incoming = res.data.data || []
+  // 自动刷新时保留正在编辑的字段，避免覆盖用户输入
+  const editingIds = new Set(
+    storyboards.value
+      .filter((s: any) => textSaveLoadingId.value === s.id)
+      .map((s: any) => s.id)
+  )
+  storyboards.value = incoming.map((s: any) => {
+    if (editingIds.has(s.id)) {
+      const existing = storyboards.value.find((e: any) => e.id === s.id)
+      return existing ?? s
+    }
+    return { ...s, userLockedSubtitle: !!s.userLockedSubtitle, userLockedTts: !!s.userLockedTts }
+  })
 }
 
 const textSaveLoadingId = ref<string | number | null>(null)
@@ -456,7 +484,7 @@ async function handleDynamicToggle(shot: any, dynamicSelected: boolean | string 
   } catch {
     shot.dynamicSelected = previous
     shot.renderMode = previous ? 'video' : 'image'
-    ElMessage.error('更新动态镜头选择失败')
+    ElMessage.error('更新视频镜头标记失败')
   } finally {
     const nextIds = new Set(updatingIds.value)
     nextIds.delete(shot.id)
@@ -485,10 +513,10 @@ async function applyRecommendations() {
       storyboardApi.update(shot.id, { dynamicSelected: true, renderMode: 'video' }),
     ))
     await loadStoryboards()
-    ElMessage.success(`已应用 ${targets.length} 个动态镜头推荐`)
+    ElMessage.success(`已标记 ${targets.length} 个高运动视频镜头`)
   } catch {
     await loadStoryboards()
-    ElMessage.error('批量应用动态镜头推荐失败')
+    ElMessage.error('批量标记高运动视频镜头失败')
   } finally {
     selectionLoading.value = false
   }
@@ -506,10 +534,10 @@ async function clearDynamicSelection() {
       storyboardApi.update(shot.id, { dynamicSelected: false, renderMode: 'image' }),
     ))
     await loadStoryboards()
-    ElMessage.success('已清空动态镜头选择')
+    ElMessage.success('已清空视频镜头手动标记')
   } catch {
     await loadStoryboards()
-    ElMessage.error('清空动态镜头选择失败')
+    ElMessage.error('清空视频镜头标记失败')
   } finally {
     selectionLoading.value = false
   }
@@ -558,7 +586,20 @@ async function clearTextOverrides() {
 onMounted(async () => {
   const res = await scriptApi.listByProject(projectId as string)
   scripts.value = res.data.data || []
+  if (scripts.value.length > 0) {
+    genForm.value.scriptId = String(scripts.value[0].id)
+  }
   await loadStoryboards()
+  autoRefreshTimer = setInterval(async () => {
+    const hasInProgress = storyboards.value.some((s: any) =>
+      s.status === 'video_submitted' || s.status === 'video_polling'
+    )
+    if (hasInProgress) await loadStoryboards()
+  }, 5000)
+})
+
+onUnmounted(() => {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer)
 })
 </script>
 
@@ -644,6 +685,7 @@ onMounted(async () => {
   margin-top: 14px;
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .storyboard-grid {
@@ -653,7 +695,7 @@ onMounted(async () => {
 }
 
 .shot-card {
-  background: #fff;
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 16px;
   overflow: hidden;
@@ -669,7 +711,7 @@ onMounted(async () => {
   box-shadow: 0 10px 24px rgba(99, 102, 241, 0.14);
 }
 
-.shot-image {
+.shot-media {
   height: 240px;
   background: var(--bg-muted);
   display: flex;
@@ -677,7 +719,8 @@ onMounted(async () => {
   justify-content: center;
 }
 
-.shot-image img {
+.shot-media img,
+.shot-media video {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -737,9 +780,22 @@ onMounted(async () => {
   align-items: flex-start;
 }
 
+.shot-text-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.shot-text-toggle:hover { color: var(--primary-light); }
+
 .shot-text-panel {
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 4px;
+  padding-top: 10px;
   border-top: 1px dashed var(--border);
 }
 .text-field { margin-bottom: 10px; }
@@ -790,9 +846,9 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.dynamic-badge.recommended { background: #dbeafe; color: #2563eb; }
-.dynamic-badge.selected { background: #ede9fe; color: var(--secondary); }
-.dynamic-score { background: #ecfccb; color: #4d7c0f; }
+.dynamic-badge.recommended { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+.dynamic-badge.selected { background: var(--primary-glow); color: var(--secondary); }
+.dynamic-score { background: rgba(132, 204, 22, 0.15); color: #84cc16; }
 .dynamic-motion { background: var(--bg-muted); color: var(--text-secondary); }
 
 .dynamic-reason {

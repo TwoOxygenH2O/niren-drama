@@ -7,6 +7,7 @@ import com.niren.drama.entity.AiConfig;
 
 import com.niren.drama.service.AiConfigService;
 import com.niren.drama.service.AiImageDebugService;
+import com.niren.drama.service.AiVideoDebugService;
 import com.niren.drama.common.CurrentUserHelper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,6 +30,7 @@ public class AiConfigController {
 
     private final AiConfigService aiConfigService;
     private final AiImageDebugService aiImageDebugService;
+    private final AiVideoDebugService aiVideoDebugService;
     private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "获取我的AI配置列表")
@@ -83,7 +85,21 @@ public class AiConfigController {
         return Result.success(aiImageDebugService.generateAndStore(userId, prompt, size));
     }
 
-    @Operation(summary = "获取 ComfyUI 可用工作流模板列表")
+    @Operation(summary = "调试图生视频：输入图片 URL 和提示词生成视频")
+    @PostMapping("/debug/generate-image-to-video")
+    public Result<Map<String, Object>> debugGenerateImageToVideo(@RequestBody(required = false) Map<String, Object> body,
+                                                                 @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        String imageUrl = body != null ? stringValue(body.get("imageUrl")) : null;
+        String prompt = body != null ? stringValue(body.get("prompt")) : null;
+        Integer duration = body != null ? intValue(body.get("duration")) : null;
+        String resolution = body != null ? stringValue(body.get("resolution")) : null;
+        String quality = body != null ? stringValue(body.get("quality")) : null;
+        Boolean withSound = body != null ? boolValue(body.get("withSound")) : null;
+        return Result.success(aiVideoDebugService.generateImageToVideo(userId, imageUrl, prompt, duration, resolution, quality, withSound));
+    }
+
+    @Operation(summary = "获取 ComfyUI 当前用户工作流列表")
     @GetMapping("/comfyui/workflows")
     public Result<List<String>> listComfyUiWorkflows(@AuthenticationPrincipal UserDetails userDetails) {
         Long userId = getUserId(userDetails);
@@ -120,6 +136,30 @@ public class AiConfigController {
                 ? config.getBaseUrl() : "http://localhost:8188";
         String apiKey = (config != null) ? config.getApiKey() : "";
         return new String[]{baseUrl, apiKey};
+    }
+
+    private String stringValue(Object value) {
+        return value != null ? String.valueOf(value) : null;
+    }
+
+    private Integer intValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            return Integer.parseInt(text);
+        }
+        return null;
+    }
+
+    private Boolean boolValue(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            return Boolean.parseBoolean(text);
+        }
+        return null;
     }
 
     private Long getUserId(UserDetails userDetails) {

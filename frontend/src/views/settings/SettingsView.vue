@@ -76,6 +76,79 @@
             <p class="debug-url">{{ imageDebugResultUrl }}</p>
           </div>
         </div>
+
+        <div class="debug-card">
+          <div class="debug-header">
+            <div>
+              <h3 class="debug-title">图生视频 API 调试</h3>
+              <p class="debug-desc">使用当前默认视频配置，将图片 URL 和运动提示词提交到图生视频工作流</p>
+            </div>
+          </div>
+
+          <div class="debug-form">
+            <div class="debug-field">
+              <label class="debug-label">图片 URL</label>
+              <div class="debug-inline-input">
+                <el-input v-model="imageToVideoImageUrl" placeholder="输入可访问的图片 URL，或先生成一张图片后点击右侧按钮" />
+                <el-button :disabled="!imageDebugResultUrl" @click="useGeneratedImageForVideo">使用上方图片</el-button>
+              </div>
+            </div>
+            <div class="debug-field">
+              <label class="debug-label">视频提示词</label>
+              <el-input
+                v-model="imageToVideoPrompt"
+                type="textarea"
+                :rows="3"
+                placeholder="描述镜头运动和画面变化，例如：镜头缓慢推进，水面微微荡漾，人物轻轻回头"
+                maxlength="2000"
+                show-word-limit
+              />
+            </div>
+            <div class="debug-row">
+              <div class="debug-field">
+                <label class="debug-label">时长</label>
+                <el-select v-model="imageToVideoDuration" style="width: 140px">
+                  <el-option label="5 秒" :value="5" />
+                  <el-option label="8 秒" :value="8" />
+                  <el-option label="10 秒" :value="10" />
+                </el-select>
+              </div>
+              <div class="debug-field">
+                <label class="debug-label">分辨率</label>
+                <el-select v-model="imageToVideoResolution" style="width: 160px">
+                  <el-option label="720×1280（竖屏）" value="720x1280" />
+                  <el-option label="1024×576（横屏）" value="1024x576" />
+                  <el-option label="1024×1024（方形）" value="1024x1024" />
+                </el-select>
+              </div>
+              <div class="debug-field">
+                <label class="debug-label">质量</label>
+                <el-select v-model="imageToVideoQuality" style="width: 140px">
+                  <el-option label="标准" value="standard" />
+                  <el-option label="高质量" value="high" />
+                </el-select>
+              </div>
+              <div class="debug-field debug-switch-field">
+                <label class="debug-label">声音</label>
+                <el-switch v-model="imageToVideoWithSound" active-text="带声音" inactive-text="无声音" />
+              </div>
+              <el-button type="primary" :loading="imageToVideoLoading" @click="runImageToVideoDebug">
+                生成视频
+              </el-button>
+            </div>
+          </div>
+
+          <p v-if="imageToVideoError" class="debug-error">{{ imageToVideoError }}</p>
+
+          <div v-if="imageToVideoResultUrl" class="debug-result">
+            <div class="debug-result-head">
+              <span>视频预览</span>
+              <el-button text type="primary" size="small" @click="copyImageToVideoUrl">复制 URL</el-button>
+            </div>
+            <video :src="imageToVideoResultUrl" class="debug-video" controls playsinline />
+            <p class="debug-url">{{ imageToVideoResultUrl }}</p>
+          </div>
+        </div>
       </section>
 
       <!-- Config List -->
@@ -198,20 +271,20 @@
             </el-input>
           </el-form-item>
 
-          <el-form-item label="API Key" :required="form.provider !== 'comfyui'">
+          <el-form-item v-if="form.provider !== 'comfyui'" label="API Key" required>
             <el-input
               v-model="form.apiKey"
               type="password"
-              :placeholder="form.provider === 'comfyui' ? '本地 ComfyUI 无需 API Key' : '输入 API 密钥'"
+              placeholder="输入 API 密钥"
               show-password
             />
             <p class="form-hint">
               <el-icon><Lock /></el-icon>
-              {{ form.provider === 'comfyui' ? '本地部署通常不需要 API Key' : '密钥加密存储，不会对外暴露' }}
+              密钥加密存储，不会对外暴露
             </p>
           </el-form-item>
 
-          <el-form-item label="模型">
+          <el-form-item v-if="form.provider !== 'comfyui'" label="模型">
             <el-select
               v-model="form.model"
               filterable
@@ -284,6 +357,17 @@ const imageDebugLoading = ref(false)
 const imageDebugResultUrl = ref('')
 const imageDebugProviderUrl = ref('')
 const imageDebugError = ref('')
+
+const imageToVideoImageUrl = ref('')
+const imageToVideoPrompt = ref('镜头缓慢推进，画面有轻微动态，电影感光影')
+const imageToVideoDuration = ref(5)
+const imageToVideoResolution = ref('720x1280')
+const imageToVideoQuality = ref('standard')
+const imageToVideoWithSound = ref(false)
+const imageToVideoLoading = ref(false)
+const imageToVideoResultUrl = ref('')
+const imageToVideoProviderUrl = ref('')
+const imageToVideoError = ref('')
 
 const comfyuiWorkflowList = ref<string[]>([])
 const comfyuiWorkflowLoading = ref(false)
@@ -405,10 +489,6 @@ function resolveProviderDefaultUrl(provider: string, configType: string): string
   if (!defaults) return ''
   if (typeof defaults === 'string') return defaults
   return defaults[configType] || ''
-}
-
-function getProviderDefaultUrl(provider: string): string {
-  return resolveProviderDefaultUrl(provider, form.value.configType)
 }
 
 function getModelPlaceholder(): string {
@@ -575,6 +655,41 @@ async function copyImageDebugUrl() {
   catch { ElMessage.warning('复制失败') }
 }
 
+function useGeneratedImageForVideo() {
+  if (!imageDebugResultUrl.value) return
+  imageToVideoImageUrl.value = imageDebugResultUrl.value
+}
+
+async function runImageToVideoDebug() {
+  if (!imageToVideoImageUrl.value.trim()) return ElMessage.warning('请输入图片 URL')
+  imageToVideoLoading.value = true
+  imageToVideoError.value = ''
+  imageToVideoResultUrl.value = ''
+  imageToVideoProviderUrl.value = ''
+  try {
+    const res = await aiConfigApi.debugGenerateImageToVideo({
+      imageUrl: imageToVideoImageUrl.value.trim(),
+      prompt: imageToVideoPrompt.value.trim(),
+      duration: imageToVideoDuration.value,
+      resolution: imageToVideoResolution.value,
+      quality: imageToVideoQuality.value,
+      withSound: imageToVideoWithSound.value,
+    })
+    const d = (res.data as any)?.data || {}
+    imageToVideoResultUrl.value = d.videoUrl || ''
+    imageToVideoProviderUrl.value = d.providerUrl || ''
+    if (!imageToVideoResultUrl.value) { imageToVideoError.value = '接口未返回视频地址'; return }
+    ElMessage.success('视频生成完成')
+  } catch (e: any) { imageToVideoError.value = e?.message || '生成失败' }
+  finally { imageToVideoLoading.value = false }
+}
+
+async function copyImageToVideoUrl() {
+  if (!imageToVideoResultUrl.value) return
+  try { await navigator.clipboard.writeText(imageToVideoResultUrl.value); ElMessage.success('已复制') }
+  catch { ElMessage.warning('复制失败') }
+}
+
 onMounted(load)
 </script>
 
@@ -586,6 +701,8 @@ onMounted(load)
   width: 100%;
   box-sizing: border-box;
   padding: 32px 40px 40px 112px;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--bg-page);
   color: var(--text-primary);
 }
@@ -809,7 +926,11 @@ onMounted(load)
 
 /* Debug Section */
 .debug-section {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
   margin-top: 4px;
+  padding-bottom: 32px;
 }
 .debug-card {
   background: var(--bg-card);
@@ -825,12 +946,16 @@ onMounted(load)
 .debug-field { display: flex; flex-direction: column; gap: 6px; }
 .debug-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 .debug-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.debug-inline-input { display: flex; gap: 8px; align-items: center; }
+.debug-inline-input :deep(.el-input) { flex: 1; }
+.debug-switch-field { min-height: 54px; justify-content: space-between; }
 
 .debug-error { margin: 12px 0 0; font-size: 13px; color: var(--color-danger); }
 
 .debug-result { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
 .debug-result-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 13px; font-weight: 600; color: var(--text-secondary); }
-.debug-img { display: block; max-width: min(100%, 400px); border-radius: var(--radius-md); border: 1px solid var(--border); }
+.debug-img { display: block; max-width: min(100%, 400px); max-height: 70vh; object-fit: contain; border-radius: var(--radius-md); border: 1px solid var(--border); }
+.debug-video { display: block; width: min(100%, 520px); max-height: 70vh; border-radius: var(--radius-md); border: 1px solid var(--border); background: #000; }
 .debug-url { margin: 10px 0 0; font-size: 11px; color: var(--text-muted); word-break: break-all; font-family: 'SF Mono', 'Fira Code', monospace; }
 
 /* Dialog */

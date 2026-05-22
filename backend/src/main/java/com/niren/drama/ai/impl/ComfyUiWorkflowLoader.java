@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -26,39 +27,33 @@ public final class ComfyUiWorkflowLoader {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    private record LinkRef(String nodeId, int slot) {
+    }
+
     private ComfyUiWorkflowLoader() {
     }
 
     // ─────────────── 工作流列表 ───────────────
 
     /**
-     * 从 ComfyUI 服务器获取可用工作流列表，包括用户工作流和插件模板。
+     * 从 ComfyUI 服务器获取当前用户保存的工作流列表。
      *
-     * @return 用户工作流以 "user:workflowName" 格式返回，插件模板以 "PluginName/TemplateName" 格式返回
+     * @return 用户工作流以 "user:workflowName" 格式返回
      */
     public static List<String> listWorkflows(String apiBaseUrl, HttpClient httpClient) {
-        List<String> result = new ArrayList<>();
-        String base = normalizeBaseUrl(apiBaseUrl);
-
-        // 1. 优先获取用户保存的工作流（ComfyUI 0.8+ User Data API）
-        result.addAll(listUserWorkflows(base, httpClient));
-
-        // 2. 获取插件模板
-        result.addAll(listPluginTemplates(base, httpClient));
-
-        return result;
+        return listUserWorkflows(apiBaseUrl, httpClient);
     }
 
     /**
      * 获取用户在 ComfyUI 中保存的工作流（通过 User Data API）。
-     * ComfyUI 0.8+ 版本支持，存储在 user/default/workflows/ 目录。
+     * ComfyUI 0.9.6 使用 /api/userdata?dir=workflows 列出 user/default/workflows 目录。
      *
      * @return "user:workflowName" 格式的列表
      */
     public static List<String> listUserWorkflows(String apiBaseUrl, HttpClient httpClient) {
         List<String> result = new ArrayList<>();
         String base = normalizeBaseUrl(apiBaseUrl);
-        String url = base + "/list_user_data?dir=workflows&recurse=true&split=false";
+        String url = base + "/api/userdata?dir=workflows";
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -72,7 +67,6 @@ public final class ComfyUiWorkflowLoader {
                     for (JsonNode item : root) {
                         String name = item.asText("");
                         if (!name.isEmpty()) {
-                            // 去掉 .json 后缀，添加 "user:" 前缀区分
                             String displayName = name.endsWith(".json") ? name.substring(0, name.length() - 5) : name;
                             result.add("user:" + displayName);
                         }
@@ -132,8 +126,7 @@ public final class ComfyUiWorkflowLoader {
      * 加载指定名称的工作流，自动转换为 API 格式。
      * 支持三种来源：
      * 1. "user:xxx" 前缀 → 从 ComfyUI User Data API 加载用户保存的工作流
-     * 2. 从 ComfyUI 文件系统读取插件模板
-     * 3. 从 classpath 加载内置模板
+     * 2. 从 classpath 加载内置模板
      */
     public static ObjectNode loadWorkflow(String apiBaseUrl, HttpClient httpClient, String name) {
         String base = normalizeBaseUrl(apiBaseUrl);
@@ -149,21 +142,7 @@ public final class ComfyUiWorkflowLoader {
             return null;
         }
 
-        // 2. 尝试从 ComfyUI 文件系统读取（模板以 UI 格式存储，需转换）
-        ObjectNode fromFs = loadFromComfyUiFs(apiBaseUrl, name);
-        if (fromFs != null) {
-            ObjectNode apiFormat = convertUiToApiFormat(fromFs);
-            if (apiFormat != null) {
-                log.info("从 ComfyUI 文件系统加载并转换工作流: {}", name);
-                return apiFormat;
-            }
-            // 如果转换失败，可能是已经是 API 格式
-            if (fromFs.has("1") || fromFs.has("2")) {
-                log.info("从 ComfyUI 文件系统加载工作流（已是 API 格式）: {}", name);
-                return fromFs;
-            }
-        }
-        // 3. 尝试从 classpath 加载
+        // 2. 尝试从 classpath 加载
         ObjectNode fromCp = loadFromClasspath(name);
         if (fromCp != null) {
             // classpath 中的可能是 API 格式或 UI 格式
@@ -203,25 +182,7 @@ public final class ComfyUiWorkflowLoader {
             }
         }
 
-        // 2. 尝试获取插件模板中的第一个
-        List<String> pluginTemplates = listPluginTemplates(base, httpClient);
-        if (!pluginTemplates.isEmpty()) {
-            String firstTemplate = pluginTemplates.get(0);
-            ObjectNode fromFs = loadFromComfyUiFs(base, firstTemplate);
-            if (fromFs != null) {
-                ObjectNode apiFormat = convertUiToApiFormat(fromFs);
-                if (apiFormat != null) {
-                    log.info("使用 ComfyUI 插件模板: {}", firstTemplate);
-                    return apiFormat;
-                }
-                if (fromFs.has("1") || fromFs.has("2")) {
-                    log.info("使用 ComfyUI 插件模板（已是 API 格式）: {}", firstTemplate);
-                    return fromFs;
-                }
-            }
-        }
-
-        // 3. 回退到 classpath 内置模板
+        // 2. 回退到 classpath 内置模板
         ObjectNode fromCp = loadFromClasspath(fallbackClasspathName);
         if (fromCp != null) {
             if (fromCp.has("nodes")) {
@@ -279,65 +240,25 @@ public final class ComfyUiWorkflowLoader {
         if (!uiWorkflow.has("nodes")) return null;
         try {
             JsonNode nodesArr = uiWorkflow.path("nodes");
-            JsonNode linksArr = uiWorkflow.path("links");
-
-            // 构建 link 映射: linkId → [sourceNodeId, sourceSlotIndex]
-            Map<Integer, int[]> linkMap = new HashMap<>();
-            if (linksArr.isArray()) {
-                for (JsonNode link : linksArr) {
-                    // [linkId, sourceNodeId, sourceSlot, targetNodeId, targetSlot, type]
-                    int linkId = link.get(0).asInt();
-                    int srcNode = link.get(1).asInt();
-                    int srcSlot = link.get(2).asInt();
-                    linkMap.put(linkId, new int[]{srcNode, srcSlot});
-                }
-            }
+            Map<String, JsonNode> subgraphs = collectSubgraphs(uiWorkflow);
+            Map<Integer, LinkRef> linkMap = buildTopLevelLinkMap(uiWorkflow.path("links"));
+            Map<String, LinkRef> subgraphOutputMap = buildSubgraphOutputMap(nodesArr, subgraphs);
 
             ObjectNode apiWorkflow = MAPPER.createObjectNode();
 
             for (JsonNode node : nodesArr) {
                 String nodeId = String.valueOf(node.get("id").asInt());
                 String classType = node.get("type").asText();
-
-                ObjectNode apiNode = MAPPER.createObjectNode();
-                apiNode.put("class_type", classType);
-
-                // 构建 inputs
-                ObjectNode inputs = MAPPER.createObjectNode();
-                JsonNode nodeInputs = node.path("inputs");
-                if (nodeInputs.isArray()) {
-                    for (JsonNode inp : nodeInputs) {
-                        String inpName = inp.path("name").asText("");
-                        if (inpName.isEmpty()) continue;
-
-                        if (inp.has("link")) {
-                            // 连接的输入 → [sourceNodeId, sourceSlotIndex]
-                            int linkId = inp.get("link").asInt();
-                            int[] src = linkMap.get(linkId);
-                            if (src != null) {
-                                ArrayNode ref = MAPPER.createArrayNode();
-                                ref.add(String.valueOf(src[0]));
-                                ref.add(src[1]);
-                                inputs.set(inpName, ref);
-                            }
-                        } else if (inp.has("value")) {
-                            // 固定值输入
-                            inputs.set(inpName, inp.get("value"));
-                        }
-                    }
+                if (isUiOnlyNode(classType)) {
+                    continue;
+                }
+                JsonNode subgraph = subgraphs.get(classType);
+                if (subgraph != null) {
+                    expandSubgraph(apiWorkflow, node, subgraph, linkMap);
+                    continue;
                 }
 
-                // 有些节点的 widget 值在 "widgets_values" 中
-                JsonNode widgetValues = node.path("widgets_values");
-                if (widgetValues.isArray()) {
-                    // 需要根据节点类型的 widget 定义来映射名称
-                    // 简单策略：按顺序用 widget 名称（从 object_info 获取太复杂）
-                    // 这里用已知的常见映射
-                    injectWidgetValues(inputs, classType, widgetValues);
-                }
-
-                apiNode.set("inputs", inputs);
-                apiWorkflow.set(nodeId, apiNode);
+                addApiNode(apiWorkflow, nodeId, classType, node, linkMap, subgraphOutputMap);
             }
 
             return apiWorkflow;
@@ -347,13 +268,258 @@ public final class ComfyUiWorkflowLoader {
         }
     }
 
+    private static Map<String, JsonNode> collectSubgraphs(ObjectNode uiWorkflow) {
+        Map<String, JsonNode> subgraphs = new HashMap<>();
+        JsonNode subgraphsArr = uiWorkflow.path("definitions").path("subgraphs");
+        if (subgraphsArr.isArray()) {
+            for (JsonNode subgraph : subgraphsArr) {
+                String id = subgraph.path("id").asText("");
+                if (!id.isEmpty()) {
+                    subgraphs.put(id, subgraph);
+                }
+            }
+        }
+        return subgraphs;
+    }
+
+    private static Map<Integer, LinkRef> buildTopLevelLinkMap(JsonNode linksArr) {
+        Map<Integer, LinkRef> linkMap = new HashMap<>();
+        if (linksArr.isArray()) {
+            for (JsonNode link : linksArr) {
+                int linkId = link.get(0).asInt();
+                String srcNode = String.valueOf(link.get(1).asInt());
+                int srcSlot = link.get(2).asInt();
+                linkMap.put(linkId, new LinkRef(srcNode, srcSlot));
+            }
+        }
+        return linkMap;
+    }
+
+    private static Map<String, LinkRef> buildSubgraphOutputMap(JsonNode nodesArr, Map<String, JsonNode> subgraphs) {
+        Map<String, LinkRef> outputMap = new HashMap<>();
+        for (JsonNode node : nodesArr) {
+            String classType = node.path("type").asText("");
+            JsonNode subgraph = subgraphs.get(classType);
+            if (subgraph == null) {
+                continue;
+            }
+            String nodeId = String.valueOf(node.get("id").asInt());
+            Map<Integer, LinkRef> internalLinks = buildSubgraphLinkMap(nodeId, subgraph);
+            JsonNode outputs = node.path("outputs");
+            if (outputs.isArray()) {
+                for (int i = 0; i < outputs.size(); i++) {
+                    JsonNode links = outputs.get(i).path("links");
+                    JsonNode subgraphOutput = subgraph.path("outputs").path(i);
+                    LinkRef source = findSubgraphOutputSource(subgraphOutput, internalLinks);
+                    if (source == null) {
+                        continue;
+                    }
+                    if (links.isArray()) {
+                        for (JsonNode link : links) {
+                            outputMap.put(nodeId + ":" + link.asInt(), source);
+                        }
+                    }
+                    outputMap.put(nodeId + ":" + i, source);
+                }
+            }
+        }
+        return outputMap;
+    }
+
+    private static LinkRef findSubgraphOutputSource(JsonNode subgraphOutput, Map<Integer, LinkRef> internalLinks) {
+        JsonNode linkIds = subgraphOutput.path("linkIds");
+        if (linkIds.isArray()) {
+            for (JsonNode linkId : linkIds) {
+                LinkRef source = internalLinks.get(linkId.asInt());
+                if (source != null) {
+                    return source;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Map<Integer, LinkRef> buildSubgraphLinkMap(String parentNodeId, JsonNode subgraph) {
+        Map<Integer, LinkRef> linkMap = new HashMap<>();
+        JsonNode links = subgraph.path("links");
+        if (links.isArray()) {
+            for (JsonNode link : links) {
+                int originId = link.path("origin_id").asInt();
+                if (originId < 0) {
+                    continue;
+                }
+                int linkId = link.path("id").asInt();
+                int originSlot = link.path("origin_slot").asInt();
+                linkMap.put(linkId, new LinkRef(parentNodeId + "_" + originId, originSlot));
+            }
+        }
+        return linkMap;
+    }
+
+    private static void expandSubgraph(ObjectNode apiWorkflow, JsonNode proxyNode, JsonNode subgraph,
+                                       Map<Integer, LinkRef> topLevelLinks) {
+        String parentNodeId = String.valueOf(proxyNode.get("id").asInt());
+        Map<Integer, LinkRef> internalLinks = buildSubgraphLinkMap(parentNodeId, subgraph);
+        Map<Integer, JsonNode> subgraphInputValues = buildSubgraphInputValues(proxyNode, subgraph, topLevelLinks);
+
+        JsonNode nodes = subgraph.path("nodes");
+        if (!nodes.isArray()) {
+            return;
+        }
+        for (JsonNode node : nodes) {
+            String classType = node.path("type").asText("");
+            if (isUiOnlyNode(classType)) {
+                continue;
+            }
+            String nodeId = parentNodeId + "_" + node.get("id").asInt();
+            ObjectNode apiNode = MAPPER.createObjectNode();
+            apiNode.put("class_type", classType);
+
+            ObjectNode inputs = MAPPER.createObjectNode();
+            JsonNode nodeInputs = node.path("inputs");
+            if (nodeInputs.isArray()) {
+                for (JsonNode input : nodeInputs) {
+                    String inputName = input.path("name").asText("");
+                    if (inputName.isEmpty()) {
+                        continue;
+                    }
+                    if (input.has("link")) {
+                        int linkId = input.get("link").asInt();
+                        LinkRef ref = internalLinks.get(linkId);
+                        if (ref != null) {
+                            setLinkRef(inputs, inputName, ref);
+                        } else {
+                            JsonNode value = subgraphInputValues.get(linkId);
+                            if (value != null && !value.isMissingNode() && !value.isNull()) {
+                                inputs.set(inputName, value);
+                            }
+                        }
+                    } else if (input.has("value")) {
+                        inputs.set(inputName, input.get("value"));
+                    }
+                }
+            }
+
+            JsonNode widgetValues = node.path("widgets_values");
+            if (widgetValues.isArray()) {
+                injectWidgetValues(inputs, nodeInputs, classType, widgetValues);
+            }
+
+            apiNode.set("inputs", inputs);
+            apiWorkflow.set(nodeId, apiNode);
+        }
+    }
+
+    private static Map<Integer, JsonNode> buildSubgraphInputValues(JsonNode proxyNode, JsonNode subgraph,
+                                                                   Map<Integer, LinkRef> topLevelLinks) {
+        Map<Integer, JsonNode> values = new HashMap<>();
+        Map<String, JsonNode> proxyInputs = buildProxyInputValues(proxyNode, topLevelLinks);
+        JsonNode inputs = subgraph.path("inputs");
+        if (inputs.isArray()) {
+            for (JsonNode input : inputs) {
+                String name = input.path("name").asText("");
+                JsonNode value = proxyInputs.get(name);
+                if (value == null) {
+                    continue;
+                }
+                JsonNode linkIds = input.path("linkIds");
+                if (linkIds.isArray()) {
+                    for (JsonNode linkId : linkIds) {
+                        values.put(linkId.asInt(), value);
+                    }
+                }
+            }
+        }
+        return values;
+    }
+
+    private static Map<String, JsonNode> buildProxyInputValues(JsonNode proxyNode, Map<Integer, LinkRef> topLevelLinks) {
+        Map<String, JsonNode> values = new HashMap<>();
+        JsonNode proxyInputs = proxyNode.path("inputs");
+        if (proxyInputs.isArray()) {
+            for (JsonNode input : proxyInputs) {
+                String name = input.path("name").asText("");
+                if (name.isEmpty()) {
+                    continue;
+                }
+                if (input.has("link")) {
+                    LinkRef ref = topLevelLinks.get(input.get("link").asInt());
+                    if (ref != null) {
+                        ArrayNode arr = MAPPER.createArrayNode();
+                        arr.add(ref.nodeId());
+                        arr.add(ref.slot());
+                        values.put(name, arr);
+                    }
+                } else if (input.has("value")) {
+                    values.put(name, input.get("value"));
+                }
+            }
+        }
+        JsonNode widgetValues = proxyNode.path("widgets_values");
+        if (widgetValues.isArray()) {
+            for (int i = 0; i < Math.min(proxyInputs.size(), widgetValues.size()); i++) {
+                String name = proxyInputs.get(i).path("widget").path("name").asText("");
+                if (!name.isEmpty() && !values.containsKey(name)) {
+                    values.put(name, widgetValues.get(i));
+                }
+            }
+        }
+        return values;
+    }
+
+    private static void addApiNode(ObjectNode apiWorkflow, String nodeId, String classType, JsonNode node,
+                                   Map<Integer, LinkRef> linkMap, Map<String, LinkRef> subgraphOutputMap) {
+        ObjectNode apiNode = MAPPER.createObjectNode();
+        apiNode.put("class_type", classType);
+
+        ObjectNode inputs = MAPPER.createObjectNode();
+        JsonNode nodeInputs = node.path("inputs");
+        if (nodeInputs.isArray()) {
+            for (JsonNode inp : nodeInputs) {
+                String inpName = inp.path("name").asText("");
+                if (inpName.isEmpty()) continue;
+
+                if (inp.has("link")) {
+                    int linkId = inp.get("link").asInt();
+                    LinkRef ref = linkMap.get(linkId);
+                    if (ref != null) {
+                        LinkRef rewritten = subgraphOutputMap.getOrDefault(ref.nodeId() + ":" + linkId,
+                                subgraphOutputMap.getOrDefault(ref.nodeId() + ":" + ref.slot(), ref));
+                        setLinkRef(inputs, inpName, rewritten);
+                    }
+                } else if (inp.has("value")) {
+                    inputs.set(inpName, inp.get("value"));
+                }
+            }
+        }
+
+        JsonNode widgetValues = node.path("widgets_values");
+        if (widgetValues.isArray()) {
+            injectWidgetValues(inputs, nodeInputs, classType, widgetValues);
+        }
+
+        apiNode.set("inputs", inputs);
+        apiWorkflow.set(nodeId, apiNode);
+    }
+
+    private static void setLinkRef(ObjectNode inputs, String inputName, LinkRef ref) {
+        ArrayNode arr = MAPPER.createArrayNode();
+        arr.add(ref.nodeId());
+        arr.add(ref.slot());
+        inputs.set(inputName, arr);
+    }
+
+    private static boolean isUiOnlyNode(String classType) {
+        return "MarkdownNote".equals(classType) || "Note".equals(classType);
+    }
+
     /**
      * 将 widgets_values 按常见节点类型映射到 inputs 字段名。
      */
-    private static void injectWidgetValues(ObjectNode inputs, String classType, JsonNode widgetValues) {
+    private static void injectWidgetValues(ObjectNode inputs, JsonNode nodeInputs, String classType, JsonNode widgetValues) {
         // 常见节点的 widget 名称映射
         Map<String, String[]> widgetNames = Map.ofEntries(
-                Map.entry("KSampler", new String[]{"seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"}),
+                Map.entry("KSampler", new String[]{"seed", "control_after_generate", "steps", "cfg", "sampler_name", "scheduler", "denoise"}),
                 Map.entry("KSamplerAdvanced", new String[]{"noise_seed", "steps", "cfg", "sampler_name", "scheduler", "start_at_step", "end_at_step", "return_with_leftover_noise"}),
                 Map.entry("CheckpointLoaderSimple", new String[]{"ckpt_name"}),
                 Map.entry("LoraLoader", new String[]{"lora_name", "strength_model", "strength_clip"}),
@@ -392,13 +558,33 @@ public final class ComfyUiWorkflowLoader {
                 Map.entry("LTXVLoader", new String[]{"ckpt_name"}),
                 Map.entry("LTXVConditioning", new String[]{"frame_rate", "width", "height", "num_frames", "batch_size"}),
                 Map.entry("LTXVScheduler", new String[]{"steps", "max_shift", "base_shift", "stretch", "terminal"}),
-                Map.entry("LTXVSampler", new String[]{"seed", "steps", "cfg"})
+                Map.entry("LTXVSampler", new String[]{"seed", "steps", "cfg"}),
+                Map.entry("ModelSamplingAuraFlow", new String[]{"shift"}),
+                Map.entry("CLIPVisionEncode", new String[]{"crop"}),
+                Map.entry("HunyuanVideo15ImageToVideo", new String[]{"width", "height", "batch_size", "length"}),
+                Map.entry("EasyCache", new String[]{"verbose", "start_percent", "reuse_threshold", "end_percent"}),
+                Map.entry("ModelSamplingSD3", new String[]{"shift"}),
+                Map.entry("CFGGuider", new String[]{"cfg"}),
+                Map.entry("BasicScheduler", new String[]{"scheduler", "steps", "denoise"}),
+                Map.entry("CreateVideo", new String[]{"fps"}),
+                Map.entry("SaveVideo", new String[]{"format", "codec"}),
+                Map.entry("HunyuanVideo15LatentUpscaleWithModel", new String[]{"upscale_method", "width", "height", "crop"}),
+                Map.entry("HunyuanVideo15SuperResolution", new String[]{"noise_augmentation"}),
+                Map.entry("SplitSigmas", new String[]{"step"})
         );
 
         String[] names = widgetNames.get(classType);
+        if ("SaveVideo".equals(classType)) {
+            injectSaveVideoWidgetValues(inputs, widgetValues);
+            return;
+        }
         if (names == null) {
-            // 未知节点类型，尝试用通用策略
-            // 如果只有 1 个 widget 值且 inputs 为空，可能是模型名
+            for (int i = 0; i < Math.min(nodeInputs.size(), widgetValues.size()); i++) {
+                String inputName = nodeInputs.get(i).path("widget").path("name").asText("");
+                if (!inputName.isEmpty() && !inputs.has(inputName)) {
+                    inputs.set(inputName, widgetValues.get(i));
+                }
+            }
             if (widgetValues.size() == 1 && inputs.size() == 0) {
                 JsonNode val = widgetValues.get(0);
                 if (val.isTextual()) {
@@ -416,15 +602,51 @@ public final class ComfyUiWorkflowLoader {
         }
     }
 
+    private static void injectSaveVideoWidgetValues(ObjectNode inputs, JsonNode widgetValues) {
+        if (!inputs.has("format")) {
+            inputs.put("format", "mp4");
+        }
+        if (!inputs.has("codec")) {
+            inputs.put("codec", resolveSaveVideoCodec(widgetValues));
+        }
+        if (!inputs.has("filename_prefix")) {
+            inputs.put("filename_prefix", resolveSaveVideoFilenamePrefix(widgetValues));
+        }
+    }
+
+    private static String resolveSaveVideoFilenamePrefix(JsonNode widgetValues) {
+        for (JsonNode value : widgetValues) {
+            if (value.isTextual()) {
+                String text = value.asText();
+                if (!"h264".equalsIgnoreCase(text) && !"h265".equalsIgnoreCase(text) && !"vp9".equalsIgnoreCase(text)) {
+                    return text;
+                }
+            }
+        }
+        return "ComfyUI";
+    }
+
+    private static String resolveSaveVideoCodec(JsonNode widgetValues) {
+        for (JsonNode value : widgetValues) {
+            if (value.isTextual()) {
+                String text = value.asText();
+                if ("h264".equalsIgnoreCase(text) || "h265".equalsIgnoreCase(text) || "vp9".equalsIgnoreCase(text)) {
+                    return text;
+                }
+            }
+        }
+        return "h264";
+    }
+
     // ─────────────── User Data API 读取 ───────────────
 
     /**
      * 通过 ComfyUI User Data API 加载用户保存的工作流。
-     * ComfyUI 0.8+ 版本支持此 API。
+     * ComfyUI 0.9.6 读取文件时把 workflows/name.json 作为 path 参数，斜杠需要 URL 编码。
      */
     private static ObjectNode loadFromUserDataApi(String apiBaseUrl, HttpClient httpClient, String workflowName) {
         String fileName = workflowName.endsWith(".json") ? workflowName : workflowName + ".json";
-        String url = apiBaseUrl + "/get_user_data?file=workflows/" + fileName;
+        String url = apiBaseUrl + "/api/userdata/workflows%2F" + encodePathSegment(fileName);
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -628,6 +850,10 @@ public final class ComfyUiWorkflowLoader {
             log.warn("读取工作流文件失败: {} - {}", file, e.getMessage());
         }
         return null;
+    }
+
+    private static String encodePathSegment(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private static String normalizeBaseUrl(String baseUrl) {

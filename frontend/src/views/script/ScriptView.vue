@@ -315,7 +315,7 @@ const hasGeneratedScript = computed(() => scripts.value.some((script) => {
   const content = script?.content
   return typeof content === 'string' ? content.trim().length > 0 : Boolean(content)
 }))
-const canGenerateOutline = computed(() => Boolean(outlineSeed.value) && !hasGeneratedOutline.value && !outlinePreview.value.generating && !outlinePreview.value.saving)
+const canGenerateOutline = computed(() => Boolean(outlineSeed.value) && !outlinePreview.value.generating && !outlinePreview.value.saving)
 const canGenerateScript = computed(() => hasEpisodeSelection.value && hasGeneratedOutline.value && !scriptPreview.value.generating && !scriptPreview.value.saving)
 const projectTypeLabel = computed(() => formatProjectTypeLabel(projectInfo.value?.projectType))
 const projectGenreLabel = computed(() => formatGenreLabel(projectInfo.value?.genre) || '未设置')
@@ -642,6 +642,9 @@ async function saveScriptPreview() {
     ElMessage.success('批量剧本已保存')
     resetScriptPreview()
     await loadScripts()
+    if (scripts.value.length > 0) {
+      await selectScript(scripts.value[0])
+    }
   } finally {
     scriptPreview.value.saving = false
   }
@@ -746,6 +749,7 @@ onMounted(async () => {
   width: 220px;
   cursor: pointer;
   transition: box-shadow 0.2s;
+  overflow: hidden;
 }
 
 .script-card:hover,
@@ -759,6 +763,15 @@ onMounted(async () => {
   align-items: center;
   font-weight: 600;
   margin-bottom: 8px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.script-header > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .script-outline {
@@ -805,9 +818,9 @@ onMounted(async () => {
   margin-bottom: 14px;
   padding: 12px 14px;
   border-radius: 14px;
-  background: #f8faff;
-  border: 1px solid #e7ecff;
-  color: #475569;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
@@ -818,9 +831,9 @@ onMounted(async () => {
 .preview-editor :deep(.el-textarea__inner) {
   min-height: 320px;
   border-radius: 16px;
-  border: 1px solid #dbe2f0;
-  background: linear-gradient(180deg, #fbfdff 0%, #f7f9fc 100%);
-  color: #0f172a;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
   font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   font-size: 12px;
   line-height: 1.7;
@@ -828,7 +841,7 @@ onMounted(async () => {
 }
 
 .preview-footer-tip {
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
 }
 

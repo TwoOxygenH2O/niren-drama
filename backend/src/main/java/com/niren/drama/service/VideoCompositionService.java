@@ -263,10 +263,9 @@ public class VideoCompositionService {
             throw new BusinessException("项目下没有分镜数据，请先生成分镜");
         }
 
-        // Validate that shots have images
-        boolean hasImages = shots.stream().anyMatch(s -> s.getImageUrl() != null && !s.getImageUrl().isBlank());
-        if (!hasImages) {
-            throw new BusinessException("分镜还没有生成图片，请先生成分镜图片");
+        long missingVideoCount = shots.stream().filter(s -> !hasText(s.getVideoUrl())).count();
+        if (missingVideoCount > 0) {
+            throw new BusinessException("分镜视频尚未生成完成，请先生成分镜视频（缺少 " + missingVideoCount + " 个镜头）");
         }
 
         log.debug("创建视频合成任务: userId={}, projectId={}, shotCount={}, filteredByIds={}",
@@ -291,20 +290,21 @@ public class VideoCompositionService {
             allShots = allShots.stream().filter(s -> shotIds.contains(s.getId())).toList();
         }
         List<com.niren.drama.entity.Storyboard> selectedShots = allShots.stream()
-
-                .filter(this::shouldUseDynamicVideo)
+                .sorted(Comparator.comparing(Storyboard::getEpisodeNo, Comparator.nullsLast(Integer::compareTo))
+                        .thenComparing(Storyboard::getShotNo, Comparator.nullsLast(Integer::compareTo))
+                        .thenComparing(Storyboard::getId, Comparator.nullsLast(Long::compareTo)))
                 .toList();
 
         if (selectedShots.isEmpty()) {
-            throw new BusinessException("当前项目没有选中的动态镜头");
+            throw new BusinessException("项目下没有分镜数据，请先生成分镜");
         }
 
         boolean allReadyForDynamic = selectedShots.stream().allMatch(s -> hasText(s.getVideoPrompt()) || hasText(s.getDescription()));
         if (!allReadyForDynamic) {
-            throw new BusinessException("仍有已选动态镜头缺少视频提示词，请先完成分镜生成或补全镜头描述");
+            throw new BusinessException("仍有分镜缺少视频提示词，请先完成分镜生成或补全镜头描述");
         }
 
-        log.debug("创建动态视频任务: userId={}, projectId={}, selectedShots={}, filteredByIds={}",
+        log.debug("创建分镜视频任务: userId={}, projectId={}, selectedShots={}, filteredByIds={}",
             userId, projectId, selectedShots.size(), shotIds != null && !shotIds.isEmpty());
 
         TaskRecord task = new TaskRecord();
@@ -313,7 +313,7 @@ public class VideoCompositionService {
         task.setTaskType("DYNAMIC_VIDEO_GEN");
         task.setStatus("PENDING");
         task.setProgress(0);
-        task.setMessage("动态镜头生成任务已提交...");
+        task.setMessage("分镜视频生成任务已提交...");
         taskRecordMapper.insert(task);
 
         selfProvider.getObject().generateDynamicVideosAsync(userId, projectId, selectedShots, task.getId());
@@ -364,7 +364,7 @@ public class VideoCompositionService {
                     .filter(this::hasRenderableMedia)
                     .toList();
             if (renderableShots.isEmpty()) {
-                throw new BusinessException("没有可用于合成的视频镜头，请先生成图片或动态视频");
+                throw new BusinessException("没有可用于合成的分镜视频，请先生成分镜视频");
             }
 
             Path bgmPath = prepareComposeAsset(composeBgmSource,
@@ -418,7 +418,7 @@ public class VideoCompositionService {
                         audioDuration,
                         hasNext ? transitionToNext : 0d);
                 Path shotVideo = workDir.resolve("shot_" + shot.getShotNo() + ".mp4");
-                boolean dynamicSource = shouldUseDynamicVideo(shot) && hasText(shot.getVideoUrl());
+                boolean dynamicSource = hasText(shot.getVideoUrl());
                 boolean applyMicroMotion = shouldApplyMicroMotion(shot, dynamicSource, consecutiveStaticShots, consecutiveStaticSeconds);
 
                 if (dynamicSource) {
@@ -1657,9 +1657,9 @@ public class VideoCompositionService {
         if (shot == null) {
             return false;
         }
-        boolean renderable = hasText(shot.getImageUrl()) || hasText(shot.getVideoUrl());
+        boolean renderable = hasText(shot.getVideoUrl());
         if (!renderable) {
-            log.warn("镜头缺少图片和视频素材，跳过合成: shotNo={}", shot.getShotNo());
+            log.warn("镜头缺少分镜视频，跳过合成: shotNo={}", shot.getShotNo());
         }
         return renderable;
     }
@@ -2069,12 +2069,12 @@ public class VideoCompositionService {
             ObjectNode root = objectMapper.createObjectNode();
             root.put("videoUrl", videoUrl);
             int total = shotVideos != null ? shotVideos.size() : 0;
-            long dynamicCount = shotVideos == null ? 0 : shotVideos.stream()
-                    .filter(segment -> segment.shot() != null && shouldUseDynamicVideo(segment.shot()))
+            long videoShotCount = shotVideos == null ? 0 : shotVideos.stream()
+                    .filter(segment -> segment.shot() != null && hasText(segment.shot().getVideoUrl()))
                     .count();
             root.put("totalShots", total);
-            root.put("dynamicShots", dynamicCount);
-            root.put("dynamicRatio", total <= 0 ? 0d : dynamicCount * 1.0d / total);
+            root.put("videoShots", videoShotCount);
+            root.put("videoRatio", total <= 0 ? 0d : videoShotCount * 1.0d / total);
             root.put("globalNarrationEnabled", narrationTrack != null && Files.exists(narrationTrack));
             if (narrationTrack != null && Files.exists(narrationTrack)) {
                 root.put("globalNarrationDurationSeconds", measureMediaDurationSeconds(narrationTrack));

@@ -96,6 +96,11 @@ public class SchemaMigrationRunner implements ApplicationRunner {
             "tts_note",
             "ALTER TABLE drama_character ADD COLUMN tts_note VARCHAR(500) COMMENT 'TTS导演补充（并入 instruction）' AFTER speech_rate"
         );
+        ensureColumnExists(
+            "drama_character",
+            "image_urls",
+            "ALTER TABLE drama_character ADD COLUMN image_urls TEXT COMMENT '角色多形象URL列表（JSON数组）' AFTER image_url"
+        );
         ensureColumnTypeContains(
                 "drama_task_record",
                 "result",

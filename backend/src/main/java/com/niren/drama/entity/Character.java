@@ -17,6 +17,7 @@ public class Character extends BaseEntity {
     private String gender;
     private String age;
     private String imageUrl;
+    private String imageUrls;
     /** TTS voice identifier */
     private String voiceId;
     private String voiceName;

@@ -157,6 +157,30 @@ body {
 .status-completed  { background: rgba(22, 163, 74, 0.15); color: #4ade80; border: 1px solid rgba(22, 163, 74, 0.2); }
 .status-failed     { background: rgba(220, 38, 38, 0.15); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.2); }
 
+/* ——— Element Plus CSS 变量覆盖（让所有组件跟随主题）——— */
+:root {
+  --el-color-primary: var(--primary);
+  --el-color-primary-light-3: var(--primary-light);
+  --el-color-primary-dark-2: var(--primary-dark);
+  --el-bg-color: var(--bg-card);
+  --el-bg-color-overlay: var(--bg-card);
+  --el-bg-color-page: var(--bg-page);
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-secondary);
+  --el-text-color-secondary: var(--text-muted);
+  --el-text-color-placeholder: var(--text-muted);
+  --el-border-color: var(--border);
+  --el-border-color-light: var(--border);
+  --el-border-color-lighter: var(--border);
+  --el-fill-color-blank: var(--bg-card);
+  --el-fill-color-light: var(--bg-muted);
+  --el-fill-color-lighter: var(--bg-muted);
+  --el-dialog-bg-color: var(--bg-card);
+  --el-disabled-bg-color: var(--bg-muted);
+  --el-disabled-text-color: var(--text-muted);
+  --el-mask-color: rgba(0, 0, 0, 0.5);
+}
+
 /* ——— Element Plus 覆盖 ——— */
 :deep(.el-card) {
   border: 1px solid var(--border);
@@ -233,4 +257,63 @@ body {
 }
 .el-popconfirm__main {
   font-size: 14px !important;
+}
+
+/* ——— Element Plus 输入/选择/下拉组件跟随主题 ——— */
+.el-input__wrapper,
+.el-textarea__inner {
+  background-color: var(--bg-card) !important;
+  box-shadow: 0 0 0 1px var(--border) inset !important;
+}
+.el-input__wrapper:hover,
+.el-textarea__inner:hover {
+  box-shadow: 0 0 0 1px var(--border-strong) inset !important;
+}
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--primary) inset !important;
+}
+.el-select__wrapper {
+  background-color: var(--bg-card) !important;
+}
+.el-select-dropdown,
+.el-select-dropdown__item {
+  background-color: var(--bg-card) !important;
+  color: var(--text-primary) !important;
+}
+.el-select-dropdown__item.is-hovering {
+  background-color: var(--bg-muted) !important;
+}
+.el-select-dropdown__item.is-selected {
+  color: var(--primary) !important;
+  font-weight: 600;
+}
+.el-popper.is-light {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+}
+.el-popper.is-light .el-popper__arrow::before {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+}
+.el-overlay {
+  background-color: rgba(0, 0, 0, 0.5) !important;
+}
+.el-input-group__append,
+.el-input-group__prepend {
+  background-color: var(--bg-muted) !important;
+  border-color: var(--border) !important;
+  color: var(--text-secondary) !important;
+}
+.el-form-item__label {
+  color: var(--text-secondary) !important;
+}
+.el-collapse-item__header,
+.el-collapse-item__wrap {
+  background-color: transparent !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+}
+.el-collapse-item__content {
+  color: var(--text-primary) !important;
 }

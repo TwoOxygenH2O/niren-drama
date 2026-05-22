@@ -10,7 +10,7 @@
         <div class="scene-image">
           <img v-if="scene.imageUrl" :src="scene.imageUrl" :alt="scene.name" />
           <div v-else class="scene-placeholder">
-            <el-icon size="40" color="#a0aec0"><Sunny /></el-icon>
+            <el-icon size="40" style="color: var(--text-muted)"><Sunny /></el-icon>
           </div>
         </div>
         <div class="scene-info">

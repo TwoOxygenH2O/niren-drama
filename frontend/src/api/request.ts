@@ -11,9 +11,22 @@ function createBusinessError(payload: any, requestUrl = '') {
   return error
 }
 
+// 防止 JSON.parse 将超大整数 ID 精度丢失：将超过 16 位的纯数字替换为字符串
+function safeJsonParse(text: string) {
+  const safe = text.replace(/:\s*(\d{17,})/g, ':"$1"')
+  return JSON.parse(safe)
+}
+
 const request = axios.create({
   baseURL: '/api',
   timeout: 120000,
+  transformResponse: [(data) => {
+    try {
+      return safeJsonParse(data)
+    } catch {
+      return JSON.parse(data)
+    }
+  }],
 })
 
 // Request interceptor - add JWT token

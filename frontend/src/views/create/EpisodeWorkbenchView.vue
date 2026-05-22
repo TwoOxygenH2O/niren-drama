@@ -10,7 +10,7 @@
     <div class="editor-thread">
       <aside class="wb-chat" aria-label="分镜对话">
         <div class="wb-chat-head">AI 分镜助手</div>
-        <div class="wb-chat-messages">
+        <div ref="chatMessagesRef" class="wb-chat-messages">
           <p v-for="(m, i) in chatMessages" :key="i" :class="['wb-msg', m.role]">{{ m.text }}</p>
         </div>
         <div class="wb-chat-input-wrap">
@@ -61,15 +61,15 @@
       <div class="wb-side-panel">
         <template v-if="leftTab === 'frame'">
           <div class="wb-panel-head">分镜 {{ activeShot?.shotNo ?? '—' }}</div>
-          <div class="wb-panel-section">
-            <label class="wb-label">图片提示词</label>
-            <p class="wb-panel-body">{{ activeShot?.imagePrompt || activeShot?.description || '暂无' }}</p>
+          <div v-if="activeShot?.videoPrompt" class="wb-panel-section">
+            <label class="wb-label">视频提示词</label>
+            <p class="wb-panel-body">{{ activeShot.videoPrompt }}</p>
           </div>
           <div class="wb-panel-section">
             <label class="wb-label">画面描述</label>
-            <p class="wb-panel-body">{{ activeShot?.description || '—' }}</p>
+            <p class="wb-panel-body">{{ activeShot?.description || '暂无' }}</p>
           </div>
-          <div v-if="activeShot?.dynamicSelected" class="wb-badge">动态镜头</div>
+          <div v-if="activeShot?.dynamicSelected" class="wb-badge">高运动镜头</div>
         </template>
         <template v-else-if="leftTab === 'dub'">
           <div class="wb-panel-head">分镜 {{ activeShot?.shotNo ?? '—' }}</div>
@@ -81,11 +81,7 @@
         </template>
         <template v-else>
           <div class="wb-panel-head">音乐</div>
-          <p class="wb-muted">AI 配乐与曲库应用后续接入；此处为布局占位。</p>
-          <ul class="wb-music-placeholder">
-            <li>剑出禁地：觉醒之光 <span class="wb-time">03:23</span></li>
-            <li>剑灵觉醒：逆袭序章 <span class="wb-time">03:12</span></li>
-          </ul>
+          <p class="wb-muted">AI 配乐功能开发中，暂不可用。</p>
         </template>
       </div>
 
@@ -148,6 +144,7 @@
               @click="activeIndex = idx"
             >
               <img v-if="thumbUrl(shot)" :src="thumbUrl(shot)!" alt="" />
+              <video v-else-if="shot.videoUrl" :src="shot.videoUrl" class="wb-thumb-video" preload="none" muted />
               <span v-else class="wb-thumb-ph">{{ shot.shotNo }}</span>
               <span class="wb-thumb-no">{{ shot.shotNo }}</span>
             </button>
@@ -159,7 +156,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { projectApi } from '@/api/project'
@@ -186,6 +183,7 @@ const shots = ref<any[]>([])
 const activeIndex = ref(0)
 const leftTab = ref<'frame' | 'dub' | 'music'>('frame')
 const stripRef = ref<HTMLElement | null>(null)
+const chatMessagesRef = ref<HTMLElement | null>(null)
 const externalVideoUrl = ref('')
 const externalSaving = ref(false)
 
@@ -213,7 +211,6 @@ const displayShotVideoUrl = computed(() => {
 })
 
 function thumbUrl(shot: any): string | null {
-  if (shot?.videoUrl && String(shot.videoUrl).trim()) return String(shot.videoUrl)
   if (shot?.imageUrl && String(shot.imageUrl).trim()) return String(shot.imageUrl)
   return null
 }
@@ -300,7 +297,11 @@ function sendChatStub() {
   chatInput.value = ''
   chatMessages.value.push({
     role: 'ai',
-    text: '已记录你的想法；镜头级修改请优先在「分镜制作」使用编辑能力，此处将逐步接入对话式修改。',
+    text: '已记录。镜头级修改请在「分镜制作」页编辑，对话式修改功能开发中。',
+  })
+  nextTick(() => {
+    const el = chatMessagesRef.value
+    if (el) el.scrollTop = el.scrollHeight
   })
 }
 
@@ -722,6 +723,13 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.wb-thumb-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
 }
 
 .wb-thumb-ph {

@@ -6,12 +6,13 @@
     </div>
 
     <div class="card-grid" v-if="characters.length">
-      <div v-for="char in characters" :key="char.id" class="char-card">
+      <div v-for="char in characters" :key="char.id" class="char-card" @click="openGallery(char)">
         <div class="char-avatar">
           <img v-if="char.imageUrl" :src="char.imageUrl" :alt="char.name" />
           <div v-else class="char-placeholder">
-            <el-icon size="40" color="#a0aec0"><User /></el-icon>
+            <el-icon size="40" style="color: var(--text-muted)"><User /></el-icon>
           </div>
+          <div v-if="charImageCount(char) > 1" class="char-image-badge">{{ charImageCount(char) }} 张</div>
         </div>
         <div class="char-info">
           <div class="char-name">{{ char.name }}</div>
@@ -32,7 +33,7 @@
             controls
             class="char-audio"
           />
-          <div class="char-actions">
+          <div class="char-actions" @click.stop>
             <el-button size="small" type="primary" :loading="generatingId === char.id" @click="generateImage(char)">
               AI生成图像
             </el-button>
@@ -49,6 +50,34 @@
       </div>
     </div>
     <el-empty v-else description="暂无角色，请添加剧中角色" />
+
+    <!-- Image gallery dialog -->
+    <el-dialog v-model="galleryVisible" :title="galleryChar?.name + ' — 角色形象'" width="720px" destroy-on-close>
+      <div v-if="galleryImages.length" class="gallery-grid">
+        <div v-for="(url, idx) in galleryImages" :key="idx" class="gallery-item" @click="openPreview(idx)">
+          <img :src="url" :alt="`${galleryChar?.name} 形象 ${idx + 1}`" />
+          <span v-if="idx === 0" class="gallery-main-tag">主图</span>
+        </div>
+      </div>
+      <el-empty v-else description="暂无角色图片，点击下方按钮生成" />
+      <template #footer>
+        <el-button type="primary" :loading="generatingId === galleryChar?.id" @click="galleryChar && generateImage(galleryChar)">
+          AI生成图像
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Fullscreen image preview -->
+    <el-dialog v-model="previewImageVisible" width="90vw" destroy-on-close append-to-body>
+      <div class="preview-image-wrap">
+        <img :src="galleryImages[previewImageIdx]" :alt="`${galleryChar?.name} 形象`" />
+      </div>
+      <div class="preview-nav">
+        <el-button :disabled="previewImageIdx <= 0" @click="previewImageIdx--">上一张</el-button>
+        <span>{{ previewImageIdx + 1 }} / {{ galleryImages.length }}</span>
+        <el-button :disabled="previewImageIdx >= galleryImages.length - 1" @click="previewImageIdx++">下一张</el-button>
+      </div>
+    </el-dialog>
 
     <!-- Create dialog -->
     <el-dialog v-model="showCreate" title="添加角色" width="560px">
@@ -135,6 +164,11 @@ const submitting = ref(false)
 const generatingId = ref<any>(null)
 const previewingId = ref<any>(null)
 const previewAudio = ref<{ id: number | null; url: string; text: string }>({ id: null, url: '', text: '' })
+const galleryVisible = ref(false)
+const galleryChar = ref<any>(null)
+const galleryImages = ref<string[]>([])
+const previewImageVisible = ref(false)
+const previewImageIdx = ref(0)
 
 const form = ref({
   name: '', gender: 'male', age: '', personality: '', appearance: '', description: '', voiceId: '', voiceName: '',
@@ -144,6 +178,36 @@ const form = ref({
 function onVoiceChange(val: string) {
   const voice = voices.value.find(v => v.voiceId === val)
   if (voice) form.value.voiceName = voice.name
+}
+
+function parseImageUrls(raw: any): string[] {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw.filter(Boolean)
+  if (typeof raw === 'string') {
+    try {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) return arr.filter(Boolean)
+    } catch { /* not JSON */ }
+    return raw.split(',').map((s: string) => s.trim()).filter(Boolean)
+  }
+  return []
+}
+
+function charImageCount(char: any): number {
+  const urls = parseImageUrls(char.imageUrls)
+  return urls.length || (char.imageUrl ? 1 : 0)
+}
+
+function openGallery(char: any) {
+  galleryChar.value = char
+  const urls = parseImageUrls(char.imageUrls)
+  galleryImages.value = urls.length > 0 ? urls : (char.imageUrl ? [char.imageUrl] : [])
+  galleryVisible.value = true
+}
+
+function openPreview(idx: number) {
+  previewImageIdx.value = idx
+  previewImageVisible.value = true
 }
 
 async function load() {
@@ -176,12 +240,21 @@ async function generateImage(char: any) {
       if (task.status === 'SUCCESS') {
         clearInterval(timer)
         generatingId.value = null
-        ElMessage.success('角色图像生成成功')
-        load()
+        ElMessage.success(task.message || '角色图像生成成功')
+        await load()
+        // 如果画廊正在展示该角色，刷新画廊数据
+        if (galleryVisible.value && galleryChar.value?.id === char.id) {
+          const updated = characters.value.find((c: any) => c.id === char.id)
+          if (updated) {
+            galleryChar.value = updated
+            const urls = parseImageUrls(updated.imageUrls)
+            galleryImages.value = urls.length > 0 ? urls : (updated.imageUrl ? [updated.imageUrl] : [])
+          }
+        }
       } else if (task.status === 'FAILED') {
         clearInterval(timer)
         generatingId.value = null
-        ElMessage.error('角色图像生成失败')
+        ElMessage.error(task.message || '角色图像生成失败')
       }
     }, 2000)
   } catch {
@@ -269,4 +342,71 @@ onMounted(async () => {
 .voice-option-name { font-weight: 600; color: var(--text-primary); }
 .voice-option-id { font-size: 12px; color: var(--text-muted); }
 .voice-option-desc { font-size: 12px; line-height: 1.4; color: var(--text-secondary); white-space: normal; }
+
+.char-card { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+.char-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+.char-image-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.char-avatar { position: relative; }
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+.gallery-item {
+  position: relative;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  aspect-ratio: 3 / 4;
+  background: var(--bg-muted);
+}
+.gallery-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s;
+}
+.gallery-item:hover img { transform: scale(1.05); }
+.gallery-main-tag {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.preview-image-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  max-height: 75vh;
+}
+.preview-image-wrap img {
+  max-width: 100%;
+  max-height: 75vh;
+  object-fit: contain;
+}
+.preview-nav {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
 </style>

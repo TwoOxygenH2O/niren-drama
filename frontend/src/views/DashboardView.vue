@@ -86,8 +86,10 @@
                 </button>
               </div>
               <div class="toolbar-right">
-                <span class="multi-label">多剧集</span>
-                <el-switch v-model="multiEpisode" size="small" />
+                <span class="multi-label">集数</span>
+                <el-select v-model="episodeCount" size="small" style="width: 68px" popper-class="episode-count-dropdown">
+                  <el-option v-for="n in 40" :key="n" :value="n" :label="`${n}集`" />
+                </el-select>
                 <button type="button" class="send-pill" title="生成 / 前往项目" @click="goFromInspiration">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="12" y1="19" x2="12" y2="5" />
@@ -152,13 +154,13 @@ const router = useRouter()
 const userStore = useUserStore()
 const inspiration = ref('')
 const expanded = ref(false)
-const multiEpisode = ref(false)
+const episodeCount = ref(20)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const videoModelName = ref('')
 const creatingProject = ref(false)
 
 const INSPIRATION_KEY = 'niren.dashboard.inspiration'
-const MULTI_EPISODE_KEY = 'niren.dashboard.multiEpisode'
+const EPISODE_COUNT_KEY = 'niren.dashboard.episodeCount'
 
 /** 与 AI 配置中心「文生视频」默认项的模型名称一致 */
 const videoModelLabel = computed(() => {
@@ -200,7 +202,9 @@ function onExternalCollapse() {
 
 function onWindowWheel(e: WheelEvent) {
   if (!expanded.value) return
-  const t = e.target
+  const t = e.target as HTMLElement | null
+  // 下拉弹窗内滚动不收起
+  if (t && t.closest('.el-select-dropdown, .el-popper, .el-overlay')) return
   if (t instanceof HTMLTextAreaElement) {
     if (t.scrollHeight > t.clientHeight + 1 && t.scrollTop > 0) {
       return
@@ -214,6 +218,13 @@ function onWindowWheel(e: WheelEvent) {
 
 onMounted(() => {
   loadDefaultVideoModel()
+  try {
+    const saved = sessionStorage.getItem(EPISODE_COUNT_KEY)
+    if (saved) {
+      const n = parseInt(saved, 10)
+      if (n >= 1 && n <= 40) episodeCount.value = n
+    }
+  } catch { /* ignore */ }
   window.addEventListener(DASHBOARD_COLLAPSE_COMPOSER, onExternalCollapse)
   window.addEventListener('wheel', onWindowWheel, { passive: true })
 })
@@ -234,13 +245,13 @@ async function goFromInspiration() {
     return
   }
   try {
-    sessionStorage.setItem(MULTI_EPISODE_KEY, multiEpisode.value ? '1' : '0')
+    sessionStorage.setItem(EPISODE_COUNT_KEY, String(episodeCount.value))
     sessionStorage.setItem(INSPIRATION_KEY, text)
   } catch {
     /* ignore */
   }
 
-  const episodes = 20
+  const episodes = episodeCount.value
 
   creatingProject.value = true
   try {
@@ -258,7 +269,7 @@ async function goFromInspiration() {
       ElMessage.error('创建项目失败')
       return
     }
-    await router.push(`/projects/${pid}/episodes`)
+    await router.push(`/projects/${pid}/immersive`)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : '创建项目失败'
     ElMessage.error(msg)

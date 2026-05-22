@@ -23,11 +23,15 @@ function buildShotSelectionPayload(
 }
 
 export const videoApi = {
-  /** Generate images for all storyboard shots */
+  /** Legacy: generate reference images for storyboard shots */
   generateImages: (projectId: number | string, shotIds?: Array<number | string>) =>
     request.post(`/videos/generate-images/${projectId}`, buildShotSelectionPayload(shotIds)),
 
-  /** Generate dynamic clips for selected storyboard shots */
+  /** Generate videos for selected storyboard shots */
+  generateStoryboardVideos: (projectId: number | string, shotIds?: Array<number | string>, options?: DynamicOptions) =>
+    request.post(`/videos/generate-dynamic/${projectId}`, buildShotSelectionPayload(shotIds, options)),
+
+  /** Generate videos for selected storyboard shots */
   generateDynamic: (projectId: number | string, shotIds?: Array<number | string>, options?: DynamicOptions) =>
     request.post(`/videos/generate-dynamic/${projectId}`, buildShotSelectionPayload(shotIds, options)),
 
