@@ -196,8 +196,9 @@ async function onOpen() {
   }
   loading.value = true
   try {
-    const res = await storyboardApi.listByScript(props.scriptId)
-    const rows = (res as any).data?.data ?? []
+    const res = await storyboardApi.listByProject(props.projectId)
+    const allRows = (res as any).data?.data ?? []
+    const rows = allRows.filter((s: any) => String(s.scriptId) === String(props.scriptId))
     shots.value = Array.isArray(rows)
       ? [...rows].sort((a: any, b: any) => (Number(a.shotNo) || 0) - (Number(b.shotNo) || 0))
       : []

@@ -568,13 +568,15 @@ async function ensureEpisodeStoryboard() {
     episodeStoryboardReady.value = false
     return
   }
-  const scriptId = Number(sidRaw)
+  const scriptId = String(sidRaw)
   episodeStoryboardGenerating.value = true
   try {
-    const listRes = await storyboardApi.listByScript(scriptId)
+    // 用 listByProject + 前端过滤代替 listByScript，避免大整数精度丢失
+    const allRes = await storyboardApi.listByProject(projectId.value)
     if (gen !== sbEnsureGeneration) return
-    const existing = (listRes as any).data?.data ?? []
-    if (Array.isArray(existing) && existing.length > 0) {
+    const allStoryboards = (allRes as any).data?.data ?? []
+    const existing = allStoryboards.filter((s: any) => String(s.scriptId) === scriptId)
+    if (existing.length > 0) {
       episodeStoryboardReady.value = true
       await refreshVideoOverview()
       return
@@ -586,9 +588,10 @@ async function ensureEpisodeStoryboard() {
     await pollTaskUntilDone(taskId)
     if (gen !== sbEnsureGeneration) return
 
-    const verify = await storyboardApi.listByScript(scriptId)
-    const rows = (verify as any).data?.data ?? []
-    if (!Array.isArray(rows) || rows.length === 0) {
+    const verifyRes = await storyboardApi.listByProject(projectId.value)
+    const allRows = (verifyRes as any).data?.data ?? []
+    const rows = allRows.filter((s: any) => String(s.scriptId) === scriptId)
+    if (rows.length === 0) {
       throw new Error('分镜生成完成但未查到镜头，请稍后重试')
     }
     episodeStoryboardReady.value = true

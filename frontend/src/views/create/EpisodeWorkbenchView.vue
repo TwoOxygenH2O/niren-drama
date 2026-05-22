@@ -240,8 +240,9 @@ async function loadData() {
     }
     return
   }
-  const sbRes = await storyboardApi.listByScript(sc.id)
-  const rows = (sbRes as any).data?.data ?? []
+  const sbRes = await storyboardApi.listByProject(projectId.value)
+  const allRows = (sbRes as any).data?.data ?? []
+  const rows = allRows.filter((s: any) => String(s.scriptId) === String(sc.id))
   shots.value = Array.isArray(rows)
     ? [...rows].sort(
         (a: any, b: any) => (Number(a.shotNo) || 0) - (Number(b.shotNo) || 0),
