@@ -220,7 +220,7 @@
           <button
             type="button"
             class="btn-plan-prompts"
-            :disabled="!activePlanScript?.id || !scriptReady"
+            :disabled="!activePlanScript?.id || !episodeScriptBody.trim()"
             @click="videoPromptsOpen = true"
           >
             生成视频提示词
@@ -424,11 +424,10 @@ const videoPromptsOpen = ref(false)
 const primaryVideoLabel = computed(() => (hasProjectVideo.value ? '查看成片' : '生成分镜视频'))
 
 const primaryVideoDisabled = computed(() => {
-  if (!scriptReady.value) return true
+  // 剧本存在即可操作，不依赖会话状态
+  if (!episodeScriptBody.value.trim() || !activePlanScript.value?.id) return true
   if (hasProjectVideo.value) return false
   return (
-    !episodeScriptBody.value.trim() ||
-    !activePlanScript.value?.id ||
     episodeStoryboardGenerating.value ||
     !episodeStoryboardReady.value ||
     mediaSubmitLoading.value
