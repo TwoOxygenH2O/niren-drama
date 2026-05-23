@@ -412,10 +412,35 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     }
 
     /**
-     * 向工作流注入负向提示词。查找第二个 CLIPTextEncode 节点（或专用 negative prompt 节点），
-     * 如果不存在则自动创建。
+     * 向工作流注入负向提示词。
+     * 如果 sampler 的 positive/negative 指向同一节点，将负向提示词追加到同一个 text 字段中。
      */
     private void injectNegativePromptToWorkflow(ObjectNode workflow) {
+        // 先检测 sampler 的 positive 和 negative 是否指向同一节点
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (!node.isObject()) continue;
+            String classType = node.path("class_type").asText("");
+            if (!isSamplerNode(classType)) continue;
+
+            JsonNode posInput = node.path("inputs").path("positive");
+            JsonNode negInput = node.path("inputs").path("negative");
+            if (posInput.isArray() && negInput.isArray()
+                    && posInput.size() >= 1 && negInput.size() >= 1
+                    && posInput.get(0).asText("").equals(negInput.get(0).asText(""))) {
+                // positive 和 negative 共享同一个节点 → 追加负向提示词
+                String sharedNodeId = posInput.get(0).asText();
+                JsonNode sharedNode = workflow.path(sharedNodeId);
+                if (sharedNode.isObject() && sharedNode.path("inputs").path("text").isTextual()) {
+                    String existing = sharedNode.path("inputs").path("text").asText("");
+                    ((ObjectNode) sharedNode.path("inputs")).put("text",
+                            existing + "\nNegative prompt: " + DEFAULT_NEGATIVE_PROMPT);
+                    return;
+                }
+            }
+        }
+
         // 先尝试找到已有的 negative prompt 节点
         for (var it = workflow.fields(); it.hasNext(); ) {
             var entry = it.next();

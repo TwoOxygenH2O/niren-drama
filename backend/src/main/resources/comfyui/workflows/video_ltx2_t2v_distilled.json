@@ -13,13 +13,6 @@
     }
   },
   "3": {
-    "class_type": "CLIPTextEncode",
-    "inputs": {
-      "text": "low quality, blurry, distorted",
-      "clip": ["1", 1]
-    }
-  },
-  "4": {
     "class_type": "EmptyLatentImage",
     "inputs": {
       "width": 480,
@@ -27,7 +20,7 @@
       "batch_size": 64
     }
   },
-  "5": {
+  "4": {
     "class_type": "KSampler",
     "inputs": {
       "seed": 0,
@@ -38,18 +31,18 @@
       "denoise": 1.0,
       "model": ["1", 0],
       "positive": ["2", 0],
-      "negative": ["3", 0],
-      "latent_image": ["4", 0]
+      "negative": ["2", 0],
+      "latent_image": ["3", 0]
     }
   },
-  "6": {
+  "5": {
     "class_type": "VAEDecode",
     "inputs": {
-      "samples": ["5", 0],
+      "samples": ["4", 0],
       "vae": ["1", 2]
     }
   },
-  "7": {
+  "6": {
     "class_type": "VHS_VideoCombine",
     "inputs": {
       "frame_rate": 8,
@@ -58,7 +51,7 @@
       "format": "video/h264-mp4",
       "save_output": false,
       "pingpong": false,
-      "images": ["6", 0]
+      "images": ["5", 0]
     }
   }
 }
