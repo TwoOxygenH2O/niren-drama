@@ -230,25 +230,38 @@ public class ImmersiveDirectorService {
             return;
         }
 
-        // 删除旧角色
-        characterService.deleteByProject(projectId);
-
-        // 重新从 commonInfo 提取角色档案
-        scriptService.syncCharactersFromCommonInfo(userId, projectId, commonInfo);
-
-        // 创建同步 task
+        // 先创建 PENDING 任务
         TaskRecord task = new TaskRecord();
         task.setProjectId(projectId);
         task.setUserId(userId);
         task.setTaskType("CHARACTER_REGENERATE");
-        task.setStatus("SUCCESS");
-        task.setProgress(100);
-        task.setMessage("角色已重新生成完毕");
+        task.setStatus("PENDING");
+        task.setProgress(0);
+        task.setMessage("正在重新生成角色…");
         taskRecordMapper.insert(task);
 
         resp.setTaskId(task.getId());
         resp.setTaskType(task.getTaskType());
-        resp.setReply(decision.reply() + "\n\n已重新生成角色列表，请在右侧策划栏查看。系统将自动生成角色形象图片。");
+
+        try {
+            characterService.deleteByProject(projectId);
+            scriptService.syncCharactersFromCommonInfo(userId, projectId, commonInfo);
+
+            task.setStatus("SUCCESS");
+            task.setProgress(100);
+            task.setMessage("角色已重新生成完毕");
+            taskRecordMapper.updateById(task);
+
+            resp.setReply(decision.reply() + "\n\n已重新生成角色列表，请在右侧策划栏查看。系统将自动生成角色形象图片。");
+        } catch (Exception e) {
+            log.error("角色重新生成失败: projectId={}", projectId, e);
+            task.setStatus("FAILED");
+            task.setMessage("角色重新生成失败: " + e.getMessage());
+            taskRecordMapper.updateById(task);
+
+            resp.setReply("角色重新生成失败：" + e.getMessage());
+            resp.setAction("NONE");
+        }
     }
 
     private record DirectorDecision(String reply, String action) {}
