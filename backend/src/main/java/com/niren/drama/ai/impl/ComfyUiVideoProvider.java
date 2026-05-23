@@ -340,44 +340,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     }
 
     private ObjectNode buildTextToVideoWorkflow(String prompt, int width, int height, int frames) {
-        // 如果是 LTX-2 模型，直接构建专用的 LTX-2 T2V 工作流
-        String ckpt = resolveCheckpointModel();
-        if (ckpt != null && ckpt.contains("ltx")) {
-            return buildLtx2T2vWorkflow(prompt, width, height, frames);
-        }
-
-        String workflowFile = null;
-        if (hasText(extra)) {
-            try {
-                JsonNode extraJson = objectMapper.readTree(extra);
-                JsonNode workflowNode = extraJson.path("workflow");
-                if (workflowNode.isObject()) {
-                    ObjectNode wf = (ObjectNode) workflowNode.deepCopy();
-                    injectPromptIntoWorkflow(wf, prompt);
-                    injectVideoParams(wf, width, height, frames);
-                    return wf;
-                }
-                String wf = extraJson.path("workflowFile").asText(null);
-                if (hasText(wf) && !wf.startsWith("user:")) {
-                    workflowFile = wf;
-                }
-            } catch (Exception ignored) {
-            }
-        }
-
-        // 默认使用 classpath 模板，避免从 ComfyUI 加载不兼容的用户工作流
-        String defaultT2vTemplate = "video_ltx2_t2v_distilled.json";
-        ObjectNode template = hasText(workflowFile)
-                ? ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile)
-                : ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, defaultT2vTemplate);
-        if (template != null) {
-            ComfyUiWorkflowLoader.injectPrompt(template, prompt);
-            injectNegativePromptToWorkflow(template);
-            injectVideoParams(template, width, height, frames);
-            return template;
-        }
-
-        return buildDefaultVideoWorkflow(prompt, null, width, height, frames);
+        return buildLtx2T2vWorkflow(prompt, width, height, frames);
     }
 
     private ObjectNode buildImageToVideoWorkflow(String imageUrl, String prompt,
