@@ -231,7 +231,10 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     injectVideoParams(wf, width, height, frames);
                     return wf;
                 }
-                workflowFile = extraJson.path("workflowFile").asText(null);
+                String wf = extraJson.path("workflowFile").asText(null);
+                if (hasText(wf) && !wf.startsWith("user:")) {
+                    workflowFile = wf;
+                }
             } catch (Exception ignored) {
             }
         }
@@ -266,7 +269,11 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     injectVideoParams(wf, width, height, frames);
                     return wf;
                 }
-                workflowFile = extraJson.path("workflowFile").asText(null);
+                String wf = extraJson.path("workflowFile").asText(null);
+                // 忽略 ComfyUI 用户工作流（user:前缀），只接受 classpath 模板
+                if (hasText(wf) && !wf.startsWith("user:")) {
+                    workflowFile = wf;
+                }
             } catch (Exception ignored) {
             }
         }
