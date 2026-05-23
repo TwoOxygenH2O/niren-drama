@@ -395,6 +395,21 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 }
             }
         }
+        // LTX-2 template: inject into PrimitiveStringMultiline (prompt input node)
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (node.isObject()) {
+                String classType = node.path("class_type").asText("");
+                if ("PrimitiveStringMultiline".equals(classType)) {
+                    JsonNode widgets = node.path("widgets_values");
+                    if (widgets.isArray() && widgets.size() > 0 && widgets.get(0).isTextual()) {
+                        ((ArrayNode) widgets).set(0, objectMapper.getNodeFactory().textNode(prompt));
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     private void injectImageIntoWorkflow(ObjectNode workflow, String imageUrl) {
