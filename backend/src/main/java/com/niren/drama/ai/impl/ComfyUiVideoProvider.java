@@ -233,7 +233,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         ObjectNode gemma = wf.putObject("2");
         gemma.put("class_type", "LTXVGemmaCLIPModelLoader");
         ObjectNode gemmaInputs = gemma.putObject("inputs");
-        gemmaInputs.put("gemma_path", "gemma-3-12b-it-qat-q4_0-unquantized/model-00001-of-00005.safetensors");
+        gemmaInputs.put("gemma_path", "gemma_3_12B_it_fp4_mixed.safetensors");
         gemmaInputs.put("ltxv_path", "ltx-2-19b-distilled.safetensors");
         gemmaInputs.put("max_length", 1024);
 
