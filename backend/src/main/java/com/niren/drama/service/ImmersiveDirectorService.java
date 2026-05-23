@@ -170,13 +170,14 @@ public class ImmersiveDirectorService {
                 - REGENERATE_STORYBOARD：用户明确要求重新生成、拆解、刷新、重做「本集分镜」「镜头表」「分镜脚本」等（针对当前集剧本）。
                 - REGENERATE_SCRIPT：用户明确要求重写、改写、重新生成「本集剧本正文」「剧本内容」等（不是大纲）。
                 - REPAIR_OUTLINE：用户希望在大纲阶段根据说明「修改、补充、调整全剧大纲预览」；仅当 workflowPhase 为 outline 且上下文中包含大纲正文时可选。
-                - REGENERATE_CHARACTER：用户明确要求重新生成、刷新、重做「角色」「人物」「主体列表」等（针对全项目角色库）。
+                - REGENERATE_CHARACTER：用户明确要求重新生成、刷新、重做「角色」「人物」「主体列表」等（适用于 plan_ready 或后续阶段，针对全项目角色库，将从项目通用信息中重新提取角色档案）。
 
                 规则：
-                1) 若当前阶段为 outline，且用户只是在讨论剧情走向而未要求改大纲，action 用 NONE。
-                2) 若 workflowPhase 不是 outline，不要选择 REPAIR_OUTLINE。
-                3) 若本集没有剧本正文却要求分镜，选择 NONE，并在 reply 中说明需先有剧本。
-                4) reply 与 action 必须一致，不要承诺无法在系统中自动完成的操作。
+                1) 若用户明确要求重新生成角色（如输入"重新生成角色"等关键词），且 workflowPhase 为 plan_ready 或后续阶段，必须选择 REGENERATE_CHARACTER。不要因当前阶段而拒绝。
+                2) 若当前阶段为 outline，且用户只是在讨论剧情走向而未要求改大纲，action 用 NONE。
+                3) 若 workflowPhase 不是 outline，不要选择 REPAIR_OUTLINE。
+                4) 若本集没有剧本正文却要求分镜，选择 NONE，并在 reply 中说明需先有剧本。
+                5) reply 与 action 必须一致，不要承诺无法在系统中自动完成的操作。
 
                 当前前端阶段代号："""
                 + phase
