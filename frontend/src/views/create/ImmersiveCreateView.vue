@@ -984,7 +984,7 @@ async function sendFollowUp() {
 
     const tid = data.taskId
     const ttype = data.taskType as string | undefined
-    if (tid != null && (ttype === 'STORYBOARD_GEN' || ttype === 'SCRIPT_GEN')) {
+    if (tid != null && (ttype === 'STORYBOARD_GEN' || ttype === 'SCRIPT_GEN' || ttype === 'CHARACTER_REGENERATE')) {
       try {
         await pollTaskUntilDone(String(tid))
         await loadPlanSideData()
@@ -994,13 +994,29 @@ async function sendFollowUp() {
           await loadEpisodeShots()
           await refreshVideoOverview()
         }
-        chatTail.value.push({
-          role: 'ai',
-          text:
-            ttype === 'STORYBOARD_GEN'
-              ? '后台任务已完成：本集分镜已写入，可在右侧策划栏查看。'
-              : '后台任务已完成：本集剧本已刷新，请查看右侧与剧本页。',
-        })
+        if (ttype === 'CHARACTER_REGENERATE') {
+          await refreshCharactersOnly()
+          chatTail.value.push({
+            role: 'ai',
+            text: '角色已重新生成完毕，正在生成角色形象图片…',
+          })
+          await triggerCharacterPortraits().catch(() => {
+            ElMessage.warning('部分角色形象生成失败，可在「角色管理」页手动重试')
+          })
+          await refreshCharactersOnly()
+          chatTail.value.push({
+            role: 'ai',
+            text: '角色形象已更新完毕，请在右侧策划栏查看。',
+          })
+        } else {
+          chatTail.value.push({
+            role: 'ai',
+            text:
+              ttype === 'STORYBOARD_GEN'
+                ? '后台任务已完成：本集分镜已写入，可在右侧策划栏查看。'
+                : '后台任务已完成：本集剧本已刷新，请查看右侧与剧本页。',
+          })
+        }
       } catch (te: unknown) {
         ElMessage.error(te instanceof Error ? te.message : '后台任务失败')
         if (ttype === 'STORYBOARD_GEN') {
