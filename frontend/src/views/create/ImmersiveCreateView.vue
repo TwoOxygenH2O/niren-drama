@@ -840,10 +840,12 @@ async function runScriptAndAssetsPipeline() {
 }
 
 /** 用户确认角色后，生成剧本 */
-async function confirmCharacters() {
+async function confirmCharacters(skipUserMessage = false) {
   if (charactersConfirmed.value) return
   charactersConfirmed.value = true
-  chatTail.value.push({ role: 'user', text: '确认角色' })
+  if (!skipUserMessage) {
+    chatTail.value.push({ role: 'user', text: '确认角色' })
+  }
   await nextTick()
   scrollToBottom()
 
@@ -943,6 +945,7 @@ function onBottomKeydown(e: KeyboardEvent) {
 }
 
 const CONFIRM_OUTLINE_TRIGGERS = ['确认分镜大纲', '确认大纲']
+const CONFIRM_CHARACTER_TRIGGERS = ['确认角色']
 
 async function sendFollowUp() {
   const t = bottomInput.value.trim()
@@ -958,6 +961,39 @@ async function sendFollowUp() {
       await saveOutlineAndAdvance()
     } catch {
       /* toast、phase、outlineConfirmBarDismissed 已在 saveOutlineAndAdvance 处理 */
+    } finally {
+      bottomSending.value = false
+      scrollToBottom()
+    }
+    return
+  }
+
+  if (CONFIRM_CHARACTER_TRIGGERS.includes(t)) {
+    bottomSending.value = true
+    chatTail.value.push({ role: 'user', text: t })
+    bottomInput.value = ''
+    if (!charactersReady.value) {
+      chatTail.value.push({
+        role: 'ai',
+        text: '角色尚未准备就绪，请先完成大纲确认流程。',
+      })
+      bottomSending.value = false
+      scrollToBottom()
+      return
+    }
+    if (charactersConfirmed.value) {
+      chatTail.value.push({
+        role: 'ai',
+        text: '角色已确认，剧本已生成。如需重新生成角色，请输入"重新生成角色"。',
+      })
+      bottomSending.value = false
+      scrollToBottom()
+      return
+    }
+    try {
+      await confirmCharacters(true)
+    } catch {
+      /* errors handled in confirmCharacters */
     } finally {
       bottomSending.value = false
       scrollToBottom()
