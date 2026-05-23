@@ -219,7 +219,133 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
           + "low quality, blurry, distorted, deformed, ugly, extra fingers, bad anatomy, text, watermark, "
           + "jpeg artifacts, worst quality, bad proportions, duplicate, mutation";
 
+    /** 构建 LTX-2 T2V 最小工作流（使用 Gemma CLIP loader） */
+    private ObjectNode buildLtx2T2vWorkflow(String prompt, int width, int height, int frames) {
+        ObjectNode wf = objectMapper.createObjectNode();
+
+        // Node 1: CheckpointLoaderSimple (diffusion model + VAE only)
+        ObjectNode loader = wf.putObject("1");
+        loader.put("class_type", "CheckpointLoaderSimple");
+        ObjectNode loaderInputs = loader.putObject("inputs");
+        loaderInputs.put("ckpt_name", resolveCheckpointModel());
+
+        // Node 2: LTXVGemmaCLIPModelLoader (Gemma text encoder)
+        ObjectNode gemma = wf.putObject("2");
+        gemma.put("class_type", "LTXVGemmaCLIPModelLoader");
+        ObjectNode gemmaInputs = gemma.putObject("inputs");
+        gemmaInputs.put("model_path", "gemma-3-12b-it-qat-q4_0-unquantized/model-00001-of-00005.safetensors");
+        gemmaInputs.put("max_length", 1024);
+
+        // Node 3: CLIPTextEncode (positive prompt, uses Gemma CLIP)
+        ObjectNode posClip = wf.putObject("3");
+        posClip.put("class_type", "CLIPTextEncode");
+        ObjectNode posInputs = posClip.putObject("inputs");
+        posInputs.put("text", prompt);
+        ArrayNode clipRef = posInputs.putArray("clip");
+        clipRef.add("2"); clipRef.add(0);
+
+        // Node 4: LTXVConditioning
+        ObjectNode cond = wf.putObject("4");
+        cond.put("class_type", "LTXVConditioning");
+        ObjectNode condInputs = cond.putObject("inputs");
+        ArrayNode condPos = condInputs.putArray("positive");
+        condPos.add("3"); condPos.add(0);
+        ArrayNode condNeg = condInputs.putArray("negative");
+        condNeg.add("3"); condNeg.add(0);
+        condInputs.put("frame_rate", 24.0);
+        condInputs.put("width", width);
+        condInputs.put("height", height);
+        condInputs.put("num_frames", frames);
+
+        // Node 5: EmptyLTXVLatentVideo
+        ObjectNode vidLatent = wf.putObject("5");
+        vidLatent.put("class_type", "EmptyLTXVLatentVideo");
+        ObjectNode vidLatentInputs = vidLatent.putObject("inputs");
+        vidLatentInputs.put("width", width);
+        vidLatentInputs.put("height", height);
+        vidLatentInputs.put("length", frames);
+
+        // Node 6: RandomNoise
+        ObjectNode noise = wf.putObject("6");
+        noise.put("class_type", "RandomNoise");
+        ObjectNode noiseInputs = noise.putObject("inputs");
+        noiseInputs.put("noise_seed", (int)(Math.random() * Integer.MAX_VALUE));
+
+        // Node 7: CFGGuider
+        ObjectNode guider = wf.putObject("7");
+        guider.put("class_type", "CFGGuider");
+        ObjectNode guiderInputs = guider.putObject("inputs");
+        ArrayNode gModel = guiderInputs.putArray("model");
+        gModel.add("1"); gModel.add(0);
+        ArrayNode gPos = guiderInputs.putArray("positive");
+        gPos.add("4"); gPos.add(0);
+        ArrayNode gNeg = guiderInputs.putArray("negative");
+        gNeg.add("4"); gNeg.add(1);
+        guiderInputs.put("cfg", 1.0);
+
+        // Node 8: KSamplerSelect
+        ObjectNode kss = wf.putObject("8");
+        kss.put("class_type", "KSamplerSelect");
+        ObjectNode kssInputs = kss.putObject("inputs");
+        kssInputs.put("sampler_name", "euler");
+
+        // Node 9: BasicScheduler
+        ObjectNode sched = wf.putObject("9");
+        sched.put("class_type", "BasicScheduler");
+        ObjectNode schedInputs = sched.putObject("inputs");
+        schedInputs.put("scheduler", "normal");
+        schedInputs.put("steps", 8);
+        schedInputs.put("denoise", 1.0);
+        ArrayNode schedModel = schedInputs.putArray("model");
+        schedModel.add("1"); schedModel.add(0);
+
+        // Node 10: SamplerCustomAdvanced
+        ObjectNode sampler = wf.putObject("10");
+        sampler.put("class_type", "SamplerCustomAdvanced");
+        ObjectNode samplerInputs = sampler.putObject("inputs");
+        ArrayNode sNoise = samplerInputs.putArray("noise");
+        sNoise.add("6"); sNoise.add(0);
+        ArrayNode sGuider = samplerInputs.putArray("guider");
+        sGuider.add("7"); sGuider.add(0);
+        ArrayNode sSampler = samplerInputs.putArray("sampler");
+        sSampler.add("8"); sSampler.add(0);
+        ArrayNode sSigmas = samplerInputs.putArray("sigmas");
+        sSigmas.add("9"); sSigmas.add(0);
+        ArrayNode sLatent = samplerInputs.putArray("latent_image");
+        sLatent.add("5"); sLatent.add(0);
+
+        // Node 11: VAEDecode
+        ObjectNode vaeDecode = wf.putObject("11");
+        vaeDecode.put("class_type", "VAEDecode");
+        ObjectNode vaeInputs = vaeDecode.putObject("inputs");
+        ArrayNode vaeSamples = vaeInputs.putArray("samples");
+        vaeSamples.add("10"); vaeSamples.add(0);
+        ArrayNode vaeRef = vaeInputs.putArray("vae");
+        vaeRef.add("1"); vaeRef.add(2);
+
+        // Node 12: VHS_VideoCombine
+        ObjectNode vhs = wf.putObject("12");
+        vhs.put("class_type", "VHS_VideoCombine");
+        ObjectNode vhsInputs = vhs.putObject("inputs");
+        vhsInputs.put("frame_rate", 24);
+        vhsInputs.put("loop_count", 0);
+        vhsInputs.put("filename_prefix", "niren_video");
+        vhsInputs.put("format", "video/h264-mp4");
+        vhsInputs.put("save_output", false);
+        vhsInputs.put("pingpong", false);
+        ArrayNode vhsImages = vhsInputs.putArray("images");
+        vhsImages.add("11"); vhsImages.add(0);
+
+        return wf;
+    }
+
     private ObjectNode buildTextToVideoWorkflow(String prompt, int width, int height, int frames) {
+        // 如果是 LTX-2 模型，直接构建专用的 LTX-2 T2V 工作流
+        String ckpt = resolveCheckpointModel();
+        if (ckpt != null && ckpt.contains("ltx")) {
+            return buildLtx2T2vWorkflow(prompt, width, height, frames);
+        }
+
         String workflowFile = null;
         if (hasText(extra)) {
             try {
