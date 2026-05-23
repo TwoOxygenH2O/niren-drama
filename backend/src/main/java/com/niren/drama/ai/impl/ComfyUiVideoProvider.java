@@ -371,6 +371,8 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         saveVideoInputs.put("loop_count", 0);
         saveVideoInputs.put("filename_prefix", "niren_video");
         saveVideoInputs.put("format", "video/h264-mp4");
+        saveVideoInputs.put("save_output", false);
+        saveVideoInputs.put("pingpong", false);
         ArrayNode imagesFrom = saveVideoInputs.putArray("images");
         imagesFrom.add("5");
         imagesFrom.add(0);

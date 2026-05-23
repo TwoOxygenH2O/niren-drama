@@ -76,6 +76,8 @@
       "loop_count": 0,
       "filename_prefix": "niren_video",
       "format": "video/h264-mp4",
+      "save_output": false,
+      "pingpong": false,
       "images": ["9", 0]
     }
   }
