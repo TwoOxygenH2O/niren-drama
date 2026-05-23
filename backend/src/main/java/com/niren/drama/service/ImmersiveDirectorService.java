@@ -12,6 +12,7 @@ import com.niren.drama.entity.Project;
 import com.niren.drama.entity.Script;
 import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.exception.BusinessException;
+import com.niren.drama.mapper.TaskRecordMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -31,6 +32,8 @@ public class ImmersiveDirectorService {
     private final StoryboardService storyboardService;
     private final AiProviderFactory aiProviderFactory;
     private final ObjectMapper objectMapper;
+    private final CharacterService characterService;
+    private final TaskRecordMapper taskRecordMapper;
 
     public ImmersiveDirectorChatResponse chat(Long userId, ImmersiveDirectorChatRequest request) {
         Long projectId = request.getProjectId();
@@ -94,6 +97,7 @@ public class ImmersiveDirectorService {
             case "REGENERATE_STORYBOARD" -> handleRegenerateStoryboard(userId, projectId, currentScript, decision, resp);
             case "REGENERATE_SCRIPT" -> handleRegenerateScript(userId, projectId, episodeNo, userMessage, decision, resp);
             case "REPAIR_OUTLINE" -> handleRepairOutline(userId, request, phase, decision, resp);
+            case "REGENERATE_CHARACTER" -> handleRegenerateCharacter(userId, projectId, decision, resp);
             default -> { /* NONE */ }
         }
         return resp;
@@ -166,6 +170,7 @@ public class ImmersiveDirectorService {
                 - REGENERATE_STORYBOARD：用户明确要求重新生成、拆解、刷新、重做「本集分镜」「镜头表」「分镜脚本」等（针对当前集剧本）。
                 - REGENERATE_SCRIPT：用户明确要求重写、改写、重新生成「本集剧本正文」「剧本内容」等（不是大纲）。
                 - REPAIR_OUTLINE：用户希望在大纲阶段根据说明「修改、补充、调整全剧大纲预览」；仅当 workflowPhase 为 outline 且上下文中包含大纲正文时可选。
+                - REGENERATE_CHARACTER：用户明确要求重新生成、刷新、重做「角色」「人物」「主体列表」等（针对全项目角色库）。
 
                 规则：
                 1) 若当前阶段为 outline，且用户只是在讨论剧情走向而未要求改大纲，action 用 NONE。
@@ -209,7 +214,41 @@ public class ImmersiveDirectorService {
         return "NONE".equals(action)
                 || "REGENERATE_STORYBOARD".equals(action)
                 || "REGENERATE_SCRIPT".equals(action)
-                || "REPAIR_OUTLINE".equals(action);
+                || "REPAIR_OUTLINE".equals(action)
+                || "REGENERATE_CHARACTER".equals(action);
+    }
+
+    private void handleRegenerateCharacter(Long userId,
+                                           Long projectId,
+                                           DirectorDecision decision,
+                                           ImmersiveDirectorChatResponse resp) {
+        Project project = projectService.getProject(userId, projectId);
+        String commonInfo = StringUtils.trimToNull(project.getCommonInfo());
+        if (commonInfo == null) {
+            resp.setReply("项目暂无通用信息（commonInfo），无法提取角色。请先完成大纲确认。");
+            resp.setAction("NONE");
+            return;
+        }
+
+        // 删除旧角色
+        characterService.deleteByProject(projectId);
+
+        // 重新从 commonInfo 提取角色档案
+        scriptService.syncCharactersFromCommonInfo(userId, projectId, commonInfo);
+
+        // 创建同步 task
+        TaskRecord task = new TaskRecord();
+        task.setProjectId(projectId);
+        task.setUserId(userId);
+        task.setTaskType("CHARACTER_REGENERATE");
+        task.setStatus("SUCCESS");
+        task.setProgress(100);
+        task.setMessage("角色已重新生成完毕");
+        taskRecordMapper.insert(task);
+
+        resp.setTaskId(task.getId());
+        resp.setTaskType(task.getTaskType());
+        resp.setReply(decision.reply() + "\n\n已重新生成角色列表，请在右侧策划栏查看。系统将自动生成角色形象图片。");
     }
 
     private record DirectorDecision(String reply, String action) {}
