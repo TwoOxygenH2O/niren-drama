@@ -214,6 +214,11 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return 0;
     }
 
+    private static final String DEFAULT_NEGATIVE_PROMPT =
+            "低质量, 模糊, 扭曲, 变形, 丑陋, 多余手指, 畸形手, 文字, 水印, "
+          + "low quality, blurry, distorted, deformed, ugly, extra fingers, bad anatomy, text, watermark, "
+          + "jpeg artifacts, worst quality, bad proportions, duplicate, mutation";
+
     private ObjectNode buildTextToVideoWorkflow(String prompt, int width, int height, int frames) {
         String workflowFile = null;
         if (hasText(extra)) {
@@ -223,6 +228,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 if (workflowNode.isObject()) {
                     ObjectNode wf = (ObjectNode) workflowNode.deepCopy();
                     injectPromptIntoWorkflow(wf, prompt);
+                    injectVideoParams(wf, width, height, frames);
                     return wf;
                 }
                 workflowFile = extraJson.path("workflowFile").asText(null);
@@ -230,7 +236,6 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             }
         }
 
-        // Try loading workflow template: explicit name → loadWorkflow; no name → loadDefaultWorkflow (user's ComfyUI first)
         ObjectNode template;
         if (hasText(workflowFile)) {
             template = ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile);
@@ -239,6 +244,8 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         }
         if (template != null) {
             ComfyUiWorkflowLoader.injectPrompt(template, prompt);
+            injectNegativePromptToWorkflow(template);
+            injectVideoParams(template, width, height, frames);
             return template;
         }
 
@@ -256,6 +263,8 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     ObjectNode wf = (ObjectNode) workflowNode.deepCopy();
                     injectPromptIntoWorkflow(wf, prompt);
                     injectImageIntoWorkflow(wf, uploadImageIfRemote(imageUrl));
+                    injectNegativePromptToWorkflow(wf);
+                    injectVideoParams(wf, width, height, frames);
                     return wf;
                 }
                 workflowFile = extraJson.path("workflowFile").asText(null);
@@ -263,7 +272,6 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             }
         }
 
-        // Try loading workflow template: explicit name → loadWorkflow; no name → loadDefaultWorkflow (user's ComfyUI first)
         ObjectNode template;
         if (hasText(workflowFile)) {
             template = ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile);
@@ -274,6 +282,8 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             String comfyImage = uploadImageIfRemote(imageUrl);
             ComfyUiWorkflowLoader.injectPrompt(template, prompt);
             ComfyUiWorkflowLoader.injectImage(template, comfyImage);
+            injectNegativePromptToWorkflow(template);
+            injectVideoParams(template, width, height, frames);
             return template;
         }
 
@@ -392,6 +402,204 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 }
             }
         }
+    }
+
+    /**
+     * 向工作流注入负向提示词。查找第二个 CLIPTextEncode 节点（或专用 negative prompt 节点），
+     * 如果不存在则自动创建。
+     */
+    private void injectNegativePromptToWorkflow(ObjectNode workflow) {
+        // 先尝试找到已有的 negative prompt 节点
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (!node.isObject()) continue;
+            String classType = node.path("class_type").asText("");
+            JsonNode inputs = node.path("inputs");
+            // 查找包含 "negative" 关键字的文本输入
+            for (var inIt = inputs.fields(); inIt.hasNext(); ) {
+                var inEntry = inIt.next();
+                if (inEntry.getKey().toLowerCase().contains("negative")
+                        && inEntry.getValue().isTextual()) {
+                    ((ObjectNode) inputs).put(inEntry.getKey(), DEFAULT_NEGATIVE_PROMPT);
+                    return;
+                }
+            }
+        }
+
+        // 没有专用 negative 节点 → 查找 KSampler/sampler 节点的 negative 输入引用
+        // 找到 sampler，看它的 negative 输入引用了哪个节点
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (!node.isObject()) continue;
+            String classType = node.path("class_type").asText("");
+            if (!isSamplerNode(classType)) continue;
+
+            JsonNode negInput = node.path("inputs").path("negative");
+            if (negInput.isArray() && negInput.size() >= 1 && negInput.get(0).isTextual()) {
+                String negNodeId = negInput.get(0).asText();
+                JsonNode negNode = workflow.path(negNodeId);
+                if (negNode.isObject() && negNode.path("inputs").path("text").isTextual()) {
+                    ((ObjectNode) negNode.path("inputs")).put("text", DEFAULT_NEGATIVE_PROMPT);
+                    return;
+                }
+            }
+        }
+
+        // 找不到 → 尝试创建一个简单的 negative prompt 节点
+        // 找到 CLIP 引用来创建
+        String clipRef = findClipReferenceForNegative(workflow);
+        if (clipRef == null) return;
+
+        String negNodeId = String.valueOf(Integer.parseInt(findMaxNodeId(workflow)) + 1);
+        ObjectNode negClip = workflow.putObject(negNodeId);
+        negClip.put("class_type", "CLIPTextEncode");
+        ObjectNode negInputs = negClip.putObject("inputs");
+        negInputs.put("text", DEFAULT_NEGATIVE_PROMPT);
+        ArrayNode clipArr = negInputs.putArray("clip");
+        clipArr.add(clipRef);
+        clipArr.add(1);
+
+        // 连接到 sampler 的 negative 输入
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (!node.isObject()) continue;
+            if (isSamplerNode(node.path("class_type").asText(""))) {
+                JsonNode negIn = node.path("inputs").path("negative");
+                if (negIn.isArray() && negIn.size() >= 1) {
+                    ArrayNode newNeg = ((ObjectNode) node.path("inputs")).putArray("negative");
+                    newNeg.add(negNodeId);
+                    newNeg.add(0);
+                    log.info("自动创建 negative prompt 节点 {} 并连接到 sampler", negNodeId);
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * 向工作流注入视频参数：帧数、分辨率、帧率。
+     * 使模板工作流中的 duration 参数真正生效。
+     */
+    private void injectVideoParams(ObjectNode workflow, int width, int height, int frames) {
+        int fps = 8; // 统一使用 8fps
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (!node.isObject()) continue;
+            String classType = node.path("class_type").asText("");
+            ObjectNode inputs = (ObjectNode) node.path("inputs");
+
+            switch (classType) {
+                // 视频合成节点 → 统一帧率
+                case "VHS_VideoCombine":
+                case "SaveVideo":
+                case "CreateVideo":
+                    inputs.put("frame_rate", fps);
+                    break;
+                // 潜在空间设置
+                case "EmptyLatentImage":
+                    inputs.put("width", width);
+                    inputs.put("height", height);
+                    inputs.put("batch_size", frames);
+                    break;
+                case "EmptyLTXVLatentVideo":
+                case "EmptyHunyuanLatentVideo":
+                case "EmptyHunyuanVideo15Latent":
+                    inputs.put("width", width);
+                    inputs.put("height", height);
+                    if (inputs.has("length")) {
+                        inputs.put("length", frames);
+                    }
+                    if (inputs.has("num_frames")) {
+                        inputs.put("num_frames", frames);
+                    }
+                    if (inputs.has("batch_size")) {
+                        inputs.put("batch_size", frames);
+                    }
+                    break;
+                // LTX conditioning
+                case "LTXVConditioning":
+                    inputs.put("width", width);
+                    inputs.put("height", height);
+                    inputs.put("num_frames", frames);
+                    break;
+                // WAN / Hunyuan sampler
+                case "WanVideoSampler":
+                case "WanVideoSamplerv2":
+                case "LTXVScheduler":
+                    if (inputs.has("num_frames")) {
+                        inputs.put("num_frames", frames);
+                    }
+                    break;
+                // Hunyuan latent
+                case "HunyuanImageToVideo":
+                case "HunyuanVideo15ImageToVideo":
+                    inputs.put("width", width);
+                    inputs.put("height", height);
+                    if (inputs.has("length")) {
+                        inputs.put("length", frames);
+                    }
+                    if (inputs.has("num_frames")) {
+                        inputs.put("num_frames", frames);
+                    }
+                    break;
+                // LTX image to video
+                case "LTXVImgToVideo":
+                case "LTXVImgToVideoAdvanced":
+                    inputs.put("width", width);
+                    inputs.put("height", height);
+                    if (inputs.has("length")) {
+                        inputs.put("length", frames);
+                    }
+                    if (inputs.has("num_frames")) {
+                        inputs.put("num_frames", frames);
+                    }
+                    break;
+            }
+        }
+        log.debug("注入视频参数: width={}, height={}, frames={}, fps={}", width, height, frames, fps);
+    }
+
+    private boolean isSamplerNode(String classType) {
+        return "KSampler".equals(classType)
+                || "KSamplerAdvanced".equals(classType)
+                || "WanVideoSampler".equals(classType)
+                || "WanVideoSamplerv2".equals(classType)
+                || "LTXVBaseSampler".equals(classType)
+                || "LTXVScheduler".equals(classType);
+    }
+
+    private String findClipReferenceForNegative(ObjectNode workflow) {
+        // 从 positive prompt 节点获取 CLIP 引用
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (!node.isObject()) continue;
+            String classType = node.path("class_type").asText("");
+            if ("CLIPTextEncode".equals(classType)) {
+                JsonNode clip = node.path("inputs").path("clip");
+                if (clip.isArray() && clip.size() >= 1 && clip.get(0).isTextual()) {
+                    return clip.get(0).asText();
+                }
+            }
+        }
+        return null;
+    }
+
+    private String findMaxNodeId(ObjectNode workflow) {
+        int max = 0;
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            try {
+                int id = Integer.parseInt(entry.getKey());
+                if (id > max) max = id;
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return String.valueOf(max);
     }
 
     private String uploadImageIfRemote(String imageUrl) throws Exception {

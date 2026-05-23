@@ -52,7 +52,7 @@
   "7": {
     "class_type": "VHS_VideoCombine",
     "inputs": {
-      "frame_rate": 24,
+      "frame_rate": 8,
       "loop_count": 0,
       "filename_prefix": "niren_video",
       "format": "video/h264-mp4",

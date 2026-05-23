@@ -13,12 +13,19 @@
     }
   },
   "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "low quality, blurry, distorted",
+      "clip": ["1", 1]
+    }
+  },
+  "4": {
     "class_type": "LoadImage",
     "inputs": {
       "image": "input_image.png"
     }
   },
-  "4": {
+  "5": {
     "class_type": "KSampler",
     "inputs": {
       "seed": 0,
@@ -29,25 +36,25 @@
       "denoise": 1.0,
       "model": ["1", 0],
       "positive": ["2", 0],
-      "negative": ["2", 0],
-      "latent_image": ["3", 0]
-    }
-  },
-  "5": {
-    "class_type": "VAEDecode",
-    "inputs": {
-      "samples": ["4", 0],
-      "vae": ["1", 2]
+      "negative": ["3", 0],
+      "latent_image": ["4", 0]
     }
   },
   "6": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["5", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "7": {
     "class_type": "VHS_VideoCombine",
     "inputs": {
-      "frame_rate": 24,
+      "frame_rate": 8,
       "loop_count": 0,
       "filename_prefix": "niren_video",
       "format": "video/h264-mp4",
-      "images": ["5", 0]
+      "images": ["6", 0]
     }
   }
 }
