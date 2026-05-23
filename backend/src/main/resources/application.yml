@@ -75,7 +75,7 @@ niren:
       provider: ${AI_VIDEO_PROVIDER:aliyun}
       base-url: ${AI_VIDEO_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
       api-key: ${AI_VIDEO_API_KEY:}
-      model: ${AI_VIDEO_MODEL:wan2.7-i2v}
+      model: ${AI_VIDEO_MODEL:ltx-2-19b-distilled.safetensors}
     tts:
       provider: ${AI_TTS_PROVIDER:aliyun}
       base-url: ${AI_TTS_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
