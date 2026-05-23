@@ -478,12 +478,11 @@ function toggleSelectAll() {
 const primaryVideoLabel = computed(() => (hasProjectVideo.value ? '查看成片' : '生成分镜视频'))
 
 const primaryVideoDisabled = computed(() => {
-  // 剧本存在即可操作，不依赖会话状态
+  // 剧本存在即可操作
   if (!episodeScriptBody.value.trim() || !activePlanScript.value?.id) return true
   if (hasProjectVideo.value) return false
   return (
     episodeStoryboardGenerating.value ||
-    !episodeStoryboardReady.value ||
     mediaSubmitLoading.value
   )
 })
@@ -710,7 +709,15 @@ async function onPrimaryVideoAction() {
     })
     return
   }
-  if (!activePlanScript.value?.id || !episodeStoryboardReady.value) return
+  if (!activePlanScript.value?.id) return
+  if (!episodeStoryboardReady.value) {
+    await ensureEpisodeStoryboard()
+    await loadEpisodeShots()
+    if (!episodeStoryboardReady.value) {
+      ElMessage.warning('分镜尚未准备就绪，请稍后重试')
+      return
+    }
+  }
   const shotIds = selectedShotIds.value.length > 0
     ? [...selectedShotIds.value]
     : allShotIds.value
