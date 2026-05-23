@@ -1038,7 +1038,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         } catch (Exception e) {
             log.warn("无法查询 ComfyUI 可用模型，使用默认值: {}", e.getMessage());
         }
-        return "wan2.1_i2v_480p_14B_fp8.safetensors";
+        return "ltx-2-19b-distilled.safetensors";
     }
 
     private String normalizeBaseUrl(String baseUrl) {
