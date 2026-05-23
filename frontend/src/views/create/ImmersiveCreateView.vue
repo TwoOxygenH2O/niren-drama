@@ -621,8 +621,8 @@ async function loadEpisodeShots() {
     episodeShots.value = all
       .filter((s: any) => String(s.scriptId) === String(sid))
       .sort((a: any, b: any) => (Number(a.shotNo) || 0) - (Number(b.shotNo) || 0))
-    // 默认全选
-    selectedShotIds.value = episodeShots.value.map((s: any) => String(s.id))
+    // 默认选择第一个镜头
+    selectedShotIds.value = episodeShots.value.length > 0 ? [String(episodeShots.value[0].id)] : []
   } catch { episodeShots.value = []; selectedShotIds.value = [] }
 }
 
