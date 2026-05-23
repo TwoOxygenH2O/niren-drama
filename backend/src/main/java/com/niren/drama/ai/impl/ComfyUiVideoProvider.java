@@ -236,12 +236,11 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             }
         }
 
-        ObjectNode template;
-        if (hasText(workflowFile)) {
-            template = ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile);
-        } else {
-            template = ComfyUiWorkflowLoader.loadDefaultWorkflow(apiBaseUrl, httpClient, "video_ltx2_t2v_distilled.json", "video");
-        }
+        // 默认使用 classpath 模板，避免从 ComfyUI 加载不兼容的用户工作流
+        String defaultT2vTemplate = "video_ltx2_t2v_distilled.json";
+        ObjectNode template = hasText(workflowFile)
+                ? ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile)
+                : ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, defaultT2vTemplate);
         if (template != null) {
             ComfyUiWorkflowLoader.injectPrompt(template, prompt);
             injectNegativePromptToWorkflow(template);
@@ -272,12 +271,11 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             }
         }
 
-        ObjectNode template;
-        if (hasText(workflowFile)) {
-            template = ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile);
-        } else {
-            template = ComfyUiWorkflowLoader.loadDefaultWorkflow(apiBaseUrl, httpClient, "video_ltx2_i2v_distilled.json", "video");
-        }
+        // 默认使用 classpath 模板，避免从 ComfyUI 加载不兼容的用户工作流
+        String defaultI2vTemplate = "video_ltx2_i2v_distilled.json";
+        ObjectNode template = hasText(workflowFile)
+                ? ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile)
+                : ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, defaultI2vTemplate);
         if (template != null) {
             String comfyImage = uploadImageIfRemote(imageUrl);
             ComfyUiWorkflowLoader.injectPrompt(template, prompt);
