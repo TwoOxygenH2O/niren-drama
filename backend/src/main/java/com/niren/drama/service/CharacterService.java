@@ -86,6 +86,11 @@ public class CharacterService {
         characterMapper.deleteById(id);
     }
 
+    public void deleteByProject(Long projectId) {
+        characterMapper.delete(new LambdaQueryWrapper<Character>()
+                .eq(Character::getProjectId, projectId));
+    }
+
     public Map<String, Object> previewTts(Long userId, Long characterId, String text) {
         Character character = getCharacter(characterId);
         String previewText = text != null && !text.isBlank()

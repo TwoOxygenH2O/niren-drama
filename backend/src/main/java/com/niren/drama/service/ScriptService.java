@@ -1671,7 +1671,7 @@ public class ScriptService {
         return titleMatcher.replaceFirst("").trim();
     }
 
-    private void syncCharactersFromCommonInfo(Long userId, Long projectId, String commonInfo) {
+    public void syncCharactersFromCommonInfo(Long userId, Long projectId, String commonInfo) {
         String normalizedCommonInfo = StringUtils.trimToNull(commonInfo);
         if (projectId == null || normalizedCommonInfo == null) {
             log.debug("通用信息为空，跳过角色同步: userId={}, projectId={}", userId, projectId);
