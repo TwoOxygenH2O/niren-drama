@@ -972,10 +972,10 @@ async function sendFollowUp() {
     bottomSending.value = true
     chatTail.value.push({ role: 'user', text: t })
     bottomInput.value = ''
-    if (!charactersReady.value) {
+    if (!charactersReady.value && !planCharacters.value.length) {
       chatTail.value.push({
         role: 'ai',
-        text: '角色尚未准备就绪，请先完成大纲确认流程。',
+        text: '暂无角色数据，请先完成大纲确认流程。',
       })
       bottomSending.value = false
       scrollToBottom()
