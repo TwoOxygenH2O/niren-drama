@@ -475,8 +475,10 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
 
     private String pollForResult(String promptId) throws Exception {
         String historyUrl = apiBaseUrl + "/history/" + promptId;
-        for (int attempt = 0; attempt < maxPollAttempts; attempt++) {
+        int attempt = 0;
+        while (true) {
             Thread.sleep(pollIntervalMs);
+            attempt++;
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(historyUrl))
@@ -494,6 +496,18 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             JsonNode root = objectMapper.readTree(body);
             JsonNode promptNode = root.path(promptId);
             if (promptNode.isMissingNode() || promptNode.isNull()) {
+                // 每 maxPollAttempts 次检查一次队列状态，确认任务还在
+                if (attempt % maxPollAttempts == 0) {
+                    String queueStatus = checkQueueStatus(promptId);
+                    if ("completed".equals(queueStatus)) {
+                        throw new RuntimeException("ComfyUI 任务可能已完成但 history 未返回，请检查 ComfyUI 输出目录 (prompt_id=" + promptId + ")");
+                    }
+                    if ("not_found".equals(queueStatus)) {
+                        throw new RuntimeException("ComfyUI 视频任务已不在队列中，可能已被清理 (prompt_id=" + promptId + ")");
+                    }
+                    log.info("ComfyUI 视频任务仍在执行中 (prompt_id={}, attempt={}, queueStatus={})",
+                            promptId, attempt, queueStatus);
+                }
                 continue;
             }
 
@@ -538,11 +552,19 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     throw new RuntimeException("ComfyUI 视频任务执行失败: " + msg);
                 }
             }
+
+            // 周期性打印进度日志
+            if (attempt % 20 == 0) {
+                log.info("ComfyUI 视频生成轮询中 (prompt_id={}, attempt={})", promptId, attempt);
+            }
         }
-        throw new RuntimeException(resolveTimeoutMessage(promptId));
     }
 
-    private String resolveTimeoutMessage(String promptId) {
+    /**
+     * 检查 ComfyUI 队列中 prompt 的状态。
+     * @return "running" | "pending" | "completed" | "not_found"
+     */
+    private String checkQueueStatus(String promptId) {
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(apiBaseUrl + "/queue"))
@@ -551,19 +573,20 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 400) {
-                return "ComfyUI 视频生成轮询超时 (prompt_id=" + promptId + ")";
+                return "unknown";
             }
             JsonNode queue = objectMapper.readTree(response.body());
             if (containsPromptId(queue.path("queue_running"), promptId)) {
-                return "ComfyUI 视频任务仍在执行中，请稍后到 ComfyUI 查看结果 (prompt_id=" + promptId + ")";
+                return "running";
             }
             if (containsPromptId(queue.path("queue_pending"), promptId)) {
-                return "ComfyUI 视频任务仍在队列中等待执行，请稍后到 ComfyUI 查看结果 (prompt_id=" + promptId + ")";
+                return "pending";
             }
+            return "not_found";
         } catch (Exception e) {
             log.debug("查询 ComfyUI 队列状态失败: {}", e.getMessage());
+            return "unknown";
         }
-        return "ComfyUI 视频生成轮询超时 (prompt_id=" + promptId + ")";
     }
 
     private boolean containsPromptId(JsonNode queueItems, String promptId) {
