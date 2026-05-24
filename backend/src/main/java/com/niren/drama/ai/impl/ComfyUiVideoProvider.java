@@ -229,13 +229,13 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         ObjectNode loaderInputs = loader.putObject("inputs");
         loaderInputs.put("ckpt_name", resolveCheckpointModel());
 
-        // Node 2: LTXVGemmaCLIPModelLoader (Gemma text encoder)
+        // Node 2: LTXAVTextEncoderLoader (works with single-file Gemma model)
         ObjectNode gemma = wf.putObject("2");
-        gemma.put("class_type", "LTXVGemmaCLIPModelLoader");
+        gemma.put("class_type", "LTXAVTextEncoderLoader");
         ObjectNode gemmaInputs = gemma.putObject("inputs");
-        gemmaInputs.put("gemma_path", "gemma_3_12B_it_fp4_mixed.safetensors");
-        gemmaInputs.put("ltxv_path", "ltx-2-19b-distilled.safetensors");
-        gemmaInputs.put("max_length", 1024);
+        gemmaInputs.put("text_encoder", "gemma_3_12B_it_fp4_mixed.safetensors");
+        gemmaInputs.put("ckpt_name", "ltx-2-19b-distilled.safetensors");
+        gemmaInputs.put("device", "default");
 
         // Node 3: CLIPTextEncode (positive prompt, uses Gemma CLIP)
         ObjectNode posClip = wf.putObject("3");
@@ -342,7 +342,102 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     }
 
     private ObjectNode buildTextToVideoWorkflow(String prompt, int width, int height, int frames) {
+        if (isWanModel()) {
+            return buildWan22T2vWorkflow(prompt, width, height, frames);
+        }
         return buildLtx2T2vWorkflow(prompt, width, height, frames);
+    }
+
+    private boolean isWanModel() {
+        return hasText(model) && model.toLowerCase().contains("wan");
+    }
+
+    /** 构建 Wan2.2 T2V 工作流，优先从 classpath 模板加载 */
+    private ObjectNode buildWan22T2vWorkflow(String prompt, int width, int height, int frames) {
+        String templateName = "video_wan2_2_14B_t2v.json";
+        ObjectNode template = ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, templateName);
+        if (template != null) {
+            ComfyUiWorkflowLoader.injectPrompt(template, prompt);
+            injectNegativePromptToWorkflow(template);
+            injectVideoParams(template, width, height, frames);
+            return template;
+        }
+        return buildWan22T2vWorkflowInline(prompt, width, height, frames);
+    }
+
+    /** Wan2.2 T2V 内联构建（模板加载失败时的回退） */
+    private ObjectNode buildWan22T2vWorkflowInline(String prompt, int width, int height, int frames) {
+        ObjectNode wf = objectMapper.createObjectNode();
+
+        // Node 1: WanVideoModelLoader
+        ObjectNode modelLoader = wf.putObject("1");
+        modelLoader.put("class_type", "WanVideoModelLoader");
+        ObjectNode mlInputs = modelLoader.putObject("inputs");
+        mlInputs.put("model", resolveCheckpointModel());
+        mlInputs.put("precision", "fp8_scaled");
+
+        // Node 2: WanVideoVAELoader
+        ObjectNode vaeLoader = wf.putObject("2");
+        vaeLoader.put("class_type", "WanVideoVAELoader");
+        ObjectNode vlInputs = vaeLoader.putObject("inputs");
+        vlInputs.put("vae_name", "wan_2.1_vae.safetensors");
+
+        // Node 3: WanVideoTextEncode
+        ObjectNode textEnc = wf.putObject("3");
+        textEnc.put("class_type", "WanVideoTextEncode");
+        ObjectNode teInputs = textEnc.putObject("inputs");
+        teInputs.put("positive_prompt", prompt);
+        teInputs.put("negative_prompt", DEFAULT_NEGATIVE_PROMPT);
+        ArrayNode teClip = teInputs.putArray("clip");
+        teClip.add("1"); teClip.add(1);
+
+        // Node 4: EmptyHunyuanLatentVideo
+        ObjectNode latent = wf.putObject("4");
+        latent.put("class_type", "EmptyHunyuanLatentVideo");
+        ObjectNode latentInputs = latent.putObject("inputs");
+        latentInputs.put("width", width);
+        latentInputs.put("height", height);
+        latentInputs.put("length", frames);
+
+        // Node 5: WanVideoSampler
+        ObjectNode sampler = wf.putObject("5");
+        sampler.put("class_type", "WanVideoSampler");
+        ObjectNode sInputs = sampler.putObject("inputs");
+        sInputs.put("seed", (int)(Math.random() * Integer.MAX_VALUE));
+        sInputs.put("steps", 20);
+        sInputs.put("cfg", 6.0);
+        ArrayNode sModel = sInputs.putArray("model");
+        sModel.add("1"); sModel.add(0);
+        ArrayNode sPos = sInputs.putArray("positive");
+        sPos.add("3"); sPos.add(0);
+        ArrayNode sNeg = sInputs.putArray("negative");
+        sNeg.add("3"); sNeg.add(1);
+        ArrayNode sLatent = sInputs.putArray("latent_image");
+        sLatent.add("4"); sLatent.add(0);
+
+        // Node 6: WanVideoDecode
+        ObjectNode decode = wf.putObject("6");
+        decode.put("class_type", "WanVideoDecode");
+        ObjectNode dInputs = decode.putObject("inputs");
+        ArrayNode dSamples = dInputs.putArray("samples");
+        dSamples.add("5"); dSamples.add(0);
+        ArrayNode dVae = dInputs.putArray("vae");
+        dVae.add("2"); dVae.add(0);
+
+        // Node 7: VHS_VideoCombine
+        ObjectNode vhs = wf.putObject("7");
+        vhs.put("class_type", "VHS_VideoCombine");
+        ObjectNode vhsInputs = vhs.putObject("inputs");
+        vhsInputs.put("frame_rate", 8);
+        vhsInputs.put("loop_count", 0);
+        vhsInputs.put("filename_prefix", "niren_video");
+        vhsInputs.put("format", "video/h264-mp4");
+        vhsInputs.put("save_output", false);
+        vhsInputs.put("pingpong", false);
+        ArrayNode vhsImages = vhsInputs.putArray("images");
+        vhsImages.add("6"); vhsImages.add(0);
+
+        return wf;
     }
 
     private ObjectNode buildImageToVideoWorkflow(String imageUrl, String prompt,
@@ -369,8 +464,9 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             }
         }
 
-        // 默认使用 classpath 模板，避免从 ComfyUI 加载不兼容的用户工作流
-        String defaultI2vTemplate = "video_ltx2_i2v_distilled.json";
+        // 默认优先从 ComfyUI User Data 加载用户验证过的工作流（user: 前缀），
+        // 找不到时回退到 classpath 模板
+        String defaultI2vTemplate = "user:video_ltx2_i2v_distilled.json";
         ObjectNode template = hasText(workflowFile)
                 ? ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile)
                 : ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, defaultI2vTemplate);
