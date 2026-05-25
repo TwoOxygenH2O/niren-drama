@@ -857,7 +857,7 @@ public final class ComfyUiWorkflowLoader {
     }
 
     private static String normalizeBaseUrl(String baseUrl) {
-        if (baseUrl == null || baseUrl.isBlank()) return "http://localhost:8188";
+        if (baseUrl == null || baseUrl.isBlank()) return "http://127.0.0.1:8188";
         String normalized = baseUrl.trim();
         if (normalized.endsWith("/")) normalized = normalized.substring(0, normalized.length() - 1);
         return normalized;

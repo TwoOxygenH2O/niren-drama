@@ -94,9 +94,9 @@ public class StoryboardService {
     private static final int STORYBOARD_SCENE_BATCH_TARGET_CHARS = 200;
     private static final int STORYBOARD_SCENE_BATCH_MIN_CHARS = 50;
     private static final int STORYBOARD_SCENE_BATCH_MAX_LINES = 4;
-    private static final int IMAGE_PROMPT_MAX_CHARS = 620;
+    private static final int IMAGE_PROMPT_MAX_CHARS = 760;
     private static final int IMAGE_NEGATIVE_MAX_CHARS = 220;
-    private static final int VIDEO_PROMPT_MAX_CHARS = 360;
+    private static final int VIDEO_PROMPT_MAX_CHARS = 420;
     private static final int TTS_INSTRUCTION_MAX_CHARS = 280;
     private static final int TASK_RESULT_MAX_CHARS = 15000;
     private static final int TASK_RESULT_MAX_CALLS = 8;
@@ -801,6 +801,7 @@ if (isStream) {
      * Start generating images for all storyboard shots of a project.
      */
     public TaskRecord startGenerateStoryboardImages(Long userId, Long projectId, java.util.List<Long> shotIds) {
+        projectService.getProject(userId, projectId);
         List<Storyboard> shots = listByProject(projectId);
         if (shotIds != null && !shotIds.isEmpty()) {
             shots = shots.stream().filter(s -> shotIds.contains(s.getId())).toList();
@@ -827,6 +828,37 @@ if (isStream) {
         taskRecordMapper.insert(task);
         selfProvider.getObject().generateStoryboardImagesAsync(userId, projectId, shots, task.getId());
         return task;
+    }
+
+    /**
+     * 同步为缺少图片的分镜补全参考图（供视频生成流程调用）。
+     * 已有图片的分镜会被跳过。
+     */
+    public void ensureShotsHaveImages(Long userId, Long projectId, List<Storyboard> shots) {
+        ImageAiProvider imageProvider = aiProviderFactory.getImageProvider(userId);
+        Project project = projectService.getProject(userId, projectId);
+        for (Storyboard shot : shots) {
+            if (hasText(shot.getImageUrl())) continue;
+            try {
+                String prompt = shot.getImagePrompt();
+                Character character = resolveShotCharacter(shot);
+                if (prompt == null || prompt.isBlank()) {
+                    prompt = buildImagePrompt(shot, character, project);
+                }
+                List<String> referenceImageUrls = collectReferenceImageUrls(shot, character);
+                String generationPrompt = buildImageGenerationPrompt(prompt, character, referenceImageUrls, project);
+                String negativePrompt = buildImageNegativePrompt(character, project);
+                String imageUrl = generateImageWithRetry(imageProvider,
+                        generationPrompt, "1024*1024", referenceImageUrls, negativePrompt, shot);
+                shot.setImageUrl(imageUrl);
+                shot.setStatus("image_generated");
+                storyboardMapper.updateById(shot);
+                log.info("视频前补全分镜图片成功: shotNo={}, imageUrl={}", shot.getShotNo(), imageUrl);
+            } catch (Exception e) {
+                log.error("视频前补全分镜图片失败: shotNo={}, error={}", shot.getShotNo(), e.getMessage());
+                throw new RuntimeException("分镜 " + shot.getShotNo() + " 图片生成失败: " + e.getMessage(), e);
+            }
+        }
     }
 
     @Async("aiTaskExecutor")
@@ -1040,6 +1072,7 @@ if (isStream) {
      * Start generating TTS audio for all storyboard shots of a project.
      */
     public TaskRecord startGenerateStoryboardAudio(Long userId, Long projectId, java.util.List<Long> shotIds) {
+        projectService.getProject(userId, projectId);
         List<Storyboard> shots = listByProject(projectId);
         if (shotIds != null && !shotIds.isEmpty()) {
             shots = shots.stream().filter(s -> shotIds.contains(s.getId())).toList();
@@ -1723,7 +1756,7 @@ if (isStream) {
                 - narration: 少用笔法；仅极少数 VO/OS 画外；与 dialogue 不重复；不要当小说旁白铺满
                 - subtitleText: 可选。上屏短句（无角色名/无情绪头）；默认可空，由系统从 dialogue 派生
                 - ttsText: 可选。更口语的念稿，可与上屏不同；默认可空，由旁白+对白派生
-                - duration: 镜头时长（秒，2-5 秒为主，超短爽点可更短，避免长镜念小说）
+                - duration: 镜头时长（秒，3-8 秒为主，对白镜头不少于3秒，动作或情绪爆发镜头5-8秒，避免每秒一切割的碎片感）
                 - characterName: 主要角色名（如有，用于角色一致性和图片复用）
                 - sceneName: 场景名称（用于场景复用优化）
                 - isDynamic: 是否为动态镜头（true=需要AI视频，false=静态图片即可）
@@ -1747,8 +1780,30 @@ if (isStream) {
                 12. 若 ttsText 包含角色或情绪标签，必须放在可剥离前缀里（如【角色|情绪】），正文保持可直接朗读
                 
                 # imagePrompt 模板
-                每个 imagePrompt 应包含以下要素：
-                "竖版9:16构图，[镜头类型]，[人物主体描述含外貌服装表情动作]，[场景环境描述]，[光影氛围]，电影级质感，高清4K，[风格关键词如：戏剧性光影/高饱和度/冷色调/暖色调]"
+                每个 imagePrompt 必须非常详细，包含以下全部要素（按顺序）：
+                "竖版9:16构图，[镜头类型：特写/中景/全景/俯拍/低角度/POV/跟拍]，
+                 [主体人物描述：姓名+性别+年龄段+五官特征+发型+服装+配饰]，[人物动作与表情详情]，
+                 [场景环境：具体地点+空间大小+主要陈设+背景元素]，[光影氛围：时间/光源方向/色温/明暗对比]，
+                 [调色风格：电影级冷暖对比/高饱和度/柔光/霓虹/暗调等]，[特殊效果：景深/粒子/光斑/雾气/雨雪]，
+                 电影级质感，超高清，8K，短剧封面级画质，C4D渲染级精度，皮肤纹理细腻，服装材质真实，
+                 [项目题材风格关键词]"
+
+                重要约束：
+                - 同一角色在不同镜头中的 imagePrompt 必须保持外貌描述一致（年龄/五官/发型/服装不变）
+                - 必须先描述人物主体，再描述环境，最后描述光影和调色
+                - 禁止出现模糊描述如"一个男人"或"某个房间"——必须用角色名和具体场景
+                - 如果镜头有角色，必须明确写出角色姓名
+
+                # videoPrompt 模板
+                每个 videoPrompt 必须描述基于该镜头关键帧的动态变化（不重复 imagePrompt 中的画面基础描述）：
+                "[镜头运动方式：缓推/横移/摇镜/升格/急推]，[运动时长与节奏]，[主体动态：人物的具体动作/表情变化/肢体语言]，
+                 [环境动态：飘动的发丝/衣摆/风吹草动/光影流转/背景虚化推进]，
+                 [情绪氛围变化]，[声音配合提示（可选）：如"配合紧张BGM"或"对白同步口型"]"
+
+                重要约束：
+                - videoPrompt 只描述动态变化，不要重复画面构图和外观
+                - 必须包含镜头运动方式（不是"可能有运动"这种模糊表述）
+                - 如果 isDynamic=true，videoPrompt 必须详细；如果 isDynamic=false，videoPrompt 可简单
 
                 %s
                 
@@ -1827,7 +1882,7 @@ if (isStream) {
                 shot.setSubtitleText(textOrNull(shotNode, "subtitleText"));
                 shot.setTtsText(textOrNull(shotNode, "ttsText"));
                 int rawDur = shotNode.path("duration").asInt(5);
-                shot.setDuration(Math.min(Math.max(rawDur, 1), 5));
+                shot.setDuration(Math.min(Math.max(rawDur, 3), 8));
                 shot.setUserLockedSubtitle(false);
                 shot.setUserLockedTts(false);
                 shot.setStatus("draft");
@@ -1933,16 +1988,38 @@ if (isStream) {
     }
 
     private String buildImagePrompt(Storyboard shot, Character character, Project project) {
-        String cameraAngle = shot.getCameraAngle() != null ? shot.getCameraAngle() : "medium shot";
+        String cameraAngle = shot.getCameraAngle() != null ? shot.getCameraAngle() : "medium";
+        String cameraLabel = toCameraLabel(cameraAngle);
         String description = shot.getDescription() != null ? shot.getDescription() : "短剧场景画面";
         String characterAnchor = buildCharacterAnchor(character);
         String projectVisualGuide = compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project)));
-        return String.format(
-                "竖版9:16构图，%s镜头，%s%s，项目视觉约束：%s，电影级质感，高清4K，戏剧性光影，高饱和度色彩，短剧封面级画质，景深效果，专业摄影",
-                cameraAngle,
-                hasText(characterAnchor) ? characterAnchor + "，" : "",
-                description,
-                projectVisualGuide);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("竖版9:16构图，").append(cameraLabel).append("镜头");
+        if (hasText(characterAnchor)) {
+            sb.append("，主体角色：").append(characterAnchor);
+            sb.append("。角色面部五官、发型、体型必须与角色设定严格一致");
+        }
+        sb.append("。画面内容：").append(description);
+        sb.append("。项目视觉约束：").append(projectVisualGuide);
+        sb.append("。超高清8K，电影级戏剧性光影，高饱和度色彩，短剧封面级画质，");
+        sb.append("景深虚化效果，C4D渲染级精度，皮肤纹理细腻，服装材质真实，专业电影摄影");
+
+        return clampPromptLength(sb.toString(), IMAGE_PROMPT_MAX_CHARS);
+    }
+
+    private String toCameraLabel(String cameraAngle) {
+        return switch (cameraAngle != null ? cameraAngle.trim().toLowerCase(java.util.Locale.ROOT) : "") {
+            case "close-up", "closeup" -> "面部特写";
+            case "medium" -> "半身中景";
+            case "wide" -> "全景";
+            case "overhead" -> "俯拍";
+            case "low-angle" -> "仰角";
+            case "pov" -> "主观视角POV";
+            case "high-angle" -> "高角度俯视";
+            case "tracking" -> "跟拍运动";
+            default -> cameraAngle;
+        };
     }
 
     private void applyDynamicRecommendation(Storyboard shot, JsonNode shotNode, Project project) {
@@ -2198,19 +2275,36 @@ if (isStream) {
 
     private String buildVideoPrompt(Storyboard shot, String motionLevel, Project project) {
         String motionInstruction = switch (normalizeMotionLevel(motionLevel)) {
-            case "high" -> "镜头快速推进，人物动作幅度大且连贯，情绪变化强烈，画面张力十足";
-            case "medium" -> "镜头缓慢推进或平滑横移，人物有自然的肢体动作和表情变化，氛围渐进式增强";
-            default -> "保持关键帧主体不变，仅做极轻微的镜头缓推和自然微动（呼吸感/发丝飘动/光影变化）";
+            case "high" -> "镜头快速推进或急甩，人物动作幅度大且连贯流畅（走动/转身/大幅度手势），情绪爆发式表情变化，画面张力和冲击力十足，背景虚化快速变化";
+            case "medium" -> "镜头持续平缓推进（Ken Burns推拉），人物有明确可见的肢体动作（转头/抬手/眼神流转/嘴微动说话），面部微表情丰富变化，光影缓慢移动，背景虚化层次渐变";
+            default -> "镜头持续缓慢但可见的推进（5-8%%缓推），人物保持自然姿态但有明确微动作（眨眼/嘴唇微动/转头/身体微倾/手势轻抬），背景光影自然流转，发丝和衣角轻微飘动，营造真实的呼吸感和画面生命力，画面必须有可见的动态变化，不能是完全静止的图片";
         };
 
-        String sceneContext = hasText(shot.getDescription()) ? trimPromptSegment(shot.getDescription(), 90) : "保持剧情镜头连续性";
+        String sceneContext = hasText(shot.getDescription()) ? trimPromptSegment(shot.getDescription(), 100) : "保持剧情连续性";
+        String characterContext = buildCharacterContextForVideo(shot);
         String projectVisualGuide = compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project)));
         return clampPromptLength(String.format(
-                "基于该关键帧生成%ds竖屏9:16动态镜头。%s。项目视觉约束：%s。画面主体保持一致，避免角色面部和场景漂移变形。场景：%s。确保动态自然流畅，符合短剧叙事节奏。",
-                shot.getDuration() != null ? shot.getDuration() : 5,
+                "基于该关键帧生成%ds竖屏9:16动态镜头。%s。%s项目视觉约束：%s。角色主体保持一致，避免面部漂移变形和场景穿帮。镜头内容：%s。动态效果自然流畅，符合短剧叙事张力节奏。",
+                shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 5,
                 motionInstruction,
+                hasText(characterContext) ? characterContext + "。" : "",
                 projectVisualGuide,
                 sceneContext), VIDEO_PROMPT_MAX_CHARS);
+    }
+
+    private String buildCharacterContextForVideo(Storyboard shot) {
+        if (shot.getCharacterId() == null) return "";
+        Character character = characterMapper.selectById(shot.getCharacterId());
+        if (character == null || !hasText(character.getName())) return "";
+        StringBuilder sb = new StringBuilder();
+        sb.append("核心角色：").append(character.getName());
+        if (hasText(character.getGender())) {
+            sb.append("（").append(displayGender(character.getGender())).append("）");
+        }
+        if (hasText(character.getAppearance())) {
+            sb.append("，外貌：").append(trimPromptSegment(character.getAppearance(), 40));
+        }
+        return sb.toString();
     }
 
     private String normalizeMotionLevel(String motionLevel) {
@@ -2360,7 +2454,7 @@ if (isStream) {
     }
 
     private String buildImageGenerationPrompt(String originalPrompt, Character character, List<String> referenceImageUrls, Project project) {
-        String promptCore = trimPromptSegment(originalPrompt, 260);
+        String promptCore = trimPromptSegment(originalPrompt, 280);
         if (character == null) {
             return clampPromptLength("项目视觉约束："
                     + compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project)))
@@ -2371,7 +2465,7 @@ if (isStream) {
         builder.append("项目视觉约束：")
                 .append(compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project))))
                 .append("。");
-        builder.append("角色设定锚点：主体必须是角色“")
+        builder.append("角色一致性锚点：主体必须是角色“")
                 .append(character.getName())
                 .append("”");
 
@@ -2385,13 +2479,16 @@ if (isStream) {
         if (hasText(character.getAppearance())) {
             anchors.add("外貌特征" + character.getAppearance());
         }
+        if (hasText(character.getPersonality())) {
+            anchors.add("气质" + character.getPersonality());
+        }
         if (!anchors.isEmpty()) {
             builder.append("，").append(String.join("，", anchors));
         }
-        builder.append("。人物年龄感、脸型、发型、体态必须保持稳定，脸部清晰可辨。");
+        builder.append("。人物年龄感、脸型五官、发型、体型、服装必须保持完全稳定，脸部清晰可辨无变形。");
 
         if (hasCharacterReferenceImage(character, referenceImageUrls)) {
-            builder.append("已提供该角色参考图，必须严格保持与参考图为同一人物，不得改变年龄感、五官、发型和服装识别特征。");
+            builder.append("已提供该角色多角度参考图（正面/侧面/回眸），必须严格保持与参考图为同一人物，不得改变年龄感、五官结构、发型、肤色和服装。面部五官比例和轮廓必须与参考图高度一致，不可更换演员。");
         }
 
         builder.append("当前镜头要求：").append(promptCore);
@@ -2538,4 +2635,3 @@ if (isStream) {
 
     private record MotionTierDecision(String tier, String reason) {}
 }
-

@@ -749,12 +749,12 @@ public class AiVideoGenerationService {
         int baseDuration = fallbackDuration > 0 ? fallbackDuration : 5;
         String tier = resolveMotionTier(shot);
         if ("A".equalsIgnoreCase(tier)) {
-            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 3), 6), "pro", "1080P");
+            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 5), 8), "pro", "1080P");
         }
         if ("B".equalsIgnoreCase(tier)) {
-            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 1), 2), "standard", "720P");
+            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 4), 6), "standard", "720P");
         }
-        return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 2), 4), "standard", "720P");
+        return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 3), 5), "standard", "720P");
     }
 
     private String resolveMotionTier(Storyboard shot) {
@@ -801,7 +801,34 @@ public class AiVideoGenerationService {
                 .replace("- ", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
-        return basePrompt + "。项目视觉约束：" + visualGuide;
+
+        // 电影级画质前缀（强约束，放在 prompt 最前面以获取最高权重）
+        StringBuilder sb = new StringBuilder();
+        sb.append("Cinematic live-action film, photorealistic, 8K, professional cinematography, "
+                + "realistic human actors, natural skin texture, realistic fabric and clothing, "
+                + "dramatic lighting, shallow depth of field, anamorphic lens, film grain, "
+                + "no cartoon, no anime, no CGI, no 3D render, no illustration. ");
+        sb.append(basePrompt);
+
+        // 附加角色一致性要求
+        if (shot.getCharacterId() != null) {
+            Character character = characterMapper.selectById(shot.getCharacterId());
+            if (character != null && hasText(character.getName())) {
+                sb.append("。角色主体：").append(character.getName());
+                if (hasText(character.getAppearance())) {
+                    sb.append("（").append(trimToLength(character.getAppearance(), 60)).append("）");
+                }
+                sb.append("，保持角色外貌一致无变形");
+            }
+        }
+        sb.append("。项目视觉约束：").append(visualGuide);
+        sb.append("。竖屏9:16，确保主体完整不裁切，面部清晰可辨，动态自然流畅。");
+        return sb.toString();
+    }
+
+    private String trimToLength(String text, int maxLen) {
+        if (text == null || text.isEmpty()) return "";
+        return text.length() <= maxLen ? text : text.substring(0, maxLen) + "...";
     }
 
     private boolean isAliyunProvider(String provider) {
@@ -869,6 +896,8 @@ public class AiVideoGenerationService {
             Character character = characterMapper.selectById(shot.getCharacterId());
             if (character != null) {
                 addPublicReference(references, character.getImageUrl());
+                // 同时加入该角色全部多角度参考图（通常 3 张：正面/侧面/回眸）
+                addCharacterMultiAngleReferences(references, character);
             }
         }
         if (shot.getSceneId() != null) {
@@ -889,6 +918,28 @@ public class AiVideoGenerationService {
         String publicUrl = publicAssetStorageService.ensurePublicUrl(imageUrl, "reference-images", "png");
         if (hasText(publicUrl)) {
             references.add(publicUrl);
+        }
+    }
+
+    /**
+     * 解析角色的多角度参考图 JSON 数组并加入参考列表。
+     * {@link Character#getImageUrls()} 存储格式为 {@code ["url1","url2","url3"]}，
+     * 对应正面、四分之三侧面、回眸侧脸三张。
+     */
+    private void addCharacterMultiAngleReferences(Set<String> references, Character character) {
+        String imageUrlsJson = character.getImageUrls();
+        if (!hasText(imageUrlsJson)) {
+            return;
+        }
+        try {
+            JsonNode arr = objectMapper.readTree(imageUrlsJson);
+            if (arr.isArray()) {
+                for (JsonNode urlNode : arr) {
+                    addPublicReference(references, urlNode.asText(null));
+                }
+            }
+        } catch (Exception ignored) {
+            // JSON 解析失败，忽略
         }
     }
 

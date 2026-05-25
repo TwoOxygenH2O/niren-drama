@@ -30,3 +30,26 @@ log/
 
 # Node
 node_modules/
+
+# Local automation / browser inspection artifacts
+.ccto/
+.codex/
+.playwright-mcp/
+page-*.yml
+dashboard-*.yml
+settings-*.yml
+project-page*.yml
+comfyui-*.yml
+app-page
+login-page
+project-list
+current-view.png
+immersive*.png
+synthesis-*.png
+synthesis-errors
+comfyui-history.png
+dashboard-screenshot.png
+settings-dialog.png
+test-regenerate-char.png
+wan22-workflow-loaded.png
+docs/superpowers/

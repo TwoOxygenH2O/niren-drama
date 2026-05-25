@@ -133,7 +133,7 @@ public class AiConfigController {
             config = aiConfigService.getDefaultByType(userId, "image");
         }
         String baseUrl = (config != null && config.getBaseUrl() != null && !config.getBaseUrl().isBlank())
-                ? config.getBaseUrl() : "http://localhost:8188";
+                ? config.getBaseUrl() : "http://127.0.0.1:8188";
         String apiKey = (config != null) ? config.getApiKey() : "";
         return new String[]{baseUrl, apiKey};
     }

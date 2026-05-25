@@ -57,7 +57,7 @@ public class VideoCompositionService {
 
     private static final int MAX_TASK_TRACE_CALLS = 20;
     private static final double DEFAULT_SHOT_DURATION_SECONDS = 5.0d;
-    private static final double MIN_SHOT_DURATION_SECONDS = 2.5d;
+    private static final double MIN_SHOT_DURATION_SECONDS = 3.0d;
     private static final double DEFAULT_BGM_FADE_OUT_SECONDS = 1.2d;
     private static final double MIN_VOICE_DRIVEN_PAUSE_SECONDS = 0.2d;
     private static final double MAX_VOICE_DRIVEN_PAUSE_SECONDS = 0.5d;
@@ -250,6 +250,7 @@ public class VideoCompositionService {
      * Start the video composition process for a project.
      */
     public TaskRecord startCompose(Long userId, Long projectId, java.util.List<Long> shotIds) {
+        requireProjectOwner(userId, projectId);
         List<Storyboard> shots = storyboardService.listByProject(projectId);
         if (shotIds != null && !shotIds.isEmpty()) {
             shots = shots.stream().filter(s -> shotIds.contains(s.getId())).collect(java.util.stream.Collectors.toList());
@@ -285,6 +286,7 @@ public class VideoCompositionService {
     }
 
     public TaskRecord startGenerateDynamicVideos(Long userId, Long projectId, java.util.List<Long> shotIds) {
+        requireProjectOwner(userId, projectId);
         java.util.List<com.niren.drama.entity.Storyboard> allShots = storyboardService.listByProject(projectId);
         if (shotIds != null && !shotIds.isEmpty()) {
             allShots = allShots.stream().filter(s -> shotIds.contains(s.getId())).toList();
@@ -318,6 +320,16 @@ public class VideoCompositionService {
 
         selfProvider.getObject().generateDynamicVideosAsync(userId, projectId, selectedShots, task.getId());
         return task;
+    }
+
+    private void requireProjectOwner(Long userId, Long projectId) {
+        Project project = projectMapper.selectOne(new LambdaQueryWrapper<Project>()
+                .eq(Project::getId, projectId)
+                .eq(Project::getUserId, userId)
+                .last("limit 1"));
+        if (project == null) {
+            throw new BusinessException("项目不存在");
+        }
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -523,7 +535,37 @@ public class VideoCompositionService {
             log.debug("动态视频提交开始: taskId={}, userId={}, projectId={}, shotCount={}",
                     taskId, userId, projectId, total);
 
-            updateTask(task, "RUNNING", 5, "正在提交动态视频任务...");
+            updateTask(task, "RUNNING", 5, "正在检查分镜图片…");
+
+            // ── 先从 DB 刷新最新数据（避免用旧的内存数据导致重复生成）──
+            List<Long> allIds = shots.stream().map(Storyboard::getId).toList();
+            List<Storyboard> freshShots = storyboardMapper.selectBatchIds(allIds);
+            if (freshShots.size() == shots.size()) {
+                shots.clear();
+                shots.addAll(freshShots);
+            }
+
+            // ── 预检：缺少参考图的分镜先补全（I2V 需要参考图）──
+            List<Storyboard> needImages = shots.stream()
+                    .filter(s -> !hasText(s.getImageUrl()))
+                    .toList();
+            if (!needImages.isEmpty()) {
+                log.info("{} 个分镜缺少参考图，先生成图片再生成视频: shotNos={}",
+                        needImages.size(),
+                        needImages.stream().map(s -> String.valueOf(s.getShotNo())).toList());
+                updateTask(task, "RUNNING", 8,
+                        String.format("正在为 %d 个镜头生成参考图片…", needImages.size()));
+                try {
+                    storyboardService.ensureShotsHaveImages(userId, projectId, needImages);
+                    // 图片生成成功后刷新内存数据
+                    List<Storyboard> updated = storyboardMapper.selectBatchIds(allIds);
+                    if (updated.size() == shots.size()) { shots.clear(); shots.addAll(updated); }
+                } catch (Exception e) {
+                    log.warn("图片生成失败，继续使用 T2V: {}", e.getMessage());
+                }
+            }
+
+            updateTask(task, "RUNNING", 10, "正在提交动态视频任务...");
 
             for (int index = 0; index < shots.size(); index++) {
                 Storyboard shot = shots.get(index);

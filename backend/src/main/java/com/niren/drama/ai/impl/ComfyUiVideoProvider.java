@@ -22,7 +22,7 @@ import java.util.UUID;
 @Slf4j
 public class ComfyUiVideoProvider implements VideoAiProvider {
 
-    private static final int DEFAULT_MAX_POLL_ATTEMPTS = 180;
+    private static final int DEFAULT_MAX_POLL_ATTEMPTS = 700;
     private static final long DEFAULT_POLL_INTERVAL_MS = 3000L;
 
     private final String apiBaseUrl;
@@ -72,7 +72,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
 
         try {
             int[] wh = parseResolution(resolution);
-            int frames = Math.max(1, duration * 8);
+            int frames = ltxFrames(duration);
             ObjectNode workflow = buildTextToVideoWorkflow(prompt, wh[0], wh[1], frames);
             ObjectNode body = objectMapper.createObjectNode();
             body.set("prompt", workflow);
@@ -103,8 +103,8 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             }
 
             log.info("ComfyUI 视频生成任务已提交 (text2video), prompt_id={}", promptId);
-            String outputFilename = pollForResult(promptId);
-            videoUrl = apiBaseUrl + "/view?filename=" + outputFilename + "&type=output";
+            OutputInfo outputInfo = pollForResult(promptId);
+            videoUrl = buildOutputViewUrl(outputInfo);
             videoUrl = RemoteAssetStorage.persistHttpUrl(videoUrl, uploadPath, publicBaseUrl,
                     "generated-videos", httpClient, "mp4");
 
@@ -147,7 +147,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
 
         try {
             int[] wh = parseResolution(resolution);
-            int frames = Math.max(1, duration * 8);
+            int frames = ltxFrames(duration);
             ObjectNode workflow = buildImageToVideoWorkflow(imageUrl, prompt, wh[0], wh[1], frames);
             ObjectNode body = objectMapper.createObjectNode();
             body.set("prompt", workflow);
@@ -178,8 +178,8 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             }
 
             log.info("ComfyUI 视频生成任务已提交 (image2video), prompt_id={}", promptId);
-            String outputFilename = pollForResult(promptId);
-            videoUrl = apiBaseUrl + "/view?filename=" + outputFilename + "&type=output";
+            OutputInfo outputInfo = pollForResult(promptId);
+            videoUrl = buildOutputViewUrl(outputInfo);
             videoUrl = RemoteAssetStorage.persistHttpUrl(videoUrl, uploadPath, publicBaseUrl,
                     "generated-videos", httpClient, "mp4");
 
@@ -214,10 +214,21 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return 0;
     }
 
+    /**
+     * 计算符合 LTX-2 约束的帧数（基于 24fps 输出帧率）。
+     * LTX-2 要求 {@code (num_frames - 1) % 8 == 0}。
+     */
+    private static int ltxFrames(int durationSeconds) {
+        int base = Math.max(1, durationSeconds * 24);
+        return ((base - 1 + 7) / 8) * 8 + 1;
+    }
+
     private static final String DEFAULT_NEGATIVE_PROMPT =
             "低质量, 模糊, 扭曲, 变形, 丑陋, 多余手指, 畸形手, 文字, 水印, "
           + "low quality, blurry, distorted, deformed, ugly, extra fingers, bad anatomy, text, watermark, "
-          + "jpeg artifacts, worst quality, bad proportions, duplicate, mutation";
+          + "jpeg artifacts, worst quality, bad proportions, duplicate, mutation, "
+          + "anime, cartoon, illustration, CGI, 3D render, plastic skin, wax figure, "
+          + "动漫, 二次元, 插画, 卡通, 游戏CG, 塑料感, 蜡像, 3D渲染";
 
     /** 构建 LTX-2 T2V 最小工作流（使用 Gemma CLIP loader） */
     private ObjectNode buildLtx2T2vWorkflow(String prompt, int width, int height, int frames) {
@@ -283,7 +294,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         gPos.add("4"); gPos.add(0);
         ArrayNode gNeg = guiderInputs.putArray("negative");
         gNeg.add("4"); gNeg.add(1);
-        guiderInputs.put("cfg", 1.0);
+        guiderInputs.put("cfg", 2.0);
 
         // Node 8: KSamplerSelect
         ObjectNode kss = wf.putObject("8");
@@ -346,6 +357,156 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             return buildWan22T2vWorkflow(prompt, width, height, frames);
         }
         return buildLtx2T2vWorkflow(prompt, width, height, frames);
+    }
+
+    /** 构建 LTX-2 I2V 工作流（基于 T2V 工作流，增加参考图注入） */
+    private ObjectNode buildLtx2I2vWorkflow(String imageUrl, String prompt, int width, int height, int frames) {
+        ObjectNode wf = objectMapper.createObjectNode();
+
+        // Node 1: CheckpointLoaderSimple
+        ObjectNode loader = wf.putObject("1");
+        loader.put("class_type", "CheckpointLoaderSimple");
+        ObjectNode loaderInputs = loader.putObject("inputs");
+        loaderInputs.put("ckpt_name", resolveCheckpointModel());
+
+        // Node 2: LTXAVTextEncoderLoader
+        ObjectNode gemma = wf.putObject("2");
+        gemma.put("class_type", "LTXAVTextEncoderLoader");
+        ObjectNode gemmaInputs = gemma.putObject("inputs");
+        gemmaInputs.put("text_encoder", "gemma_3_12B_it_fp4_mixed.safetensors");
+        gemmaInputs.put("ckpt_name", "ltx-2-19b-distilled.safetensors");
+        gemmaInputs.put("device", "default");
+
+        // Node 3: CLIPTextEncode (positive prompt)
+        ObjectNode posClip = wf.putObject("3");
+        posClip.put("class_type", "CLIPTextEncode");
+        ObjectNode posInputs = posClip.putObject("inputs");
+        posInputs.put("text", prompt);
+        ArrayNode clipRef = posInputs.putArray("clip");
+        clipRef.add("2"); clipRef.add(0);
+
+        // Node 4: LTXVConditioning
+        ObjectNode cond = wf.putObject("4");
+        cond.put("class_type", "LTXVConditioning");
+        ObjectNode condInputs = cond.putObject("inputs");
+        ArrayNode condPos = condInputs.putArray("positive");
+        condPos.add("3"); condPos.add(0);
+        ArrayNode condNeg = condInputs.putArray("negative");
+        condNeg.add("3"); condNeg.add(0);
+        condInputs.put("frame_rate", 24.0);
+        condInputs.put("width", width);
+        condInputs.put("height", height);
+        condInputs.put("num_frames", frames);
+
+        // Node 5: LoadImage (reference image for I2V)
+        ObjectNode loadImg = wf.putObject("5");
+        loadImg.put("class_type", "LoadImage");
+        ObjectNode loadImgInputs = loadImg.putObject("inputs");
+        loadImgInputs.put("image", imageUrl);
+
+        // Node 6: VAEEncode (encode reference image to latent)
+        ObjectNode vaeEncode = wf.putObject("6");
+        vaeEncode.put("class_type", "VAEEncode");
+        ObjectNode vaeEncodeInputs = vaeEncode.putObject("inputs");
+        ArrayNode vaeEncPixels = vaeEncodeInputs.putArray("pixels");
+        vaeEncPixels.add("5"); vaeEncPixels.add(0);
+        ArrayNode vaeEncVae = vaeEncodeInputs.putArray("vae");
+        vaeEncVae.add("1"); vaeEncVae.add(2);
+
+        // Node 7: EmptyLTXVLatentVideo (target video latent space)
+        ObjectNode vidLatent = wf.putObject("7");
+        vidLatent.put("class_type", "EmptyLTXVLatentVideo");
+        ObjectNode vidLatentInputs = vidLatent.putObject("inputs");
+        vidLatentInputs.put("width", width);
+        vidLatentInputs.put("height", height);
+        vidLatentInputs.put("length", frames);
+        vidLatentInputs.put("batch_size", 1);
+
+        // Node 8: LTXVImgToVideoConditionOnly (inject reference frame into video latent)
+        ObjectNode i2vCond = wf.putObject("8");
+        i2vCond.put("class_type", "LTXVImgToVideoConditionOnly");
+        ObjectNode i2vCondInputs = i2vCond.putObject("inputs");
+        ArrayNode i2vImg = i2vCondInputs.putArray("image");
+        i2vImg.add("5"); i2vImg.add(0);
+        ArrayNode i2vVae = i2vCondInputs.putArray("vae");
+        i2vVae.add("1"); i2vVae.add(2);
+        ArrayNode i2vLatent = i2vCondInputs.putArray("latent");
+        i2vLatent.add("7"); i2vLatent.add(0);
+        i2vCondInputs.put("strength", 0.95);
+        i2vCondInputs.put("bypass", false);
+
+        // Node 9: RandomNoise
+        ObjectNode noise = wf.putObject("9");
+        noise.put("class_type", "RandomNoise");
+        ObjectNode noiseInputs = noise.putObject("inputs");
+        noiseInputs.put("noise_seed", (int)(Math.random() * Integer.MAX_VALUE));
+
+        // Node 10: CFGGuider
+        ObjectNode guider = wf.putObject("10");
+        guider.put("class_type", "CFGGuider");
+        ObjectNode guiderInputs = guider.putObject("inputs");
+        ArrayNode gModel = guiderInputs.putArray("model");
+        gModel.add("1"); gModel.add(0);
+        ArrayNode gPos = guiderInputs.putArray("positive");
+        gPos.add("4"); gPos.add(0);
+        ArrayNode gNeg = guiderInputs.putArray("negative");
+        gNeg.add("4"); gNeg.add(1);
+        guiderInputs.put("cfg", 2.0);
+
+        // Node 11: KSamplerSelect
+        ObjectNode kss = wf.putObject("11");
+        kss.put("class_type", "KSamplerSelect");
+        ObjectNode kssInputs = kss.putObject("inputs");
+        kssInputs.put("sampler_name", "euler");
+
+        // Node 12: BasicScheduler
+        ObjectNode sched = wf.putObject("12");
+        sched.put("class_type", "BasicScheduler");
+        ObjectNode schedInputs = sched.putObject("inputs");
+        schedInputs.put("scheduler", "normal");
+        schedInputs.put("steps", 8);
+        schedInputs.put("denoise", 1.0);
+        ArrayNode schedModel = schedInputs.putArray("model");
+        schedModel.add("1"); schedModel.add(0);
+
+        // Node 13: SamplerCustomAdvanced (uses I2V-conditioned latent instead of empty latent)
+        ObjectNode sampler = wf.putObject("13");
+        sampler.put("class_type", "SamplerCustomAdvanced");
+        ObjectNode samplerInputs = sampler.putObject("inputs");
+        ArrayNode sNoise = samplerInputs.putArray("noise");
+        sNoise.add("9"); sNoise.add(0);
+        ArrayNode sGuider = samplerInputs.putArray("guider");
+        sGuider.add("10"); sGuider.add(0);
+        ArrayNode sSampler = samplerInputs.putArray("sampler");
+        sSampler.add("11"); sSampler.add(0);
+        ArrayNode sSigmas = samplerInputs.putArray("sigmas");
+        sSigmas.add("12"); sSigmas.add(0);
+        ArrayNode sLatent = samplerInputs.putArray("latent_image");
+        sLatent.add("8"); sLatent.add(0);  // ← 使用 I2V 条件化后的 latent
+
+        // Node 14: VAEDecode
+        ObjectNode vaeDecode = wf.putObject("14");
+        vaeDecode.put("class_type", "VAEDecode");
+        ObjectNode vaeInputs = vaeDecode.putObject("inputs");
+        ArrayNode vaeSamples = vaeInputs.putArray("samples");
+        vaeSamples.add("13"); vaeSamples.add(0);
+        ArrayNode vaeRef = vaeInputs.putArray("vae");
+        vaeRef.add("1"); vaeRef.add(2);
+
+        // Node 15: VHS_VideoCombine
+        ObjectNode vhs = wf.putObject("15");
+        vhs.put("class_type", "VHS_VideoCombine");
+        ObjectNode vhsInputs = vhs.putObject("inputs");
+        vhsInputs.put("frame_rate", 24);
+        vhsInputs.put("loop_count", 0);
+        vhsInputs.put("filename_prefix", "niren_i2v");
+        vhsInputs.put("format", "video/h264-mp4");
+        vhsInputs.put("save_output", false);
+        vhsInputs.put("pingpong", false);
+        ArrayNode vhsImages = vhsInputs.putArray("images");
+        vhsImages.add("14"); vhsImages.add(0);
+
+        return wf;
     }
 
     private boolean isWanModel() {
@@ -464,22 +625,22 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             }
         }
 
-        // 默认优先从 ComfyUI User Data 加载用户验证过的工作流（user: 前缀），
-        // 找不到时回退到 classpath 模板
-        String defaultI2vTemplate = "user:video_ltx2_i2v_distilled.json";
-        ObjectNode template = hasText(workflowFile)
-                ? ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile)
-                : ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, defaultI2vTemplate);
-        if (template != null) {
-            String comfyImage = uploadImageIfRemote(imageUrl);
-            ComfyUiWorkflowLoader.injectPrompt(template, prompt);
-            ComfyUiWorkflowLoader.injectImage(template, comfyImage);
-            injectNegativePromptToWorkflow(template);
-            injectVideoParams(template, width, height, frames);
-            return template;
+        // 优先使用 classpath 模板（非 user: 前缀以避免加载已被废弃的旧版工作流），
+        // 找不到则直接使用内联 LTX-2 I2V 工作流
+        if (hasText(workflowFile)) {
+            ObjectNode template = ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile);
+            if (template != null) {
+                injectPromptIntoWorkflow(template, prompt);
+                injectImageIntoWorkflow(template, uploadImageIfRemote(imageUrl));
+                injectNegativePromptToWorkflow(template);
+                injectVideoParams(template, width, height, frames);
+                return template;
+            }
         }
 
-        return buildDefaultVideoWorkflow(prompt, uploadImageIfRemote(imageUrl), width, height, frames);
+        // 模板不可用 → 始终使用内联 LTX-2 I2V 工作流
+        log.info("使用内联 LTX-2 I2V 工作流 (width={}, height={}, frames={})", width, height, frames);
+        return buildLtx2I2vWorkflow(uploadImageIfRemote(imageUrl), prompt, width, height, frames);
     }
 
     private ObjectNode buildDefaultVideoWorkflow(String prompt, String imageUrl,
@@ -915,12 +1076,36 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return hasText(value) && (value.startsWith("http://") || value.startsWith("https://"));
     }
 
-    private String pollForResult(String promptId) throws Exception {
+    private record OutputInfo(String filename, String type, String subfolder) {}
+
+    private String buildOutputViewUrl(OutputInfo info) {
+        StringBuilder sb = new StringBuilder(apiBaseUrl);
+        sb.append("/view?filename=").append(URLEncoder.encode(info.filename(), StandardCharsets.UTF_8));
+        sb.append("&type=").append(hasText(info.type()) ? info.type() : "output");
+        if (hasText(info.subfolder())) {
+            sb.append("&subfolder=").append(URLEncoder.encode(info.subfolder(), StandardCharsets.UTF_8));
+        }
+        return sb.toString();
+    }
+
+    private OutputInfo pollForResult(String promptId) throws Exception {
         String historyUrl = apiBaseUrl + "/history/" + promptId;
         int attempt = 0;
         while (true) {
             Thread.sleep(pollIntervalMs);
             attempt++;
+            if (attempt > maxPollAttempts) {
+                String queueStatus = checkQueueStatus(promptId);
+                if ("running".equals(queueStatus) || "pending".equals(queueStatus)) {
+                    throw new RuntimeException("ComfyUI 视频任务仍在执行中 (prompt_id="
+                            + promptId + ", queueStatus=" + queueStatus + ")，已达到等待上限");
+                }
+                if ("not_found".equals(queueStatus)) {
+                    throw new RuntimeException("ComfyUI 视频任务已不在队列中，可能已被清理 (prompt_id=" + promptId + ")");
+                }
+                throw new RuntimeException("ComfyUI 视频生成等待超时 (prompt_id="
+                        + promptId + ", queueStatus=" + queueStatus + ")");
+            }
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(historyUrl))
@@ -959,26 +1144,35 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     var entry = it.next();
                     JsonNode gifs = entry.getValue().path("gifs");
                     if (gifs.isArray() && gifs.size() > 0) {
-                        String filename = gifs.get(0).path("filename").asText(null);
+                        JsonNode first = gifs.get(0);
+                        String filename = first.path("filename").asText(null);
                         if (hasText(filename)) {
-                            log.info("ComfyUI 视频生成完成, filename={}", filename);
-                            return filename;
+                            String type = first.path("type").asText("output");
+                            String subfolder = first.path("subfolder").asText("");
+                            log.info("ComfyUI 视频生成完成, filename={}, type={}, subfolder={}", filename, type, subfolder);
+                            return new OutputInfo(filename, type, subfolder);
                         }
                     }
                     JsonNode videos = entry.getValue().path("videos");
                     if (videos.isArray() && videos.size() > 0) {
-                        String filename = videos.get(0).path("filename").asText(null);
+                        JsonNode first = videos.get(0);
+                        String filename = first.path("filename").asText(null);
                         if (hasText(filename)) {
-                            log.info("ComfyUI 视频生成完成, filename={}", filename);
-                            return filename;
+                            String type = first.path("type").asText("output");
+                            String subfolder = first.path("subfolder").asText("");
+                            log.info("ComfyUI 视频生成完成, filename={}, type={}, subfolder={}", filename, type, subfolder);
+                            return new OutputInfo(filename, type, subfolder);
                         }
                     }
                     JsonNode images = entry.getValue().path("images");
                     if (images.isArray() && images.size() > 0) {
-                        String filename = images.get(0).path("filename").asText(null);
+                        JsonNode first = images.get(0);
+                        String filename = first.path("filename").asText(null);
                         if (hasText(filename)) {
-                            log.info("ComfyUI 输出完成 (images), filename={}", filename);
-                            return filename;
+                            String type = first.path("type").asText("output");
+                            String subfolder = first.path("subfolder").asText("");
+                            log.info("ComfyUI 输出完成, filename={}, type={}, subfolder={}", filename, type, subfolder);
+                            return new OutputInfo(filename, type, subfolder);
                         }
                     }
                 }
@@ -1104,7 +1298,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
 
     private String normalizeBaseUrl(String baseUrl) {
         if (!hasText(baseUrl)) {
-            return "http://localhost:8188";
+            return "http://127.0.0.1:8188";
         }
         String normalized = baseUrl.trim();
         if (normalized.endsWith("/")) {

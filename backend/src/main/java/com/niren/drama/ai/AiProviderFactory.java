@@ -49,16 +49,16 @@ public class AiProviderFactory {
     @Value("${niren.ai.image.model:qwen-image-2.0-pro}")
     private String defaultImageModel;
 
-    @Value("${niren.ai.video.provider:aliyun}")
+    @Value("${niren.ai.video.provider:comfyui}")
     private String defaultVideoProvider;
 
-    @Value("${niren.ai.video.base-url:https://dashscope.aliyuncs.com/api/v1}")
+    @Value("${niren.ai.video.base-url:http://127.0.0.1:8188}")
     private String defaultVideoBaseUrl;
 
     @Value("${niren.ai.video.api-key:}")
     private String defaultVideoApiKey;
 
-    @Value("${niren.ai.video.model:wan2.7-i2v}")
+    @Value("${niren.ai.video.model:ltx-2-19b-distilled.safetensors}")
     private String defaultVideoModel;
 
     @Value("${niren.ai.tts.provider:aliyun}")
@@ -253,7 +253,7 @@ public class AiProviderFactory {
             case "volcengine" -> "https://openspeech.bytedance.com/api/v1";
             case "xunfei" -> "https://spark-api-open.xf-yun.com/v1";
             case "sd" -> "http://localhost:7860";
-            case "comfyui" -> "http://localhost:8188";
+            case "comfyui" -> "http://127.0.0.1:8188";
             case "external" -> "";
             default -> "https://api.openai.com/v1";
         };

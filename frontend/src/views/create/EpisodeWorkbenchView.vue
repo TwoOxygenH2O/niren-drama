@@ -5,6 +5,20 @@
       <span v-if="projectName" class="wb-title">{{ projectName }} · 第 {{ epLabel }} 集</span>
       <span v-else class="wb-title">镜头工作台</span>
       <span v-if="isVideoTab" class="wb-title-tag">成片预览</span>
+      <div class="wb-top-actions">
+        <button
+          v-if="isVideoTab"
+          type="button"
+          class="wb-link-btn wb-link-btn--primary"
+          @click="goSynthesis"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5,3 19,12 5,21" />
+          </svg>
+          合成导出
+        </button>
+        <button type="button" class="wb-link-btn" @click="switchToShotEditing">镜头剪辑</button>
+      </div>
     </header>
 
     <div class="editor-thread">
@@ -88,8 +102,6 @@
       <div class="wb-main">
         <div v-if="isVideoTab" class="wb-video-tab-actions">
           <span class="wb-video-tab-hint">以下为合成导出产生的项目成片</span>
-          <button type="button" class="wb-link-btn" @click="switchToShotEditing">镜头剪辑</button>
-          <button type="button" class="wb-link-btn" @click="goSynthesis">合成导出</button>
         </div>
         <div class="wb-canvas">
           <template v-if="isVideoTab && composeVideoUrl">
@@ -401,10 +413,24 @@ onMounted(() => {
   background: var(--bg-card-hover);
 }
 
+.wb-top-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .wb-link-btn--primary {
-  margin-top: 12px;
-  background: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, var(--primary), #a855f7);
   color: #fff;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+  font-weight: 700;
+}
+.wb-link-btn--primary:hover {
+  box-shadow: 0 4px 14px rgba(99,102,241,0.45);
 }
 
 .wb-compose-player {

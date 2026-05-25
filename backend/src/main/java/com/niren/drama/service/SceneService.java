@@ -70,6 +70,7 @@ public class SceneService {
 
     public TaskRecord startGenerateSceneImage(Long userId, Long sceneId) {
         Scene scene = getScene(sceneId);
+        projectService.getProject(userId, scene.getProjectId());
         TaskRecord task = new TaskRecord();
         task.setProjectId(scene.getProjectId());
         task.setUserId(userId);
@@ -94,7 +95,7 @@ public class SceneService {
             taskRecordMapper.updateById(task);
 
             ImageAiProvider imageProvider = aiProviderFactory.getImageProvider(userId);
-            Project project = projectService.getProject(scene.getProjectId());
+            Project project = projectService.getProject(userId, scene.getProjectId());
             String prompt = buildSceneImagePrompt(scene, project);
             String imageUrl = imageProvider.generateImage(prompt, "1024x1792", null);
 

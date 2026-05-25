@@ -11,6 +11,7 @@ import com.niren.drama.exception.BusinessException;
 import com.niren.drama.service.ReferenceVideoService;
 import com.niren.drama.service.StoryboardService;
 import com.niren.drama.service.VideoCompositionService;
+import com.niren.drama.service.ProjectService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +41,7 @@ public class VideoController {
     private final StoryboardService storyboardService;
     private final VideoCompositionService videoCompositionService;
     private final ReferenceVideoService referenceVideoService;
+    private final ProjectService projectService;
     private final CurrentUserHelper currentUserHelper;
 
     private List<Long> parseShotIds(JsonNode body) {
@@ -137,20 +139,29 @@ public class VideoController {
 
     @Operation(summary = "获取项目视频合成状态")
     @GetMapping("/status/{projectId}")
-    public Result<TaskRecord> getStatus(@PathVariable Long projectId) {
+    public Result<TaskRecord> getStatus(@PathVariable Long projectId,
+                                        @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = currentUserHelper.getUserId(userDetails);
+        projectService.getProject(userId, projectId);
         TaskRecord task = videoCompositionService.getLatestPipelineTask(projectId);
         return Result.success(task);
     }
 
     @Operation(summary = "获取项目分镜列表（含图片/音频/视频状态）")
     @GetMapping("/storyboards/{projectId}")
-    public Result<List<Storyboard>> getStoryboards(@PathVariable Long projectId) {
+    public Result<List<Storyboard>> getStoryboards(@PathVariable Long projectId,
+                                                   @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = currentUserHelper.getUserId(userDetails);
+        projectService.getProject(userId, projectId);
         return Result.success(storyboardService.listByProject(projectId));
     }
 
     @Operation(summary = "下载成片视频（下载后自动删除文件）")
     @GetMapping("/download/{projectId}")
-    public ResponseEntity<StreamingResponseBody> download(@PathVariable Long projectId) throws Exception {
+    public ResponseEntity<StreamingResponseBody> download(@PathVariable Long projectId,
+                                                          @AuthenticationPrincipal UserDetails userDetails) throws Exception {
+        Long userId = currentUserHelper.getUserId(userDetails);
+        projectService.getProject(userId, projectId);
         TaskRecord task = videoCompositionService.getLatestVideoTask(projectId);
         String taskVideoUrl = task != null ? videoCompositionService.extractVideoUrl(task.getResult()) : null;
         if (task == null || !"SUCCESS".equals(task.getStatus()) || taskVideoUrl == null) {
@@ -194,7 +205,10 @@ public class VideoController {
 
     @Operation(summary = "获取项目合成总览")
     @GetMapping("/overview/{projectId}")
-    public Result<Map<String, Object>> getOverview(@PathVariable Long projectId) {
+    public Result<Map<String, Object>> getOverview(@PathVariable Long projectId,
+                                                   @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = currentUserHelper.getUserId(userDetails);
+        projectService.getProject(userId, projectId);
         List<Storyboard> shots = storyboardService.listByProject(projectId);
         TaskRecord latestTask = videoCompositionService.getLatestVideoTask(projectId);
 

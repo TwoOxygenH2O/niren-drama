@@ -30,9 +30,28 @@ public class TaskService {
         return task;
     }
 
+    public TaskRecord getTask(Long userId, Long id) {
+        TaskRecord task = taskRecordMapper.selectOne(new LambdaQueryWrapper<TaskRecord>()
+                .eq(TaskRecord::getId, id)
+                .eq(TaskRecord::getUserId, userId)
+                .last("LIMIT 1"));
+        if (task == null) throw new BusinessException("任务不存在");
+        enrichTaskDiagnostics(task);
+        return task;
+    }
+
     public List<TaskRecord> listByProject(Long projectId) {
         List<TaskRecord> tasks = taskRecordMapper.selectList(new LambdaQueryWrapper<TaskRecord>()
                 .eq(TaskRecord::getProjectId, projectId)
+                .orderByDesc(TaskRecord::getCreateTime));
+        tasks.forEach(this::enrichTaskDiagnosticsLight);
+        return tasks;
+    }
+
+    public List<TaskRecord> listByProject(Long userId, Long projectId) {
+        List<TaskRecord> tasks = taskRecordMapper.selectList(new LambdaQueryWrapper<TaskRecord>()
+                .eq(TaskRecord::getProjectId, projectId)
+                .eq(TaskRecord::getUserId, userId)
                 .orderByDesc(TaskRecord::getCreateTime));
         tasks.forEach(this::enrichTaskDiagnosticsLight);
         return tasks;

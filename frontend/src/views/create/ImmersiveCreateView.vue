@@ -23,6 +23,17 @@
       <span v-if="project?.name" class="top-project-title">{{ project.name }}</span>
       </div>
       <div class="top-right">
+        <button
+          v-if="hasAnyShotVideo"
+          type="button"
+          class="top-compose-btn"
+          @click="goSynthesis"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5,3 19,12 5,21" />
+          </svg>
+          视频合成
+        </button>
         <button type="button" class="vip-link" @click="noopVip">开通会员</button>
         <button type="button" class="icon-btn" title="通知" aria-label="通知" @click="noopBell">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -114,7 +125,7 @@
 
           <!-- 角色确认按钮 -->
           <div v-if="charactersReady && !charactersConfirmed" class="chat-action-row">
-            <button type="button" class="btn-confirm-step" @click="confirmCharacters">
+            <button type="button" class="btn-confirm-step" @click="() => confirmCharacters()">
               确认角色，生成剧本
             </button>
           </div>
@@ -209,6 +220,27 @@
               </p>
               <pre v-else class="plan-script-body">{{ episodeScriptBody }}</pre>
             </section>
+
+            <!-- 视频工作台入口卡片（项目有成片时显示） -->
+            <div v-if="hasProjectVideo" class="video-workbench-entry" @click="goVideoWorkbench">
+              <div class="vwe-glow" />
+              <div class="vwe-card">
+                <div class="vwe-icon-ring">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <polygon points="5,3 19,12 5,21" fill="currentColor" />
+                  </svg>
+                </div>
+                <div class="vwe-body">
+                  <h4 class="vwe-title">成片已就绪</h4>
+                  <p class="vwe-desc">进入视频工作台，逐镜查看与微调</p>
+                </div>
+                <span class="vwe-arrow" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="9,18 15,12 9,6" />
+                  </svg>
+                </span>
+              </div>
+            </div>
           </template>
         </div>
 
@@ -456,6 +488,13 @@ let sbEnsureGeneration = 0
 
 const videoPromptsOpen = ref(false)
 
+/** 只要有任意分镜已生成视频，就展示合成入口 */
+const hasAnyShotVideo = computed(() => episodeShots.value.some((s: any) => s.videoUrl))
+
+function goSynthesis() {
+  router.push({ path: `/projects/${projectId.value}/synthesis` })
+}
+
 /** 分镜视频生成 - 镜头多选 */
 const episodeShots = ref<any[]>([])
 const selectedShotIds = ref<string[]>([])
@@ -701,12 +740,16 @@ watch(activeEpisode, async (_newEp, oldEp) => {
   }
 })
 
+function goVideoWorkbench() {
+  router.push({
+    path: `/projects/${projectId.value}/immersive/workbench`,
+    query: { episode: String(activeEpisode.value), tab: 'video' },
+  })
+}
+
 async function onPrimaryVideoAction() {
   if (hasProjectVideo.value) {
-    router.push({
-      path: `/projects/${projectId.value}/immersive/workbench`,
-      query: { episode: String(activeEpisode.value), tab: 'video' },
-    })
+    goVideoWorkbench()
     return
   }
   if (!activePlanScript.value?.id) return
@@ -885,18 +928,39 @@ async function confirmCharacters(skipUserMessage = false) {
   }
 }
 
-/** 用户确认剧本后，保存剧本 */
-async function confirmScript() {
-  if (scriptConfirmed.value) return
-  scriptConfirmed.value = true
-  chatTail.value.push({ role: 'user', text: '确认剧本' })
-  await nextTick()
-  scrollToBottom()
-  chatTail.value.push({
-    role: 'ai',
-    text: '剧本已保存。右侧「生成分镜视频」按钮已可点击，可开始生成分镜视频。',
-  })
-}
+  /** 用户确认剧本后，保存剧本并触发分镜拆解 */
+  async function confirmScript() {
+    if (scriptConfirmed.value) return
+    scriptConfirmed.value = true
+    chatTail.value.push({ role: 'user', text: '确认剧本' })
+    await nextTick()
+    scrollToBottom()
+
+    if (showPlanPanel.value && workflowPhase.value === 'plan_ready' && activePlanScript.value?.id) {
+      chatTail.value.push({
+        role: 'ai',
+        text: '剧本已保存，正在拆解分镜…',
+      })
+      await ensureEpisodeStoryboard()
+      if (episodeStoryboardReady.value) {
+        chatTail.value.push({
+          role: 'ai',
+          text: '分镜已就绪。右侧「生成分镜视频」按钮已可点击，可开始生成分镜视频。',
+        })
+      } else if (episodeStoryboardErr.value) {
+        chatTail.value.push({
+          role: 'ai',
+          text: '分镜生成遇到问题：' + episodeStoryboardErr.value + '，可稍后重试。',
+        })
+      }
+    } else {
+      chatTail.value.push({
+        role: 'ai',
+        text: '剧本已保存。右侧「生成分镜视频」按钮已可点击，可开始生成分镜视频。',
+      })
+    }
+  }
+
 
 async function saveOutlineAndAdvance() {
   if (!outlineContent.value.trim()) return
@@ -1308,6 +1372,27 @@ onMounted(async () => {
   align-items: center;
   gap: 14px;
 }
+.top-compose-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), #a855f7);
+  box-shadow: 0 2px 10px rgba(99,102,241,0.35);
+  transition: transform 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+.top-compose-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(99,102,241,0.5);
+}
 .vip-link {
   background: none;
   border: none;
@@ -1580,6 +1665,89 @@ onMounted(async () => {
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* ── 视频工作台入口卡片 ── */
+.video-workbench-entry {
+  position: relative;
+  margin: 0 0 4px;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  overflow: hidden;
+  isolation: isolate;
+}
+.vwe-glow {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(99,102,241,0.32) 0%, rgba(168,85,247,0.18) 50%, rgba(236,72,153,0.12) 100%);
+  filter: blur(24px);
+  opacity: 0.6;
+  z-index: 0;
+  transition: opacity 0.4s;
+}
+.video-workbench-entry:hover .vwe-glow {
+  opacity: 0.9;
+}
+.vwe-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: rgba(99,102,241,0.06);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: inherit;
+  backdrop-filter: blur(6px);
+  transition: border-color 0.2s, background 0.2s;
+}
+.video-workbench-entry:hover .vwe-card {
+  border-color: rgba(99,102,241,0.45);
+  background: rgba(99,102,241,0.1);
+}
+.vwe-icon-ring {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--primary), #a855f7);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(99,102,241,0.35), 0 0 0 0 rgba(99,102,241,0.25);
+  animation: vwe-pulse 2.4s ease-in-out infinite;
+}
+@keyframes vwe-pulse {
+  0%, 100% { box-shadow: 0 4px 16px rgba(99,102,241,0.35), 0 0 0 0 rgba(99,102,241,0.25); }
+  50% { box-shadow: 0 4px 20px rgba(99,102,241,0.45), 0 0 0 8px rgba(99,102,241,0); }
+}
+.vwe-body {
+  flex: 1;
+  min-width: 0;
+}
+.vwe-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.vwe-desc {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.vwe-arrow {
+  flex-shrink: 0;
+  color: var(--primary-light);
+  display: flex;
+  align-items: center;
+  transition: transform 0.2s;
+}
+.video-workbench-entry:hover .vwe-arrow {
+  transform: translateX(3px);
+}
+
 .plan-action-hint {
   margin: 0;
   font-size: 11px;

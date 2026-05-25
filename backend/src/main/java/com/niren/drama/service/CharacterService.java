@@ -126,6 +126,7 @@ public class CharacterService {
 
     public TaskRecord startGenerateCharacterImage(Long userId, Long characterId) {
         Character character = getCharacter(characterId);
+        projectService.getProject(userId, character.getProjectId());
         TaskRecord task = new TaskRecord();
         task.setProjectId(character.getProjectId());
         task.setUserId(userId);
@@ -150,7 +151,7 @@ public class CharacterService {
             taskRecordMapper.updateById(task);
 
             ImageAiProvider imageProvider = aiProviderFactory.getImageProvider(userId);
-            Project project = projectService.getProject(character.getProjectId());
+            Project project = projectService.getProject(userId, character.getProjectId());
             String basePrompt = buildCharacterImagePrompt(character, project);
 
             String[] angleHints = {
@@ -191,7 +192,7 @@ public class CharacterService {
             task.setStatus("SUCCESS");
             task.setProgress(100);
             task.setMessage(String.format("角色图片生成完成（%d/3张）", imageUrls.size()));
-            task.setResult(String.join(",", imageUrls));
+            task.setResult(character.getImageUrls());
             taskRecordMapper.updateById(task);
 
         } catch (Exception e) {

@@ -182,33 +182,33 @@ body {
 }
 
 /* ——— Element Plus 覆盖 ——— */
-:deep(.el-card) {
+.el-card {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   transition: box-shadow 0.2s;
 }
-:deep(.el-card:hover) {
+.el-card:hover {
   box-shadow: var(--shadow-lg);
   transform: translateY(-4px);
 }
-:deep(.el-button--primary) {
+.el-button--primary {
   background: linear-gradient(135deg, var(--primary), var(--primary-dark));
   border-color: transparent;
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.28);
 }
-:deep(.el-button--primary:hover) {
+.el-button--primary:hover {
   box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
   transform: translateY(-4px);
 }
-:deep(.el-button) {
+.el-button {
   transition: all 0.18s;
   border-radius: var(--radius-full);
 }
-:deep(.el-input__wrapper) {
+.el-input__wrapper {
   border-radius: var(--radius-md);
 }
-:deep(.el-select .el-input__wrapper) {
+.el-select .el-input__wrapper {
   border-radius: var(--radius-md);
 }
 

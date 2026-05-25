@@ -357,7 +357,7 @@ public class ComfyUiImageProvider implements ImageAiProvider {
 
     private String normalizeBaseUrl(String baseUrl) {
         if (!hasText(baseUrl)) {
-            return "http://localhost:8188";
+            return "http://127.0.0.1:8188";
         }
         String normalized = baseUrl.trim();
         if (normalized.endsWith("/")) {

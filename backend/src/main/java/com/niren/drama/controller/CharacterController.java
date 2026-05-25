@@ -86,6 +86,8 @@ public class CharacterController {
     public Result<TaskRecord> generateImage(@PathVariable Long id,
                                             @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = getUserId(userDetails);
+        Character character = characterService.getCharacter(id);
+        projectService.getProject(userId, character.getProjectId()); // ownership check
         return Result.success(characterService.startGenerateCharacterImage(userId, id));
     }
 
@@ -95,6 +97,8 @@ public class CharacterController {
                                                   @RequestBody(required = false) Map<String, String> body,
                                                   @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = getUserId(userDetails);
+        Character character = characterService.getCharacter(id);
+        projectService.getProject(userId, character.getProjectId()); // ownership check
         String text = body != null ? body.get("text") : null;
         return Result.success(characterService.previewTts(userId, id, text));
     }

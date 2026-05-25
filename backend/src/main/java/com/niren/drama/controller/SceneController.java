@@ -85,6 +85,8 @@ public class SceneController {
     public Result<TaskRecord> generateImage(@PathVariable Long id,
                                             @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = getUserId(userDetails);
+        Scene scene = sceneService.getScene(id);
+        projectService.getProject(userId, scene.getProjectId()); // ownership check
         return Result.success(sceneService.startGenerateSceneImage(userId, id));
     }
 

@@ -9,6 +9,7 @@ import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.mapper.TaskRecordMapper;
 
 import com.niren.drama.service.TaskService;
+import com.niren.drama.service.ProjectService;
 import com.niren.drama.common.CurrentUserHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,19 +28,25 @@ import java.util.List;
 public class TaskController {
 
     private final TaskService taskService;
+    private final ProjectService projectService;
     private final AiProviderFactory aiProviderFactory;
     private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "查询任务详情（进度轮询）")
     @GetMapping("/{id}")
-    public Result<TaskRecord> getTask(@PathVariable Long id) {
-        return Result.success(taskService.getTask(id));
+    public Result<TaskRecord> getTask(@PathVariable Long id,
+                                      @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        return Result.success(taskService.getTask(userId, id));
     }
 
     @Operation(summary = "获取项目任务列表")
     @GetMapping("/project/{projectId}")
-    public Result<List<TaskRecord>> listByProject(@PathVariable Long projectId) {
-        return Result.success(taskService.listByProject(projectId));
+    public Result<List<TaskRecord>> listByProject(@PathVariable Long projectId,
+                                                  @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        projectService.getProject(userId, projectId);
+        return Result.success(taskService.listByProject(userId, projectId));
     }
 
     @Operation(summary = "获取我的最近任务")
