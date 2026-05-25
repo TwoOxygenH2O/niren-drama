@@ -2,11 +2,11 @@
 # Niren Drama - Quick start/restart from project root
 set -e
 
+export PATH="/usr/bin:/bin:/mingw64/bin:/d/apache-maven-3.9.16/bin:/d/software/nodejs:$PATH"
+
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_PORT=8080
 FRONTEND_PORT=5173
-
-export PATH="/d/apache-maven-3.9.16/bin:/d/software/nodejs:$PATH"
 
 echo "============================================"
 echo "  Niren Drama - Start / Restart"
