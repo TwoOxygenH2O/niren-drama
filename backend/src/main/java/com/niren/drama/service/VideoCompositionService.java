@@ -291,11 +291,11 @@ public class VideoCompositionService {
         if (shotIds != null && !shotIds.isEmpty()) {
             allShots = allShots.stream().filter(s -> shotIds.contains(s.getId())).toList();
         }
-        List<com.niren.drama.entity.Storyboard> selectedShots = allShots.stream()
+        List<com.niren.drama.entity.Storyboard> selectedShots = new ArrayList<>(allShots.stream()
                 .sorted(Comparator.comparing(Storyboard::getEpisodeNo, Comparator.nullsLast(Integer::compareTo))
                         .thenComparing(Storyboard::getShotNo, Comparator.nullsLast(Integer::compareTo))
                         .thenComparing(Storyboard::getId, Comparator.nullsLast(Long::compareTo)))
-                .toList();
+                .toList());
 
         if (selectedShots.isEmpty()) {
             throw new BusinessException("项目下没有分镜数据，请先生成分镜");
@@ -643,10 +643,11 @@ public class VideoCompositionService {
                     taskId, projectId, total, generated, failed);
         } catch (Exception e) {
             log.error("动态视频生成失败: taskId={}", taskId, e);
+            String errorMessage = hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName();
             task.setStatus("FAILED");
-            task.setMessage("动态镜头生成失败: " + e.getMessage());
+            task.setMessage("动态镜头生成失败: " + errorMessage);
             task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls,
-                    Map.of("error", e.getMessage())));
+                    Map.of("error", errorMessage)));
             taskRecordMapper.updateById(task);
         }
     }

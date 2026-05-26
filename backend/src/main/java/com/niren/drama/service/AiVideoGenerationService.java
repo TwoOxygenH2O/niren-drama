@@ -773,9 +773,9 @@ public class AiVideoGenerationService {
             return;
         }
         shot.setMotionTier("B");
-        shot.setMotionTierReason("A档视频失败，自动降级为B档轻动态");
-        shot.setDynamicSelected(false);
-        shot.setRenderMode("image");
+        shot.setMotionTierReason("A档视频失败，自动降级为B档轻动态视频");
+        shot.setDynamicSelected(true);
+        shot.setRenderMode("video");
         shot.setVideoTaskStatus("degraded");
         String fallbackReason = hasText(reason) ? reason : "视频服务异常";
         String originalReason = hasText(shot.getDynamicReason()) ? shot.getDynamicReason() : "";

@@ -1759,8 +1759,8 @@ if (isStream) {
                 - duration: 镜头时长（秒，3-8 秒为主，对白镜头不少于3秒，动作或情绪爆发镜头5-8秒，避免每秒一切割的碎片感）
                 - characterName: 主要角色名（如有，用于角色一致性和图片复用）
                 - sceneName: 场景名称（用于场景复用优化）
-                - isDynamic: 是否为动态镜头（true=需要AI视频，false=静态图片即可）
-                - dynamicReason: 推荐/不推荐动态的具体原因
+                - isDynamic: 必须为 true，短剧平台主流程所有镜头都需要AI视频
+                - dynamicReason: 说明该镜头的动态设计，不要写“静态图片即可”
                 - imagePrompt: AI生图提示词（中文，需包含：主体描述+表情动作+环境光影+构图+风格关键词，竖版9:16）
                 - videoPrompt: 动态镜头视频提示词（基于关键帧的动作+镜头运动描述）
                 - motionLevel: 动态强度（low/medium/high）
@@ -1771,10 +1771,10 @@ if (isStream) {
                 3. 全集建议 20-45 个镜头（可根据台词和动作适度增减）
                 4. 开场第1-3个镜头要建立人物关系与核心冲突
                 5. 对话场景优先 close-up 和 medium，动作场景再使用 wide/tracking
-                6. 动态镜头仅用于明显运动或情绪爆发段落，不超过镜头总数 30%%
+                6. 所有镜头都必须可生成动态视频；对白镜头也要设计呼吸、眨眼、轻微推镜、衣摆/光影等低幅动态
                 7. imagePrompt 必须足够详细：包含人物外貌、服装、表情、动作、场景环境、光影氛围、画面风格
                 8. videoPrompt 只描述基于关键帧的动作和镜头运动，不重复画面基础描述
-                9. 如果镜头更适合静态图，isDynamic 必须为 false，并给出 dynamicReason
+                9. 禁止输出静态镜头；如果动作弱，也要输出轻动态设计并将 isDynamic 设为 true
                 10. 集末镜头组要形成明确悬念或情绪收束，服务下一集衔接
                 11. 若 subtitleText 为空，必须保证 dialogue/narration 至少一个可用于派生；不得三者全空
                 12. 若 ttsText 包含角色或情绪标签，必须放在可剥离前缀里（如【角色|情绪】），正文保持可直接朗读
@@ -1929,11 +1929,13 @@ if (isStream) {
             placeholder.setImagePrompt(buildImagePrompt(placeholder, null, project));
             placeholder.setVideoPrompt(buildVideoPrompt(placeholder, "low", project));
             placeholder.setMotionLevel("low");
-            placeholder.setDynamicRecommended(false);
-            placeholder.setDynamicSelected(false);
+            placeholder.setDynamicRecommended(true);
+            placeholder.setDynamicSelected(true);
             placeholder.setDynamicScore(0);
-            placeholder.setDynamicReason("当前镜头更适合保留为静态图片");
-            placeholder.setRenderMode("image");
+            placeholder.setDynamicReason("短剧平台主流程要求全部镜头生成动态视频");
+            placeholder.setMotionTier("B");
+            placeholder.setMotionTierReason("解析失败占位镜头，按轻动态视频处理");
+            placeholder.setRenderMode("video");
             placeholder.setStatus("draft");
             shots.add(placeholder);
         }
@@ -2085,7 +2087,7 @@ if (isStream) {
                 && !hasAction
                 && !highEmotionDialogue) {
             score -= 14;
-            reasons.add("该镜头更偏静态对白，保留图片即可");
+            reasons.add("对白镜头动作弱，采用呼吸感与轻微推镜保持动态");
         }
 
         if (!hasText(dialogue) && !hasText(narration)) {
@@ -2100,20 +2102,24 @@ if (isStream) {
 
         score = Math.max(0, Math.min(score, 100));
         MotionTierDecision tierDecision = decideMotionTier(score, dialogueDensity, hasAction, highEmotionDialogue, aiDynamic);
-        boolean recommended = score >= dynamicRecommendMinScoreToRecommend || "A".equals(tierDecision.tier());
+        boolean recommended = true;
 
         if (!hasText(shot.getVideoPrompt())) {
             shot.setVideoPrompt(buildVideoPrompt(shot, resolveMotionLevel(aiMotionLevel, score), project));
         }
 
-        shot.setMotionLevel(resolveMotionLevelByTier(aiMotionLevel, score, tierDecision.tier()));
+        String motionTier = "C".equalsIgnoreCase(tierDecision.tier()) ? "B" : tierDecision.tier();
+        String tierReason = "C".equalsIgnoreCase(tierDecision.tier())
+                ? "短剧平台主流程要求全部镜头生成动态视频，弱动作镜头按轻动态处理"
+                : tierDecision.reason();
+        shot.setMotionLevel(resolveMotionLevelByTier(aiMotionLevel, score, motionTier));
         shot.setDynamicRecommended(recommended);
-        shot.setDynamicSelected(false);
+        shot.setDynamicSelected(true);
         shot.setDynamicScore(score);
         shot.setDynamicReason(buildDynamicReason(reasons, recommended));
-        shot.setMotionTier(tierDecision.tier());
-        shot.setMotionTierReason(tierDecision.reason());
-        shot.setRenderMode("image");
+        shot.setMotionTier(motionTier);
+        shot.setMotionTierReason(tierReason);
+        shot.setRenderMode("video");
     }
 
     private void recomputeDynamicRecommendations(List<Storyboard> shots, Project project) {
@@ -2133,37 +2139,24 @@ if (isStream) {
             List<Storyboard> episodeShots = entry.getValue();
             int total = episodeShots.size();
             int allowed = resolveEpisodeDynamicBudget(total);
-            List<Storyboard> candidates = episodeShots.stream()
-                    .filter(shot -> (shot.getDynamicScore() != null ? shot.getDynamicScore() : 0) >= dynamicRecommendMinScoreToRecommend
-                            && "A".equalsIgnoreCase(shot.getMotionTier()))
-                    .sorted((a, b) -> Integer.compare(
-                            b.getDynamicScore() != null ? b.getDynamicScore() : 0,
-                            a.getDynamicScore() != null ? a.getDynamicScore() : 0))
-                    .toList();
-            int kept = 0;
             for (Storyboard shot : episodeShots) {
-                shot.setDynamicRecommended(false);
-                shot.setDynamicSelected(false);
-                shot.setRenderMode("image");
-            }
-            for (Storyboard shot : candidates) {
-                if (kept >= allowed) {
-                    break;
-                }
                 shot.setDynamicRecommended(true);
                 shot.setDynamicSelected(true);
                 shot.setRenderMode("video");
-                kept++;
+                if (!hasText(shot.getMotionTier()) || "C".equalsIgnoreCase(shot.getMotionTier())) {
+                    shot.setMotionTier("B");
+                    shot.setMotionTierReason("短剧平台主流程要求全部镜头生成动态视频，弱动作镜头按轻动态处理");
+                }
             }
-            int trimmed = Math.max(0, candidates.size() - kept);
-            int avgScore = candidates.isEmpty()
+            int kept = episodeShots.size();
+            int avgScore = episodeShots.isEmpty()
                     ? 0
-                    : (int) Math.round(candidates.stream().mapToInt(s -> s.getDynamicScore() != null ? s.getDynamicScore() : 0).average().orElse(0));
+                    : (int) Math.round(episodeShots.stream().mapToInt(s -> s.getDynamicScore() != null ? s.getDynamicScore() : 0).average().orElse(0));
             long tierACount = episodeShots.stream().filter(s -> "A".equalsIgnoreCase(s.getMotionTier())).count();
             long tierBCount = episodeShots.stream().filter(s -> "B".equalsIgnoreCase(s.getMotionTier())).count();
             long tierCCount = episodeShots.stream().filter(s -> "C".equalsIgnoreCase(s.getMotionTier())).count();
-            log.debug("动态推荐统计: episodeNo={}, totalShots={}, candidateCount={}, kept={}, trimmed={}, avgScore={}, tierA={}, tierB={}, tierC={}",
-                    ep, total, candidates.size(), kept, trimmed, avgScore, tierACount, tierBCount, tierCCount);
+            log.debug("动态推荐统计: episodeNo={}, totalShots={}, allowedBudget={}, selected={}, avgScore={}, tierA={}, tierB={}, tierC={}",
+                    ep, total, allowed, kept, avgScore, tierACount, tierBCount, tierCCount);
         }
         if (forceDynamicByDefault && !motionTierEnabled) {
             enforceDynamicTargetRatio(shots);
@@ -2227,13 +2220,13 @@ if (isStream) {
             if (score >= dynamicRecommendMinScoreToRecommend) {
                 return new MotionTierDecision("A", "兼容旧逻辑：高分镜头按动态处理");
             }
-            return new MotionTierDecision("C", "兼容旧逻辑：低分镜头按静态处理");
+            return new MotionTierDecision("C", "兼容旧逻辑：低分镜头按轻动态兜底处理");
         }
         if ((score >= 76 && dialogueDensity <= 20d) || (score >= 70 && hasAction && aiDynamic)) {
             return new MotionTierDecision("A", "动作与冲突强，且台词密度可控，优先真 i2v");
         }
         if (dialogueDensity >= 24d && !hasAction && !highEmotionDialogue) {
-            return new MotionTierDecision("C", "台词密度高且动作弱，使用静态基线避免喧宾夺主");
+            return new MotionTierDecision("C", "台词密度高且动作弱，使用低幅轻动态避免喧宾夺主");
         }
         return new MotionTierDecision("B", "采用基线轻动态，保持节奏连贯并控制成本");
     }
@@ -2266,7 +2259,7 @@ if (isStream) {
 
     private String buildDynamicReason(LinkedHashSet<String> reasons, boolean recommended) {
         if (reasons.isEmpty()) {
-            return recommended ? "建议做轻动态处理以增强镜头表现" : "当前镜头更适合保留为静态图片";
+            return recommended ? "建议做轻动态处理以增强镜头表现" : "动作弱，采用轻动态保持画面生命力";
         }
 
         List<String> topReasons = new ArrayList<>(reasons).subList(0, Math.min(2, reasons.size()));

@@ -99,10 +99,10 @@
           <div v-if="outlineContent" class="outline-card">
             <pre v-if="generating" class="outline-plain">{{ outlinePlainDisplay }}</pre>
             <div v-else class="outline-md" v-html="outlineHtml" />
-            <div v-if="showOutlineConfirmActions" class="outline-card-actions">
+            <div v-if="showOutlineConfirmActions" class="outline-card-actions step-confirm-actions">
               <button
                 type="button"
-                class="btn-confirm-outline"
+                class="btn-confirm-step"
                 :disabled="outlineSaving || scriptWorkflowLoading"
                 @click="confirmOutline"
               >
@@ -124,14 +124,14 @@
           </div>
 
           <!-- 角色确认按钮 -->
-          <div v-if="charactersReady && !charactersConfirmed" class="chat-action-row">
+          <div v-if="charactersReady && !charactersConfirmed" class="chat-action-row step-confirm-actions">
             <button type="button" class="btn-confirm-step" @click="() => confirmCharacters()">
               确认角色，生成剧本
             </button>
           </div>
 
           <!-- 剧本确认按钮 -->
-          <div v-if="scriptReady && !scriptConfirmed" class="chat-action-row">
+          <div v-if="scriptReady && !scriptConfirmed" class="chat-action-row step-confirm-actions">
             <button type="button" class="btn-confirm-step" @click="confirmScript">
               确认剧本
             </button>
@@ -296,7 +296,7 @@
                 >
                   <span class="shot-select-item-no">镜头 {{ shot.shotNo }}</span>
                   <span v-if="shot.videoUrl" class="shot-select-item-status shot-select-item-status--done">已有视频</span>
-                  <span v-else-if="shot.dynamicSelected" class="shot-select-item-status">动态</span>
+                  <span v-else class="shot-select-item-status">动态</span>
                 </el-checkbox>
               </el-checkbox-group>
             </div>
@@ -506,10 +506,30 @@ const shotSelectLabel = computed(() => {
   return `已选 ${selectedShotIds.value.length} / ${episodeShots.value.length} 镜`
 })
 
-function isCurrentEpisodeShot(shot: any, scriptId: string) {
-  const sameScript = shot?.scriptId != null && String(shot.scriptId) === scriptId
-  const sameEpisode = Number(shot?.episodeNo) === Number(activeEpisode.value)
-  return sameScript || sameEpisode
+function dedupeAndSortShots(shots: any[]) {
+  const byShotNo = new Map<string, any>()
+  for (const shot of shots) {
+    const key = shot?.shotNo != null ? String(shot.shotNo) : String(shot?.id ?? byShotNo.size)
+    const prev = byShotNo.get(key)
+    const prevId = Number(prev?.id || 0)
+    const nextId = Number(shot?.id || 0)
+    if (!prev || nextId >= prevId) {
+      byShotNo.set(key, shot)
+    }
+  }
+  return Array.from(byShotNo.values()).sort((a: any, b: any) => {
+    const shotDiff = (Number(a.shotNo) || 0) - (Number(b.shotNo) || 0)
+    if (shotDiff !== 0) return shotDiff
+    return (Number(a.id) || 0) - (Number(b.id) || 0)
+  })
+}
+
+function pickCurrentEpisodeShots(allShots: any[], scriptId: string) {
+  const exactScriptShots = allShots.filter((shot: any) => shot?.scriptId != null && String(shot.scriptId) === scriptId)
+  const source = exactScriptShots.length > 0
+    ? exactScriptShots
+    : allShots.filter((shot: any) => Number(shot?.episodeNo) === Number(activeEpisode.value))
+  return dedupeAndSortShots(source)
 }
 
 function isAuthFlowError(error: unknown) {
@@ -669,9 +689,7 @@ async function loadEpisodeShots() {
   try {
     const res = await storyboardApi.listByProject(projectId.value)
     const all = (res as any).data?.data ?? []
-    episodeShots.value = all
-      .filter((s: any) => isCurrentEpisodeShot(s, String(sid)))
-      .sort((a: any, b: any) => (Number(a.shotNo) || 0) - (Number(b.shotNo) || 0))
+    episodeShots.value = pickCurrentEpisodeShots(all, String(sid))
     // 默认全选本集镜头，主流程是批量生成，用户可手动排除。
     selectedShotIds.value = episodeShots.value.map((shot: any) => String(shot.id))
   } catch { episodeShots.value = []; selectedShotIds.value = [] }
@@ -694,7 +712,7 @@ async function ensureEpisodeStoryboard() {
     const allRes = await storyboardApi.listByProject(projectId.value)
     if (gen !== sbEnsureGeneration) return
     const allStoryboards = (allRes as any).data?.data ?? []
-    const existing = allStoryboards.filter((s: any) => isCurrentEpisodeShot(s, scriptId))
+    const existing = pickCurrentEpisodeShots(allStoryboards, scriptId)
     if (existing.length > 0) {
       episodeStoryboardReady.value = true
       await loadEpisodeShots()
@@ -710,7 +728,7 @@ async function ensureEpisodeStoryboard() {
 
     const verifyRes = await storyboardApi.listByProject(projectId.value)
     const allRows = (verifyRes as any).data?.data ?? []
-    const rows = allRows.filter((s: any) => isCurrentEpisodeShot(s, scriptId))
+    const rows = pickCurrentEpisodeShots(allRows, scriptId)
     if (rows.length === 0) {
       throw new Error('分镜生成完成但未查到镜头，请稍后重试')
     }
@@ -2061,30 +2079,9 @@ onMounted(async () => {
   box-shadow: var(--shadow-md);
 }
 .outline-card-actions {
-  display: flex;
-  justify-content: flex-end;
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
-}
-.btn-confirm-outline {
-  padding: 10px 22px;
-  border-radius: var(--radius-full);
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 700;
-  background: var(--primary);
-  color: #fff;
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-.btn-confirm-outline:hover:not(:disabled) {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-primary);
-}
-.btn-confirm-outline:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 /* 流式阶段：纯文本，避免 Markdown 每帧全量解析阻塞渲染 */
 .outline-plain {
@@ -2519,27 +2516,32 @@ onMounted(async () => {
   cursor: not-allowed;
 }
 
-/* 聊天区确认按钮行 */
-.chat-action-row {
+.step-confirm-actions {
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
   padding: 12px 0;
 }
 .btn-confirm-step {
-  padding: 10px 28px;
-  border-radius: 24px;
+  min-width: 132px;
+  min-height: 52px;
+  padding: 0 24px;
+  border-radius: 18px;
   border: none;
-  background: linear-gradient(135deg, var(--primary), #ec4899);
+  background: linear-gradient(135deg, #7c86ff, #6672f4);
   color: #fff;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
-  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 10px 24px rgba(99, 102, 241, 0.28);
 }
-.btn-confirm-step:hover {
+.btn-confirm-step:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 14px 30px rgba(99, 102, 241, 0.38);
+}
+.btn-confirm-step:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* 角色图片画廊 */
