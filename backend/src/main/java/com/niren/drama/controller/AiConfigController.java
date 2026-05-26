@@ -91,12 +91,13 @@ public class AiConfigController {
                                                                  @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = getUserId(userDetails);
         String imageUrl = body != null ? stringValue(body.get("imageUrl")) : null;
+        List<String> referenceImageUrls = body != null ? stringListValue(body.get("referenceImageUrls")) : List.of();
         String prompt = body != null ? stringValue(body.get("prompt")) : null;
         Integer duration = body != null ? intValue(body.get("duration")) : null;
         String resolution = body != null ? stringValue(body.get("resolution")) : null;
         String quality = body != null ? stringValue(body.get("quality")) : null;
         Boolean withSound = body != null ? boolValue(body.get("withSound")) : null;
-        return Result.success(aiVideoDebugService.generateImageToVideo(userId, imageUrl, prompt, duration, resolution, quality, withSound));
+        return Result.success(aiVideoDebugService.generateImageToVideo(userId, imageUrl, referenceImageUrls, prompt, duration, resolution, quality, withSound));
     }
 
     @Operation(summary = "获取 ComfyUI 当前用户工作流列表")
@@ -160,6 +161,20 @@ public class AiConfigController {
             return Boolean.parseBoolean(text);
         }
         return null;
+    }
+
+    private List<String> stringListValue(Object value) {
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .map(this::stringValue)
+                    .filter(v -> v != null && !v.isBlank())
+                    .map(String::trim)
+                    .distinct()
+                    .limit(6)
+                    .toList();
+        }
+        String single = stringValue(value);
+        return single == null || single.isBlank() ? List.of() : List.of(single.trim());
     }
 
     private Long getUserId(UserDetails userDetails) {

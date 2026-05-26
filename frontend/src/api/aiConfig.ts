@@ -21,8 +21,8 @@ export const aiConfigApi = {
     request.post('/ai-configs/debug/generate-image', data, { timeout: 240000 }),
 
   /** 图生视频调试：按当前账号解析的视频配置生成视频 */
-  debugGenerateImageToVideo: (data: { imageUrl: string; prompt?: string; duration?: number; resolution?: string; quality?: string; withSound?: boolean }) =>
-    request.post('/ai-configs/debug/generate-image-to-video', data, { timeout: 600000 }),
+  debugGenerateImageToVideo: (data: { imageUrl: string; referenceImageUrls?: string[]; prompt?: string; duration?: number; resolution?: string; quality?: string; withSound?: boolean }) =>
+    request.post('/ai-configs/debug/generate-image-to-video', data, { timeout: 1800000 }),
 
   /** 获取 ComfyUI 可用工作流模板列表 */
   listComfyUiWorkflows: () =>

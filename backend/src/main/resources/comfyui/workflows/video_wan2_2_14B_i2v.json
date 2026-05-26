@@ -2,83 +2,251 @@
   "1": {
     "class_type": "WanVideoModelLoader",
     "inputs": {
-      "model": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
-      "precision": "fp8_scaled"
+      "model": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+      "base_precision": "fp16_fast",
+      "quantization": "fp8_e4m3fn_scaled",
+      "load_device": "offload_device",
+      "attention_mode": "sdpa"
     }
   },
   "2": {
-    "class_type": "WanVideoVAELoader",
+    "class_type": "WanVideoModelLoader",
     "inputs": {
-      "vae_name": "wan_2.1_vae.safetensors"
+      "model": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+      "base_precision": "fp16_fast",
+      "quantization": "fp8_e4m3fn_scaled",
+      "load_device": "offload_device",
+      "attention_mode": "sdpa"
     }
   },
   "3": {
-    "class_type": "CLIPTextEncode",
+    "class_type": "WanVideoBlockSwap",
     "inputs": {
-      "text": "positive prompt placeholder",
-      "clip": ["1", 1]
+      "blocks_to_swap": 20,
+      "offload_img_emb": false,
+      "offload_txt_emb": false,
+      "use_non_blocking": true,
+      "prefetch_blocks": 1,
+      "block_swap_debug": false
     }
   },
   "4": {
-    "class_type": "WanVideoTextEncode",
+    "class_type": "WanVideoSetBlockSwap",
     "inputs": {
-      "positive_prompt": "positive prompt placeholder",
-      "negative_prompt": "low quality, blurry, distorted",
-      "clip": ["1", 1]
+      "model": ["1", 0],
+      "block_swap_args": ["3", 0]
     }
   },
   "5": {
+    "class_type": "WanVideoSetBlockSwap",
+    "inputs": {
+      "model": ["2", 0],
+      "block_swap_args": ["3", 0]
+    }
+  },
+  "6": {
+    "class_type": "WanVideoLoraSelect",
+    "inputs": {
+      "lora": "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+      "strength": 1.0,
+      "low_mem_load": false,
+      "merge_loras": false
+    }
+  },
+  "7": {
+    "class_type": "WanVideoLoraSelect",
+    "inputs": {
+      "lora": "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+      "strength": 1.0,
+      "low_mem_load": false,
+      "merge_loras": false
+    }
+  },
+  "8": {
+    "class_type": "WanVideoSetLoRAs",
+    "inputs": {
+      "model": ["4", 0],
+      "lora": ["6", 0]
+    }
+  },
+  "9": {
+    "class_type": "WanVideoSetLoRAs",
+    "inputs": {
+      "model": ["5", 0],
+      "lora": ["7", 0]
+    }
+  },
+  "10": {
+    "class_type": "WanVideoVAELoader",
+    "inputs": {
+      "model_name": "wan_2.1_vae.safetensors",
+      "precision": "bf16"
+    }
+  },
+  "11": {
+    "class_type": "LoadWanVideoT5TextEncoder",
+    "inputs": {
+      "model_name": "umt5-xxl-enc-bf16.safetensors",
+      "precision": "bf16",
+      "load_device": "offload_device",
+      "quantization": "disabled"
+    }
+  },
+  "12": {
+    "class_type": "WanVideoTextEncode",
+    "inputs": {
+      "positive_prompt": "Commercial vertical short-drama clip, same character, same outfit, same scene, natural subtle motion, one continuous shot.",
+      "negative_prompt": "low quality, blurry, distorted, face morphing, identity drift, different person, changing clothes, scene jump, camera cut, flicker, jitter, subtitles, logo, watermark",
+      "t5": ["11", 0],
+      "force_offload": true,
+      "model_to_offload": ["8", 0],
+      "use_disk_cache": true,
+      "device": "gpu"
+    }
+  },
+  "13": {
     "class_type": "LoadImage",
     "inputs": {
       "image": "input_image.png"
     }
   },
-  "6": {
-    "class_type": "WanVideoImageClipEncode",
+  "14": {
+    "class_type": "LoadImage",
     "inputs": {
-      "clip": ["1", 1],
-      "vae": ["2", 0],
-      "image": ["5", 0]
+      "image": "input_image.png"
     }
   },
-  "7": {
+  "15": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "input_image.png"
+    }
+  },
+  "16": {
+    "class_type": "CLIPVisionLoader",
+    "inputs": {
+      "clip_name": "sigclip_vision_patch14_384.safetensors"
+    }
+  },
+  "17": {
+    "class_type": "WanVideoClipVisionEncode",
+    "inputs": {
+      "clip_vision": ["16", 0],
+      "image_1": ["13", 0],
+      "image_2": ["14", 0],
+      "strength_1": 1.0,
+      "strength_2": 0.55,
+      "crop": "center",
+      "combine_embeds": "average",
+      "force_offload": true
+    }
+  },
+  "18": {
     "class_type": "WanVideoImageToVideoEncode",
     "inputs": {
       "width": 720,
       "height": 1280,
-      "num_frames": 40,
-      "image_embeds": ["6", 0]
+      "num_frames": 81,
+      "noise_aug_strength": 0.015,
+      "start_latent_strength": 1.0,
+      "end_latent_strength": 0.98,
+      "force_offload": true,
+      "vae": ["10", 0],
+      "clip_embeds": ["17", 0],
+      "start_image": ["13", 0],
+      "tiled_vae": false,
+      "augment_empty_frames": 0.0
     }
   },
-  "8": {
+  "19": {
+    "class_type": "WanVideoAddOneToAllReferenceEmbeds",
+    "inputs": {
+      "embeds": ["18", 0],
+      "vae": ["10", 0],
+      "ref_image": ["14", 0],
+      "strength": 0.35,
+      "start_percent": 0.0,
+      "end_percent": 1.0
+    }
+  },
+  "20": {
+    "class_type": "WanVideoAddSCAILReferenceEmbeds",
+    "inputs": {
+      "embeds": ["19", 0],
+      "vae": ["10", 0],
+      "ref_image": ["15", 0],
+      "clip_embeds": ["17", 0],
+      "strength": 0.25,
+      "start_percent": 0.0,
+      "end_percent": 1.0
+    }
+  },
+  "21": {
     "class_type": "WanVideoSampler",
     "inputs": {
-      "seed": 0,
-      "steps": 20,
-      "cfg": 6.0,
-      "model": ["1", 0],
-      "positive": ["4", 0],
-      "negative": ["4", 1],
-      "latent_image": ["7", 0]
+      "model": ["8", 0],
+      "image_embeds": ["20", 0],
+      "text_embeds": ["12", 0],
+      "steps": 12,
+      "cfg": 1.0,
+      "shift": 8.0,
+      "seed": 43,
+      "force_offload": true,
+      "scheduler": "dpm++_sde",
+      "riflex_freq_index": 0,
+      "batched_cfg": false,
+      "rope_function": "comfy",
+      "start_step": 0,
+      "end_step": 6
     }
   },
-  "9": {
+  "22": {
+    "class_type": "WanVideoSampler",
+    "inputs": {
+      "model": ["9", 0],
+      "image_embeds": ["20", 0],
+      "text_embeds": ["12", 0],
+      "samples": ["21", 0],
+      "steps": 12,
+      "cfg": 1.0,
+      "shift": 8.0,
+      "seed": 43,
+      "force_offload": true,
+      "scheduler": "dpm++_sde",
+      "riflex_freq_index": 0,
+      "batched_cfg": false,
+      "rope_function": "comfy",
+      "start_step": 6,
+      "end_step": -1
+    }
+  },
+  "23": {
     "class_type": "WanVideoDecode",
     "inputs": {
-      "samples": ["8", 0],
-      "vae": ["2", 0]
+      "vae": ["10", 0],
+      "samples": ["22", 0],
+      "enable_vae_tiling": false,
+      "tile_x": 272,
+      "tile_y": 272,
+      "tile_stride_x": 144,
+      "tile_stride_y": 128,
+      "normalization": "default"
     }
   },
-  "10": {
+  "24": {
     "class_type": "VHS_VideoCombine",
     "inputs": {
-      "frame_rate": 8,
+      "images": ["23", 0],
+      "frame_rate": 16,
       "loop_count": 0,
-      "filename_prefix": "niren_video",
+      "filename_prefix": "niren_wan22_i2v_short_drama",
       "format": "video/h264-mp4",
-      "save_output": false,
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
       "pingpong": false,
-      "images": ["9", 0]
+      "save_output": false
     }
   }
 }

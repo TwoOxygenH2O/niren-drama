@@ -94,6 +94,15 @@
               </div>
             </div>
             <div class="debug-field">
+              <label class="debug-label">辅助参考图 URL</label>
+              <el-input
+                v-model="imageToVideoReferenceUrls"
+                type="textarea"
+                :rows="2"
+                placeholder="可选。人物定妆图、场景图等，每行一个 URL；用于锁定角色、服装和场景一致性"
+              />
+            </div>
+            <div class="debug-field">
               <label class="debug-label">视频提示词</label>
               <el-input
                 v-model="imageToVideoPrompt"
@@ -359,6 +368,7 @@ const imageDebugProviderUrl = ref('')
 const imageDebugError = ref('')
 
 const imageToVideoImageUrl = ref('')
+const imageToVideoReferenceUrls = ref('')
 const imageToVideoPrompt = ref('镜头缓慢推进，画面有轻微动态，电影感光影')
 const imageToVideoDuration = ref(5)
 const imageToVideoResolution = ref('720x1280')
@@ -669,6 +679,10 @@ async function runImageToVideoDebug() {
   try {
     const res = await aiConfigApi.debugGenerateImageToVideo({
       imageUrl: imageToVideoImageUrl.value.trim(),
+      referenceImageUrls: imageToVideoReferenceUrls.value
+        .split(/\r?\n|,/)
+        .map((url) => url.trim())
+        .filter(Boolean),
       prompt: imageToVideoPrompt.value.trim(),
       duration: imageToVideoDuration.value,
       resolution: imageToVideoResolution.value,

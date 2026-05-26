@@ -51,7 +51,7 @@ echo "       PID: $BACKEND_PID, log: /tmp/niren-backend.log"
 # ---- start frontend ----
 echo "[START] Frontend (Vite :$FRONTEND_PORT)"
 cd "$PROJECT_DIR/frontend"
-npm run dev > /tmp/niren-frontend.log 2>&1 &
+npm run dev -- --host 0.0.0.0 > /tmp/niren-frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo "       PID: $FRONTEND_PID, log: /tmp/niren-frontend.log"
 

@@ -749,12 +749,12 @@ public class AiVideoGenerationService {
         int baseDuration = fallbackDuration > 0 ? fallbackDuration : 5;
         String tier = resolveMotionTier(shot);
         if ("A".equalsIgnoreCase(tier)) {
-            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 5), 8), "pro", "1080P");
+            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 5), 10), "pro", "1080P");
         }
         if ("B".equalsIgnoreCase(tier)) {
-            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 4), 6), "standard", "720P");
+            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 4), 8), "standard", "720P");
         }
-        return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 3), 5), "standard", "720P");
+        return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 3), 6), "standard", "720P");
     }
 
     private String resolveMotionTier(Storyboard shot) {
@@ -802,12 +802,15 @@ public class AiVideoGenerationService {
                 .replaceAll("\\s+", " ")
                 .trim();
 
-        // 电影级画质前缀（强约束，放在 prompt 最前面以获取最高权重）
+        // 短剧平台视频提示词：身份和首帧一致性比炫技镜头更重要。
         StringBuilder sb = new StringBuilder();
-        sb.append("Cinematic live-action film, photorealistic, 8K, professional cinematography, "
-                + "realistic human actors, natural skin texture, realistic fabric and clothing, "
-                + "dramatic lighting, shallow depth of field, anamorphic lens, film grain, "
-                + "no cartoon, no anime, no CGI, no 3D render, no illustration. ");
+        sb.append("Vertical short-drama production shot, photorealistic live-action, "
+                + "Chinese short drama platform style, natural skin texture when an actor is present, "
+                + "realistic wardrobe and props, stable lighting, mobile-first 9:16 composition. "
+                + "Use the first frame and character references as identity lock: preserve the exact same face, hairstyle, outfit, body shape, age, and scene layout. "
+                + "Single continuous shot, no cuts, no scene change, no character replacement, no face morphing, no new person. "
+                + "If a visible actor is present, use restrained actor motion only: natural breathing, eye blink, small head turn, hand/cloth/hair micro motion. "
+                + "If no actor is visible in the first frame, do not introduce any person; animate only environmental motion such as light, curtain, smoke, water, shadow, or a subtle camera push/pan. ");
         sb.append(basePrompt);
 
         // 附加角色一致性要求
@@ -818,11 +821,11 @@ public class AiVideoGenerationService {
                 if (hasText(character.getAppearance())) {
                     sb.append("（").append(trimToLength(character.getAppearance(), 60)).append("）");
                 }
-                sb.append("，保持角色外貌一致无变形");
+                sb.append("，必须保持同一张脸、同一发型、同一服装、同一年龄感，不漂移不换人");
             }
         }
         sb.append("。项目视觉约束：").append(visualGuide);
-        sb.append("。竖屏9:16，确保主体完整不裁切，面部清晰可辨，动态自然流畅。");
+        sb.append("。成片目标：可直接作为短剧平台片段使用，竖屏9:16，主体完整不裁切，面部清晰可辨，动态自然流畅，有叙事张力但不夸张。");
         return sb.toString();
     }
 
@@ -854,16 +857,17 @@ public class AiVideoGenerationService {
         String resolution = profile.resolution();
         String quality = profile.qualityTier();
         int duration = profile.durationSeconds();
-        String referenceImageUrl = resolveReferenceImageUrl(shot);
+        List<String> referenceImageUrls = resolveReferenceImageUrls(shot);
+        String referenceImageUrl = referenceImageUrls.isEmpty() ? null : referenceImageUrls.get(0);
 
-        log.debug("Start ComfyUI video generation: shotId={}, shotNo={}, hasImage={}, duration={}, resolution={}",
-                shot.getId(), shot.getShotNo(), hasText(referenceImageUrl), duration, resolution);
+        log.debug("Start ComfyUI video generation: shotId={}, shotNo={}, hasImage={}, refCount={}, duration={}, resolution={}",
+                shot.getId(), shot.getShotNo(), hasText(referenceImageUrl), referenceImageUrls.size(), duration, resolution);
 
         try {
             VideoAiProvider provider = aiProviderFactory.getVideoProvider(userId);
             String videoUrl;
             if (hasText(referenceImageUrl)) {
-                videoUrl = provider.generateVideoFromImage(referenceImageUrl, prompt, duration, resolution, quality, false);
+                videoUrl = provider.generateVideoFromImage(referenceImageUrl, referenceImageUrls, prompt, duration, resolution, quality, false);
             } else {
                 videoUrl = provider.generateVideoFromText(prompt, duration, resolution, quality, false);
             }
