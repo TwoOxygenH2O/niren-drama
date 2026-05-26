@@ -372,7 +372,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { characterApi } from '@/api/character'
@@ -483,6 +483,8 @@ const hasProjectVideo = ref(false)
 const mediaSubmitLoading = ref(false)
 const mediaTaskProgress = ref(0)
 const mediaTaskMessage = ref('')
+const activeMediaTaskId = ref('')
+let mediaPollTimer: ReturnType<typeof setTimeout> | null = null
 /** 剧集切换或重复调度时递增，用于取消过期的分镜拉取/生成流程 */
 let sbEnsureGeneration = 0
 
@@ -493,6 +495,17 @@ const hasAnyShotVideo = computed(() => episodeShots.value.some((s: any) => s.vid
 
 function goSynthesis() {
   router.push({ path: `/projects/${projectId.value}/synthesis` })
+}
+
+function clearMediaTaskState() {
+  if (mediaPollTimer) {
+    clearTimeout(mediaPollTimer)
+    mediaPollTimer = null
+  }
+  activeMediaTaskId.value = ''
+  mediaSubmitLoading.value = false
+  mediaTaskProgress.value = 0
+  mediaTaskMessage.value = ''
 }
 
 /** 分镜视频生成 - 镜头多选 */
@@ -801,11 +814,17 @@ async function onPrimaryVideoAction() {
   mediaSubmitLoading.value = true
   mediaTaskProgress.value = 0
   mediaTaskMessage.value = `正在提交 ${shotIds.length} 个镜头的视频生成任务…`
+  activeMediaTaskId.value = ''
+  if (mediaPollTimer) {
+    clearTimeout(mediaPollTimer)
+    mediaPollTimer = null
+  }
   try {
 
     const dynRes = await videoApi.generateStoryboardVideos(projectId.value, shotIds)
     const tid = extractTaskId(dynRes)
     if (!tid) throw new Error('未返回任务 ID')
+    activeMediaTaskId.value = tid
 
     ElMessage.success('视频生成任务已提交，可在合成页查看进度')
     mediaTaskMessage.value = '视频生成中，请稍候…'
@@ -813,10 +832,9 @@ async function onPrimaryVideoAction() {
     // 非阻塞轮询：更新进度但不阻塞 UI
     const deadline = Date.now() + 45 * 60 * 1000
     const poll = async () => {
-      if (!mediaSubmitLoading.value) return
+      if (!mediaSubmitLoading.value || activeMediaTaskId.value !== tid) return
       if (Date.now() > deadline) {
-        mediaSubmitLoading.value = false
-        mediaTaskMessage.value = ''
+        clearMediaTaskState()
         ElMessage.warning('视频生成超时，请到合成页查看进度')
         return
       }
@@ -825,37 +843,36 @@ async function onPrimaryVideoAction() {
         const task = ax.data?.data ?? ax.data
         mediaTaskProgress.value = Number(task?.progress ?? 0)
         mediaTaskMessage.value = task?.message || '视频生成中…'
-        if (task?.status === 'SUCCESS') {
-          mediaSubmitLoading.value = false
-          mediaTaskMessage.value = ''
-          await refreshVideoOverview()
+        const status = String(task?.status || '').toUpperCase()
+        if (status === 'SUCCESS') {
+          mediaTaskProgress.value = 100
+          mediaTaskMessage.value = task?.message || '视频生成完成'
+          await Promise.all([loadEpisodeShots(), refreshVideoOverview()])
+          clearMediaTaskState()
           router.push({
             path: `/projects/${projectId.value}/immersive/workbench`,
-            query: { episode: String(activeEpisode.value) },
+            query: { episode: String(activeEpisode.value), tab: 'video' },
           })
           return
         }
-        if (task?.status === 'FAILED') {
-          mediaSubmitLoading.value = false
-          mediaTaskMessage.value = ''
+        if (status === 'FAILED') {
+          clearMediaTaskState()
           ElMessage.error(task?.message || '视频生成失败')
           return
         }
       } catch (error) {
         if (isAuthFlowError(error)) {
-          mediaSubmitLoading.value = false
-          mediaTaskMessage.value = ''
+          clearMediaTaskState()
           ElMessage.error(error instanceof Error ? error.message : '登录已过期，请重新登录')
           return
         }
         mediaTaskMessage.value = '正在同步视频生成进度…'
       }
-      setTimeout(poll, 3000)
+      mediaPollTimer = setTimeout(poll, 3000)
     }
-    setTimeout(poll, 3000)
+    mediaPollTimer = setTimeout(poll, 3000)
   } catch (e: unknown) {
-    mediaSubmitLoading.value = false
-    mediaTaskMessage.value = ''
+    clearMediaTaskState()
     ElMessage.error(e instanceof Error ? e.message : '分镜视频生成失败')
   }
 }
@@ -1337,6 +1354,10 @@ onMounted(async () => {
   if (!outlineContent.value.trim() && workflowPhase.value === 'outline') {
     // 静默：新项目或从剧集入口进入时无大纲属正常状态，不弹 warning
   }
+})
+
+onUnmounted(() => {
+  clearMediaTaskState()
 })
 </script>
 
