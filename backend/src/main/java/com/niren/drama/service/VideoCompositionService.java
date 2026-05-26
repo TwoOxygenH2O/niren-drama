@@ -535,7 +535,7 @@ public class VideoCompositionService {
             log.debug("动态视频提交开始: taskId={}, userId={}, projectId={}, shotCount={}",
                     taskId, userId, projectId, total);
 
-            updateTask(task, "RUNNING", 5, "正在检查分镜图片…");
+            updateTask(task, "RUNNING", 5, "正在检查分镜首帧图片与视频提示词…");
 
             // ── 先从 DB 刷新最新数据（避免用旧的内存数据导致重复生成）──
             List<Long> allIds = shots.stream().map(Storyboard::getId).toList();
@@ -554,7 +554,7 @@ public class VideoCompositionService {
                         needImages.size(),
                         needImages.stream().map(s -> String.valueOf(s.getShotNo())).toList());
                 updateTask(task, "RUNNING", 8,
-                        String.format("正在为 %d 个镜头生成参考图片…", needImages.size()));
+                        String.format("正在为 %d 个镜头补齐首帧参考图，完成后自动提交图生视频…", needImages.size()));
                 try {
                     storyboardService.ensureShotsHaveImages(userId, projectId, needImages);
                     // 图片生成成功后刷新内存数据
@@ -565,7 +565,7 @@ public class VideoCompositionService {
                 }
             }
 
-            updateTask(task, "RUNNING", 10, "正在提交动态视频任务...");
+            updateTask(task, "RUNNING", 10, "首帧检查完成，正在提交 ComfyUI 图生视频任务...");
 
             for (int index = 0; index < shots.size(); index++) {
                 Storyboard shot = shots.get(index);
@@ -582,7 +582,7 @@ public class VideoCompositionService {
 
                 updateTask(task, "RUNNING",
                         10 + (40 * (index + 1) / total),
-                        String.format("正在提交第%d/%d个动态镜头任务...", index + 1, total));
+                        String.format("正在提交第%d/%d个镜头到 ComfyUI 图生视频...", index + 1, total));
 
                 try {
                     prepareShotForDynamicVideoTask(shot, taskId);

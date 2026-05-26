@@ -506,6 +506,18 @@ const shotSelectLabel = computed(() => {
   return `已选 ${selectedShotIds.value.length} / ${episodeShots.value.length} 镜`
 })
 
+function isCurrentEpisodeShot(shot: any, scriptId: string) {
+  const sameScript = shot?.scriptId != null && String(shot.scriptId) === scriptId
+  const sameEpisode = Number(shot?.episodeNo) === Number(activeEpisode.value)
+  return sameScript || sameEpisode
+}
+
+function isAuthFlowError(error: unknown) {
+  const err = error as { code?: unknown; message?: unknown }
+  const message = String(err?.message || '')
+  return err?.code === 401 || err?.code === 403 || message.includes('登录') || message.includes('无权限')
+}
+
 function toggleSelectAll() {
   if (allSelected.value) {
     selectedShotIds.value = []
@@ -658,10 +670,10 @@ async function loadEpisodeShots() {
     const res = await storyboardApi.listByProject(projectId.value)
     const all = (res as any).data?.data ?? []
     episodeShots.value = all
-      .filter((s: any) => String(s.scriptId) === String(sid))
+      .filter((s: any) => isCurrentEpisodeShot(s, String(sid)))
       .sort((a: any, b: any) => (Number(a.shotNo) || 0) - (Number(b.shotNo) || 0))
-    // 默认选择第一个镜头
-    selectedShotIds.value = episodeShots.value.length > 0 ? [String(episodeShots.value[0].id)] : []
+    // 默认全选本集镜头，主流程是批量生成，用户可手动排除。
+    selectedShotIds.value = episodeShots.value.map((shot: any) => String(shot.id))
   } catch { episodeShots.value = []; selectedShotIds.value = [] }
 }
 
@@ -682,7 +694,7 @@ async function ensureEpisodeStoryboard() {
     const allRes = await storyboardApi.listByProject(projectId.value)
     if (gen !== sbEnsureGeneration) return
     const allStoryboards = (allRes as any).data?.data ?? []
-    const existing = allStoryboards.filter((s: any) => String(s.scriptId) === scriptId)
+    const existing = allStoryboards.filter((s: any) => isCurrentEpisodeShot(s, scriptId))
     if (existing.length > 0) {
       episodeStoryboardReady.value = true
       await loadEpisodeShots()
@@ -698,7 +710,7 @@ async function ensureEpisodeStoryboard() {
 
     const verifyRes = await storyboardApi.listByProject(projectId.value)
     const allRows = (verifyRes as any).data?.data ?? []
-    const rows = allRows.filter((s: any) => String(s.scriptId) === scriptId)
+    const rows = allRows.filter((s: any) => isCurrentEpisodeShot(s, scriptId))
     if (rows.length === 0) {
       throw new Error('分镜生成完成但未查到镜头，请稍后重试')
     }
@@ -811,7 +823,15 @@ async function onPrimaryVideoAction() {
           ElMessage.error(task?.message || '视频生成失败')
           return
         }
-      } catch { /* ignore poll errors */ }
+      } catch (error) {
+        if (isAuthFlowError(error)) {
+          mediaSubmitLoading.value = false
+          mediaTaskMessage.value = ''
+          ElMessage.error(error instanceof Error ? error.message : '登录已过期，请重新登录')
+          return
+        }
+        mediaTaskMessage.value = '正在同步视频生成进度…'
+      }
       setTimeout(poll, 3000)
     }
     setTimeout(poll, 3000)
