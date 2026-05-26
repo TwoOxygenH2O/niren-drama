@@ -175,7 +175,7 @@
         </el-table>
       </div>
       <div v-else class="selection-groups">
-        <div class="selection-tip">已生成内容默认折叠，展开后才可重新勾选</div>
+        <div class="selection-tip">默认只选择未生成内容；已生成内容默认折叠，展开后可手动重选覆盖。</div>
         <el-collapse v-model="expandedDialogGroups">
           <el-collapse-item name="pending">
             <template #title>

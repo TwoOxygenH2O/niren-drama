@@ -512,6 +512,8 @@ function clearMediaTaskState() {
 const episodeShots = ref<any[]>([])
 const selectedShotIds = ref<string[]>([])
 const allShotIds = computed(() => episodeShots.value.map((s: any) => String(s.id)))
+const pendingVideoShotIds = computed(() => episodeShots.value.filter((s: any) => !s.videoUrl).map((s: any) => String(s.id)))
+const defaultVideoShotIds = computed(() => pendingVideoShotIds.value.length > 0 ? pendingVideoShotIds.value : allShotIds.value)
 const allSelected = computed(() => episodeShots.value.length > 0 && selectedShotIds.value.length === episodeShots.value.length)
 const shotSelectLabel = computed(() => {
   if (!selectedShotIds.value.length) return '选择镜头'
@@ -703,8 +705,8 @@ async function loadEpisodeShots() {
     const res = await storyboardApi.listByProject(projectId.value)
     const all = (res as any).data?.data ?? []
     episodeShots.value = pickCurrentEpisodeShots(all, String(sid))
-    // 默认全选本集镜头，主流程是批量生成，用户可手动排除。
-    selectedShotIds.value = episodeShots.value.map((shot: any) => String(shot.id))
+    // 默认只选择未生成视频的镜头，避免误覆盖已经可用的分镜视频。
+    selectedShotIds.value = [...defaultVideoShotIds.value]
   } catch { episodeShots.value = []; selectedShotIds.value = [] }
 }
 

@@ -685,17 +685,17 @@ if (isStream) {
 
                 额外要求：
                 1. 只生成当前片段对应的镜头，禁止扩写到上一场、下一场。
-                2. 当前片段通常拆为 1-4 个镜头。
+                2. 当前片段通常拆为 1-2 个镜头；只有强冲突、明确动作转折时才拆到 3 个，禁止把一句台词或一个动作切成多个碎镜头。
                 3. 如果这不是第 1 段，直接承接当前片段动作。
                 4. 如果这是最后一段，把当前场景收束补完整。
                 5. sceneName 优先使用“%s”。
                 6. 返回格式必须为 {"shots": [...]}。
                 7. 严禁Markdown格式文字。
                 8. dialogue 只写口播，短句、口语化；不要写“角色名：”前缀，用 characterName 标说话人；无口播可留空。
-                9. 若本段有两人交锋，请拆成多个镜头用短句形成一来一回，不要写成长段说明文。
+                9. 若本段有两人交锋，优先用一个中近景连续镜头承载一来一回；只有视线/动作明显反转时再切第二个镜头。
                 10. 台词风格示例（仅示意语气，勿照抄）：「你再说一遍试试？」「试就试，你以为我不敢？」
                 11. 返回前执行自检，不满足则重写：
-                    - duration 必须 1-5 秒；
+                    - duration 必须 5-10 秒，信息量小的镜头也不要低于 5 秒；
                     - subtitleText 若有值不得含角色名/情绪头；
                     - narration 仅 VO/OS 且不与 dialogue 同句重复。
                 """,
@@ -1727,7 +1727,7 @@ if (isStream) {
         return """
                 # 角色定位
                 你是一位顶级短剧分镜导演，专精竖屏短剧（9:16）分镜脚本制作。
-                你的分镜脚本对标红果短剧、抖音短剧保底S+评级标准，需要做到：节奏精准、视觉冲击力强、爽点镜头密集。
+                你的分镜脚本对标红果短剧、抖音短剧保底S+评级标准，需要做到：节奏精准、视觉冲击力强、单镜头叙事完整，避免碎切和幻灯片式堆镜。
                 
                 # 项目类型与题材
                 %s
@@ -1756,7 +1756,7 @@ if (isStream) {
                 - narration: 少用笔法；仅极少数 VO/OS 画外；与 dialogue 不重复；不要当小说旁白铺满
                 - subtitleText: 可选。上屏短句（无角色名/无情绪头）；默认可空，由系统从 dialogue 派生
                 - ttsText: 可选。更口语的念稿，可与上屏不同；默认可空，由旁白+对白派生
-                - duration: 镜头时长（秒，3-8 秒为主，对白镜头不少于3秒，动作或情绪爆发镜头5-8秒，避免每秒一切割的碎片感）
+                - duration: 镜头时长（秒，5-10 秒为主，对白/情绪镜头不少于5秒，动作或情绪爆发镜头6-10秒，避免每秒一切割的碎片感）
                 - characterName: 主要角色名（如有，用于角色一致性和图片复用）
                 - sceneName: 场景名称（用于场景复用优化）
                 - isDynamic: 必须为 true，短剧平台主流程所有镜头都需要AI视频
@@ -1767,9 +1767,9 @@ if (isStream) {
                 
                 # 分镜优化要求（稳定拆镜）
                 1. 按场景和对白稳定拆镜，不追求镜头数量堆叠，不得无意义乱切
-                2. 同一场景优先连续镜头表达：通常每个场景拆 2-5 个镜头
-                3. 全集建议 20-45 个镜头（可根据台词和动作适度增减）
-                4. 开场第1-3个镜头要建立人物关系与核心冲突
+                2. 同一场景优先连续镜头表达：通常每个场景拆 1-3 个镜头，强冲突场景最多 4 个镜头
+                3. 全集建议 12-28 个镜头（除非剧本明显很长，不要超过 32 个镜头）
+                4. 开场第1-2个镜头要建立人物关系与核心冲突，不要用多个空镜铺垫
                 5. 对话场景优先 close-up 和 medium，动作场景再使用 wide/tracking
                 6. 所有镜头都必须可生成动态视频；对白镜头也要设计呼吸、眨眼、轻微推镜、衣摆/光影等低幅动态
                 7. imagePrompt 必须足够详细：包含人物外貌、服装、表情、动作、场景环境、光影氛围、画面风格
@@ -1883,8 +1883,8 @@ if (isStream) {
                 shot.setNarration(shotNode.path("narration").asText(null));
                 shot.setSubtitleText(textOrNull(shotNode, "subtitleText"));
                 shot.setTtsText(textOrNull(shotNode, "ttsText"));
-                int rawDur = shotNode.path("duration").asInt(5);
-                shot.setDuration(Math.min(Math.max(rawDur, 4), 8));
+                int rawDur = shotNode.path("duration").asInt(6);
+                shot.setDuration(Math.min(Math.max(rawDur, 5), 10));
                 shot.setUserLockedSubtitle(false);
                 shot.setUserLockedTts(false);
                 shot.setStatus("draft");
@@ -2265,7 +2265,7 @@ if (isStream) {
         String sceneContext = hasText(shot.getDescription()) ? trimPromptSegment(shot.getDescription(), 100) : "保持剧情连续性";
         String characterContext = buildCharacterContextForVideo(shot);
         return clampPromptLength(String.format(
-                "首帧已确定，不重画画面。生成%ds竖屏9:16真人短剧视频，必须是一个连续单镜头。运动设计：%s。%s动作节拍：0-1秒从首帧自然起势，1-4秒完成主要表情或肢体反应，末段轻微收束并保持同一场景。剧情动作锚点：%s。必须保持同一张脸、同一服装、同一地点、同一光线。禁止切镜、跳场、换人、换衣、线稿化、插画化、黑白素描、静帧幻灯片。",
+                "首帧已确定，不重画画面。生成%ds竖屏9:16真人短剧视频，必须是一个连续单镜头。运动设计：%s。%s动作节拍：前20%%从首帧自然起势，中段完成主要表情或肢体反应，末20%%轻微收束并保持同一场景。剧情动作锚点：%s。必须保持同一张脸、同一服装、同一地点、同一光线。禁止切镜、跳场、换人、换衣、线稿化、插画化、黑白素描、静帧幻灯片。",
                 shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 5,
                 motionInstruction,
                 hasText(characterContext) ? characterContext + "。" : "",
