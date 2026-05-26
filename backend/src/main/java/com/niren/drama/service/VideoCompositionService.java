@@ -35,6 +35,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -1413,7 +1414,7 @@ public class VideoCompositionService {
             return resolvedFfmpegExecutable;
         }
 
-        String configured = normalizeExecutableConfig(ffmpegPath);
+        String configured = normalizeExecutableConfig(ffmpegPath, "ffmpeg");
         Path configuredPath = toPath(configured);
         if (configuredPath != null && Files.exists(configuredPath)) {
             resolvedFfmpegExecutable = configuredPath.toAbsolutePath().toString();
@@ -1430,20 +1431,28 @@ public class VideoCompositionService {
             }
         }
 
-        String foundOnPath = findOnSystemPath(configured);
+        String binaryName = executableBinaryName(configured, "ffmpeg");
+        String foundOnPath = findOnSystemPath(binaryName);
         if (hasText(foundOnPath)) {
             resolvedFfmpegExecutable = foundOnPath;
             log.info("FFmpeg 可执行文件来源(PATH): {}", resolvedFfmpegExecutable);
             return resolvedFfmpegExecutable;
         }
 
-        if (isWindows()) {
-            String foundExeOnPath = findOnSystemPath(configured + ".exe");
+        if (isWindows() && !binaryName.toLowerCase(Locale.ROOT).endsWith(".exe")) {
+            String foundExeOnPath = findOnSystemPath(binaryName + ".exe");
             if (hasText(foundExeOnPath)) {
                 resolvedFfmpegExecutable = foundExeOnPath;
                 log.info("FFmpeg 可执行文件来源(PATH补全.exe): {}", resolvedFfmpegExecutable);
                 return resolvedFfmpegExecutable;
             }
+        }
+
+        String knownWindowsPath = findKnownWindowsFfmpegTool("ffmpeg.exe");
+        if (hasText(knownWindowsPath)) {
+            resolvedFfmpegExecutable = knownWindowsPath;
+            log.info("FFmpeg 可执行文件来源(本机常见路径): {}", resolvedFfmpegExecutable);
+            return resolvedFfmpegExecutable;
         }
 
         // Fallback to configured value; startup error will include detailed diagnostics.
@@ -1457,7 +1466,7 @@ public class VideoCompositionService {
         }
 
         if (hasText(ffprobePath)) {
-            String configured = normalizeExecutableConfig(ffprobePath);
+            String configured = normalizeExecutableConfig(ffprobePath, "ffprobe");
             Path configuredPath = toPath(configured);
             if (configuredPath != null && Files.exists(configuredPath)) {
                 resolvedFfprobeExecutable = configuredPath.toAbsolutePath().toString();
@@ -1482,14 +1491,53 @@ public class VideoCompositionService {
             }
         }
 
-        String foundOnPath = findOnSystemPath(isWindows() ? "ffprobe.exe" : "ffprobe");
+        String configuredProbe = normalizeExecutableConfig(ffprobePath, "ffprobe");
+        String probeName = executableBinaryName(configuredProbe, "ffprobe");
+        String foundOnPath = findOnSystemPath(isWindows() && !probeName.endsWith(".exe") ? probeName + ".exe" : probeName);
         if (hasText(foundOnPath)) {
             resolvedFfprobeExecutable = foundOnPath;
             return resolvedFfprobeExecutable;
         }
 
+        String knownWindowsPath = findKnownWindowsFfmpegTool("ffprobe.exe");
+        if (hasText(knownWindowsPath)) {
+            resolvedFfprobeExecutable = knownWindowsPath;
+            return resolvedFfprobeExecutable;
+        }
+
         resolvedFfprobeExecutable = isWindows() ? "ffprobe.exe" : "ffprobe";
         return resolvedFfprobeExecutable;
+    }
+
+    private String executableBinaryName(String configured, String defaultName) {
+        if (!hasText(configured)) {
+            return isWindows() ? defaultName + ".exe" : defaultName;
+        }
+        Path path = toPath(configured);
+        if (path != null && path.getFileName() != null) {
+            return path.getFileName().toString();
+        }
+        return configured;
+    }
+
+    private String findKnownWindowsFfmpegTool(String binaryName) {
+        if (!isWindows()) {
+            return null;
+        }
+        for (String baseDir : List.of(
+                "D:\\javaSoftware\\ffmpeg_full\\bin",
+                "D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin",
+                "C:\\ffmpeg\\bin")) {
+            try {
+                Path candidate = Paths.get(baseDir, binaryName);
+                if (Files.exists(candidate) && Files.isRegularFile(candidate)) {
+                    return candidate.toAbsolutePath().toString();
+                }
+            } catch (Exception ignored) {
+                // Continue scanning known local install paths.
+            }
+        }
+        return null;
     }
 
     private String findOnSystemPath(String executableName) {
@@ -1515,7 +1563,11 @@ public class VideoCompositionService {
     }
 
     private String normalizeExecutableConfig(String configuredValue) {
-        String value = hasText(configuredValue) ? configuredValue.trim() : "ffmpeg";
+        return normalizeExecutableConfig(configuredValue, "ffmpeg");
+    }
+
+    private String normalizeExecutableConfig(String configuredValue, String defaultName) {
+        String value = hasText(configuredValue) ? configuredValue.trim() : defaultName;
         while ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
             value = value.substring(1, value.length() - 1).trim();
         }
@@ -1524,7 +1576,7 @@ public class VideoCompositionService {
         if (isWindows() && value.startsWith("\\") && !value.startsWith("\\\\") && !value.contains(":")) {
             value = value.substring(1);
         }
-        return hasText(value) ? value : "ffmpeg";
+        return hasText(value) ? value : defaultName;
     }
 
     private Path toPath(String value) {
@@ -1555,13 +1607,16 @@ public class VideoCompositionService {
     }
 
     private void downloadFile(String url, Path target) throws IOException {
+        if (target.getParent() != null) {
+            Files.createDirectories(target.getParent());
+        }
         if (url.startsWith(baseUrl)) {
             // Local file - resolve from upload path
             String relativePath = url.substring(baseUrl.length());
             if (relativePath.startsWith("/")) relativePath = relativePath.substring(1);
             Path localPath = Paths.get(uploadPath, relativePath);
             if (Files.exists(localPath)) {
-                Files.copy(localPath, target);
+                Files.copy(localPath, target, StandardCopyOption.REPLACE_EXISTING);
                 return;
             }
         }
@@ -1576,10 +1631,14 @@ public class VideoCompositionService {
                     .timeout(Duration.ofSeconds(120))
                     .GET()
                     .build();
-            HttpResponse<Path> response = client.send(request, HttpResponse.BodyHandlers.ofFile(target));
+            Path tempTarget = target.resolveSibling(target.getFileName() + ".download");
+            Files.deleteIfExists(tempTarget);
+            HttpResponse<Path> response = client.send(request, HttpResponse.BodyHandlers.ofFile(tempTarget));
             if (response.statusCode() != 200) {
+                Files.deleteIfExists(tempTarget);
                 throw new IOException("Download failed with status " + response.statusCode());
             }
+            Files.move(tempTarget, target, StandardCopyOption.REPLACE_EXISTING);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("Download interrupted", e);

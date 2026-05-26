@@ -1803,7 +1803,9 @@ if (isStream) {
                 重要约束：
                 - videoPrompt 只描述动态变化，不要重复画面构图和外观
                 - 必须包含镜头运动方式（不是"可能有运动"这种模糊表述）
-                - 如果 isDynamic=true，videoPrompt 必须详细；如果 isDynamic=false，videoPrompt 可简单
+                - 所有镜头 isDynamic 必须为 true，videoPrompt 必须详细
+                - videoPrompt 只能写连续镜头中的动作节拍、镜头运动、环境动态，禁止写成静态图片提示词
+                - videoPrompt 必须明确禁止切镜、跳场、换脸、线稿化、插画化、幻灯片式静帧
 
                 %s
                 
@@ -2167,24 +2169,11 @@ if (isStream) {
         if (shots == null || shots.isEmpty()) {
             return;
         }
-        int total = shots.size();
-        int target = Math.max(1, (int) Math.ceil(total * Math.max(0.5d, Math.min(1.0d, targetDynamicRatio))));
-        List<Storyboard> sorted = shots.stream()
-                .sorted((a, b) -> Integer.compare(
-                        b.getDynamicScore() != null ? b.getDynamicScore() : 0,
-                        a.getDynamicScore() != null ? a.getDynamicScore() : 0))
-                .toList();
-        int selected = 0;
-        for (Storyboard shot : sorted) {
-            boolean enable = selected < target;
-            shot.setDynamicSelected(enable);
-            shot.setRenderMode(enable ? "video" : "image");
-            if (enable) {
-                selected++;
-            }
+        for (Storyboard shot : shots) {
+            shot.setDynamicSelected(true);
+            shot.setRenderMode("video");
         }
-        log.debug("动态占比策略生效: totalShots={}, targetDynamicRatio={}, targetCount={}, selected={}",
-                total, targetDynamicRatio, target, selected);
+        log.debug("动态镜头策略生效: totalShots={}, selected=all", shots.size());
     }
 
     private int resolveEpisodeDynamicBudget(int totalShots) {
@@ -2268,20 +2257,18 @@ if (isStream) {
 
     private String buildVideoPrompt(Storyboard shot, String motionLevel, Project project) {
         String motionInstruction = switch (normalizeMotionLevel(motionLevel)) {
-            case "high" -> "镜头快速推进或急甩，人物动作幅度大且连贯流畅（走动/转身/大幅度手势），情绪爆发式表情变化，画面张力和冲击力十足，背景虚化快速变化";
-            case "medium" -> "镜头持续平缓推进（Ken Burns推拉），人物有明确可见的肢体动作（转头/抬手/眼神流转/嘴微动说话），面部微表情丰富变化，光影缓慢移动，背景虚化层次渐变";
-            default -> "镜头持续缓慢但可见的推进（5-8%%缓推），人物保持自然姿态但有明确微动作（眨眼/嘴唇微动/转头/身体微倾/手势轻抬），背景光影自然流转，发丝和衣角轻微飘动，营造真实的呼吸感和画面生命力，画面必须有可见的动态变化，不能是完全静止的图片";
+            case "high" -> "单镜头连续推进或轻微手持跟随，人物完成一个完整反应动作（转身/迈步/抬手/靠近/退后），动作从起势到收束连贯，情绪明显但不夸张";
+            case "medium" -> "单镜头平缓推进或横移，人物有清晰可见的转头、眼神变化、抬手、嘴唇微动或身体重心变化，光影与背景层次同步缓慢流动";
+            default -> "单镜头缓慢推进或轻微横移，人物自然呼吸、眨眼、轻微转头、嘴唇微动、手部小反应，发丝衣角和环境光影持续变化，避免完全静止";
         };
 
         String sceneContext = hasText(shot.getDescription()) ? trimPromptSegment(shot.getDescription(), 100) : "保持剧情连续性";
         String characterContext = buildCharacterContextForVideo(shot);
-        String projectVisualGuide = compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project)));
         return clampPromptLength(String.format(
-                "基于该关键帧生成%ds竖屏9:16动态镜头。%s。%s项目视觉约束：%s。角色主体保持一致，避免面部漂移变形和场景穿帮。镜头内容：%s。动态效果自然流畅，符合短剧叙事张力节奏。",
+                "首帧已确定，不重画画面。生成%ds竖屏9:16真人短剧视频，必须是一个连续单镜头。运动设计：%s。%s动作节拍：0-1秒从首帧自然起势，1-4秒完成主要表情或肢体反应，末段轻微收束并保持同一场景。剧情动作锚点：%s。必须保持同一张脸、同一服装、同一地点、同一光线。禁止切镜、跳场、换人、换衣、线稿化、插画化、黑白素描、静帧幻灯片。",
                 shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 5,
                 motionInstruction,
                 hasText(characterContext) ? characterContext + "。" : "",
-                projectVisualGuide,
                 sceneContext), VIDEO_PROMPT_MAX_CHARS);
     }
 

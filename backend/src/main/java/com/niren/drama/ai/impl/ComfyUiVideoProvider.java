@@ -322,9 +322,12 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
           + "low quality, blurry, distorted, deformed, ugly, extra fingers, bad anatomy, text, watermark, "
           + "jpeg artifacts, worst quality, bad proportions, duplicate, mutation, "
           + "anime, cartoon, illustration, CGI, 3D render, plastic skin, wax figure, "
+          + "sketch, line art, pencil drawing, hand drawn, monochrome, black and white, storyboard, comic panel, manga, cel shading, "
+          + "slideshow, still frame, frozen frame, static image, no motion, posterized, over-sharpened, "
           + "face morphing, identity drift, different person, new person, extra person, unwanted person, changing clothes, scene jump, camera cut, "
           + "split screen, duplicated character, flicker, jitter, warped hands, melted face, subtitles, logo, "
-          + "动漫, 二次元, 插画, 卡通, 游戏CG, 塑料感, 蜡像, 3D渲染, 换脸, 换衣服, 跳场, 闪烁, 字幕, 平台水印";
+          + "动漫, 二次元, 插画, 卡通, 游戏CG, 塑料感, 蜡像, 3D渲染, 线稿, 素描, 铅笔画, 手绘, 黑白, 漫画分镜, 静帧, 幻灯片, 无动作, "
+          + "换脸, 换衣服, 跳场, 闪烁, 字幕, 平台水印";
 
     /** 构建 LTX-2 T2V 最小工作流（使用 Gemma CLIP loader） */
     private ObjectNode buildLtx2T2vWorkflow(String prompt, int width, int height, int frames) {
@@ -947,20 +950,25 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
 
     private String buildShortDramaVideoPrompt(String prompt, List<String> referenceImageUrls) {
         String base = hasText(prompt) ? prompt.trim() : "";
+        if (base.contains("Commercial vertical short-drama I2V shot")
+                || base.contains("首帧已确定，不重画画面")) {
+            return base + " Strict video-only style lock: photorealistic live action, no sketch, no line art, no manga, no monochrome, no slideshow, no frozen frame.";
+        }
         int refCount = referenceImageUrls != null ? referenceImageUrls.size() : 0;
         StringBuilder sb = new StringBuilder();
-        sb.append("Commercial vertical short-drama clip, 3-10 seconds, photorealistic live action, ")
-                .append("platform-ready for Douyin/Hongguo style short drama. ")
-                .append("The primary image is the exact first frame and identity lock. ")
-                .append("Preserve the same face, hairstyle, outfit, body shape, age, props, lighting, and scene layout throughout the entire shot. ");
+        sb.append("Commercial vertical short-drama video, one continuous 9:16 live-action shot, 3-10 seconds. ")
+                .append("The input image is the exact first frame: keep the same face, hairstyle, outfit, body shape, props, lighting, camera angle, and scene layout. ")
+                .append("Animate from that first frame only; do not redraw the scene as an illustration or storyboard. ");
         if (refCount > 1) {
             sb.append("Auxiliary character and scene references are consistency references only; do not create collage panels or extra characters. ");
         }
-        sb.append("One continuous camera shot, no cuts, no scene jump, no identity drift, no face morphing, no wardrobe change. ")
-                .append("If a visible actor is present, use restrained actor motion only: natural breathing, eye blink, slight head or hand movement, clothing and hair micro motion. ")
-                .append("If no actor is visible in the first frame, do not introduce any person; animate only environmental motion such as light, curtain, smoke, water, shadow, or a subtle camera push/pan. ");
+        sb.append("Shot language: slow push-in, gentle pan, or slight handheld parallax; keep it as a single camera take with no cut, no scene jump, no new person. ")
+                .append("Performance: natural breathing, eye blink, small head turn, hand reaction, lip micro movement only when dialogue exists, clothing and hair micro motion. ")
+                .append("Environment: subtle light shift, curtain or smoke movement, shadow flow, water or rain movement when present. ")
+                .append("Temporal rhythm: clear beginning, middle, and end in the same shot; enough visible motion to avoid slideshow feeling, but no exaggerated action. ")
+                .append("Strict style lock: photorealistic live action, natural skin, no sketch, no line art, no manga, no monochrome, no drawn frames. ");
         if (hasText(base)) {
-            sb.append(base);
+            sb.append("Motion directive: ").append(base);
         }
         return sb.toString();
     }
@@ -1073,6 +1081,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     private void injectVideoParams(ObjectNode workflow, int width, int height, int frames) {
         int fps = workflowFrameRate(workflow);
         int seed = UUID.randomUUID().hashCode() & Integer.MAX_VALUE;
+        bypassWanOneToAllReferenceEmbeds(workflow);
         for (var it = workflow.fields(); it.hasNext(); ) {
             var entry = it.next();
             JsonNode node = entry.getValue();
@@ -1169,6 +1178,64 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             }
         }
         log.debug("注入视频参数: width={}, height={}, frames={}, fps={}", width, height, frames, fps);
+    }
+
+    private void bypassWanOneToAllReferenceEmbeds(ObjectNode workflow) {
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (!node.isObject()) {
+                continue;
+            }
+            String classType = node.path("class_type").asText("");
+            ObjectNode inputs = (ObjectNode) node.path("inputs");
+            if ("WanVideoSampler".equals(classType) || "WanVideoSamplerv2".equals(classType)) {
+                replaceWanEmbedLinkIfNeeded(workflow, inputs, "image_embeds", entry.getKey());
+            } else if (isWanReferencePatchNode(classType)) {
+                replaceWanEmbedLinkIfNeeded(workflow, inputs, "embeds", entry.getKey());
+            }
+        }
+    }
+
+    private void replaceWanEmbedLinkIfNeeded(ObjectNode workflow, ObjectNode inputs, String fieldName, String nodeId) {
+        JsonNode link = inputs.path(fieldName);
+        JsonNode resolved = resolveWanBaseEmbedLink(workflow, link);
+        if (resolved == link || !resolved.isArray() || resolved.size() < 2) {
+            return;
+        }
+        ArrayNode replacement = inputs.putArray(fieldName);
+        replacement.add(resolved.get(0).asText());
+        replacement.add(resolved.get(1).asInt());
+        log.info("已绕过 Wan 参考增强节点以兼容当前 WanVideoWrapper: node={}, field={}", nodeId, fieldName);
+    }
+
+    private JsonNode resolveWanBaseEmbedLink(ObjectNode workflow, JsonNode link) {
+        JsonNode current = link;
+        Set<String> visited = new LinkedHashSet<>();
+        while (current.isArray() && current.size() >= 2) {
+            String upstreamId = current.get(0).asText("");
+            if (!visited.add(upstreamId)) {
+                return current;
+            }
+            JsonNode upstream = workflow.path(upstreamId);
+            String upstreamClass = upstream.path("class_type").asText("");
+            if (!isWanReferencePatchNode(upstreamClass)) {
+                return current;
+            }
+            JsonNode next = upstream.path("inputs").path("embeds");
+            if (!next.isArray() || next.size() < 2) {
+                return current;
+            }
+            current = next;
+        }
+        return current;
+    }
+
+    private boolean isWanReferencePatchNode(String classType) {
+        return "WanVideoAddOneToAllReferenceEmbeds".equals(classType)
+                || "WanVideoAddOneToAllPoseEmbeds".equals(classType)
+                || "WanVideoAddSCAILReferenceEmbeds".equals(classType)
+                || "WanVideoAddSCAILPoseEmbeds".equals(classType);
     }
 
     private int workflowFrameRate(ObjectNode workflow) {

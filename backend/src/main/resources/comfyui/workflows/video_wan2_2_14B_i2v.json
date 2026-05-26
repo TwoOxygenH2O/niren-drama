@@ -172,7 +172,7 @@
   "20": {
     "class_type": "WanVideoAddSCAILReferenceEmbeds",
     "inputs": {
-      "embeds": ["19", 0],
+      "embeds": ["18", 0],
       "vae": ["10", 0],
       "ref_image": ["15", 0],
       "clip_embeds": ["17", 0],
@@ -185,7 +185,7 @@
     "class_type": "WanVideoSampler",
     "inputs": {
       "model": ["8", 0],
-      "image_embeds": ["20", 0],
+      "image_embeds": ["18", 0],
       "text_embeds": ["12", 0],
       "steps": 12,
       "cfg": 1.0,
@@ -204,7 +204,7 @@
     "class_type": "WanVideoSampler",
     "inputs": {
       "model": ["9", 0],
-      "image_embeds": ["20", 0],
+      "image_embeds": ["18", 0],
       "text_embeds": ["12", 0],
       "samples": ["21", 0],
       "steps": 12,

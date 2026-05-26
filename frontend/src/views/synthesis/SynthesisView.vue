@@ -113,7 +113,14 @@
           class="syn-shot-item"
         >
           <div class="syn-shot-thumb">
-            <video v-if="shot.videoUrl" :src="shot.videoUrl" muted preload="metadata" />
+            <video
+              v-if="shot.videoUrl"
+              :src="shot.videoUrl"
+              controls
+              playsinline
+              preload="metadata"
+              class="syn-shot-video"
+            />
             <img v-else-if="shot.imageUrl" :src="shot.imageUrl" alt="" />
             <div v-else class="syn-shot-placeholder">🎞️</div>
           </div>
@@ -126,6 +133,14 @@
               <span v-else class="syn-shot-tag">⏳ 待生成</span>
               <span v-if="shot.audioUrl" class="syn-shot-tag syn-shot-tag--ok">🎵 配音就绪</span>
             </div>
+            <el-button
+              v-if="shot.videoUrl"
+              class="syn-shot-play"
+              size="small"
+              @click="openShotPreview(shot)"
+            >
+              放大播放
+            </el-button>
           </div>
         </div>
       </div>
@@ -216,6 +231,22 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="showShotPreview"
+      :title="shotPreviewTitle"
+      width="min(420px, 92vw)"
+      destroy-on-close
+    >
+      <video
+        v-if="shotPreviewUrl"
+        :src="shotPreviewUrl"
+        controls
+        autoplay
+        playsinline
+        class="syn-shot-preview-video"
+      />
+    </el-dialog>
   </div>
 </template>
 
@@ -252,6 +283,9 @@ const pendingTableRef = ref<any>(null)
 const generatedTableRef = ref<any>(null)
 const composeTableRef = ref<any>(null)
 const submitLoading = ref(false)
+const showShotPreview = ref(false)
+const shotPreviewUrl = ref('')
+const shotPreviewTitle = ref('分镜视频预览')
 
 const videoReadyCount = computed(() => shots.value.filter((shot) => !!shot?.videoUrl).length)
 const episodeStoryboardReady = computed(() => shots.value.length > 0)
@@ -268,6 +302,12 @@ const selectedShotIds = computed(() => {
   if (dialogType.value === 'compose') return composeSelectedIds.value
   return Array.from(new Set([...pendingSelectedIds.value, ...generatedSelectedIds.value]))
 })
+
+const openShotPreview = (shot: any) => {
+  shotPreviewUrl.value = shot?.videoUrl || ''
+  shotPreviewTitle.value = `镜头 ${shot?.shotNo || ''} 视频预览`
+  showShotPreview.value = !!shotPreviewUrl.value
+}
 
 const dialogTitle = computed(() => {
   switch (dialogType.value) {
@@ -472,6 +512,7 @@ onUnmounted(() => stopPolling())
 .syn-shot-item:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
 .syn-shot-thumb { aspect-ratio: 9/16; background: var(--bg-muted); display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .syn-shot-thumb video, .syn-shot-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.syn-shot-video { background: #000; }
 .syn-shot-placeholder { font-size: 28px; opacity: 0.4; }
 .syn-shot-body { padding: 10px 12px; }
 .syn-shot-no { font-size: 12px; font-weight: 700; color: var(--primary); margin-bottom: 4px; }
@@ -479,6 +520,8 @@ onUnmounted(() => stopPolling())
 .syn-shot-meta { display: flex; flex-wrap: wrap; gap: 5px; font-size: 11px; color: var(--text-muted); }
 .syn-shot-tag { padding: 1px 6px; border-radius: var(--radius-sm); background: var(--bg-muted); color: var(--text-muted); }
 .syn-shot-tag--ok { background: rgba(16,185,129,0.12); color: #34d399; }
+.syn-shot-play { width: 100%; margin-top: 10px; }
+.syn-shot-preview-video { width: 100%; max-height: 72vh; background: #000; border-radius: var(--radius-md); }
 
 .selection-groups { display: flex; flex-direction: column; gap: 12px; }
 .selection-tip { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }

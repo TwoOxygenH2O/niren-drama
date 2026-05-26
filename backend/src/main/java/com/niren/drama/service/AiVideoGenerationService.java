@@ -802,16 +802,14 @@ public class AiVideoGenerationService {
                 .replaceAll("\\s+", " ")
                 .trim();
 
-        // 短剧平台视频提示词：身份和首帧一致性比炫技镜头更重要。
+        // 视频生成只负责“让首帧动起来”，避免把图片提示词再次扩写成重绘画面。
         StringBuilder sb = new StringBuilder();
-        sb.append("Vertical short-drama production shot, photorealistic live-action, "
-                + "Chinese short drama platform style, natural skin texture when an actor is present, "
-                + "realistic wardrobe and props, stable lighting, mobile-first 9:16 composition. "
-                + "Use the first frame and character references as identity lock: preserve the exact same face, hairstyle, outfit, body shape, age, and scene layout. "
-                + "Single continuous shot, no cuts, no scene change, no character replacement, no face morphing, no new person. "
-                + "If a visible actor is present, use restrained actor motion only: natural breathing, eye blink, small head turn, hand/cloth/hair micro motion. "
-                + "If no actor is visible in the first frame, do not introduce any person; animate only environmental motion such as light, curtain, smoke, water, shadow, or a subtle camera push/pan. ");
-        sb.append(basePrompt);
+        sb.append("Commercial vertical short-drama I2V shot, one continuous 9:16 live-action take. ")
+                .append("The first frame is fixed and must remain the identity and scene anchor: same face, hairstyle, outfit, age, body shape, props, lighting, camera angle, and room/location layout. ")
+                .append("Do not redraw the image, do not turn it into sketch, comic, line art, monochrome, CGI, or posterized frames. ")
+                .append("Use video motion, not image description: slow push-in or gentle pan, natural breathing, blinking, subtle head/hand reaction, hair and clothing micro motion, and environmental light/shadow movement. ")
+                .append("Keep a beginning-middle-end rhythm inside the same shot, no cuts, no scene jump, no new person, no face morphing, no wardrobe change. ")
+                .append("Motion directive: ").append(basePrompt);
 
         // 附加角色一致性要求
         if (shot.getCharacterId() != null) {
@@ -824,8 +822,8 @@ public class AiVideoGenerationService {
                 sb.append("，必须保持同一张脸、同一发型、同一服装、同一年龄感，不漂移不换人");
             }
         }
-        sb.append("。项目视觉约束：").append(visualGuide);
-        sb.append("。成片目标：可直接作为短剧平台片段使用，竖屏9:16，主体完整不裁切，面部清晰可辨，动态自然流畅，有叙事张力但不夸张。");
+        sb.append("。项目视觉约束只作为风格边界，不要覆盖首帧：").append(trimToLength(visualGuide, 180));
+        sb.append("。成片目标：可直接作为短剧平台片段使用，运动连续、有真实镜头感，避免静帧幻灯片、线稿化、插画化和镜头碎片化。");
         return sb.toString();
     }
 

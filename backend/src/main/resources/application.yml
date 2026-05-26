@@ -75,7 +75,7 @@ niren:
       provider: ${AI_VIDEO_PROVIDER:comfyui}
       base-url: ${AI_VIDEO_BASE_URL:http://127.0.0.1:8188}
       api-key: ${AI_VIDEO_API_KEY:}
-      model: ${AI_VIDEO_MODEL:ltx-2-19b-distilled.safetensors}
+      model: ${AI_VIDEO_MODEL:wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors}
     tts:
       provider: ${AI_TTS_PROVIDER:aliyun}
       base-url: ${AI_TTS_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
@@ -118,8 +118,8 @@ niren:
       # 推荐最低分阈值：55 更容易凑齐20个；太高会推荐不足
       min-score-to-recommend: ${NIREN_DYNAMIC_RECOMMEND_MIN_SCORE:55}
   ffmpeg:
-    path: ${FFMPEG_PATH:D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffmpeg.exe}
-    ffprobe-path: ${FFPROBE_PATH:D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffprobe.exe}
+    path: ${FFMPEG_PATH:ffmpeg}
+    ffprobe-path: ${FFPROBE_PATH:ffprobe}
   compose:
     # 单镜头内容时长上限（秒）。建议 4.5-5.0；过大容易“念小说感”，过小会切太碎。
     max-shot-duration-seconds: 4.5
