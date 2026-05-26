@@ -956,7 +956,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         }
         int refCount = referenceImageUrls != null ? referenceImageUrls.size() : 0;
         StringBuilder sb = new StringBuilder();
-        sb.append("Commercial vertical short-drama video, one continuous 9:16 live-action shot, 3-10 seconds. ")
+        sb.append("Commercial vertical short-drama video, one continuous 9:16 live-action shot, 4-10 seconds. ")
                 .append("The input image is the exact first frame: keep the same face, hairstyle, outfit, body shape, props, lighting, camera angle, and scene layout. ")
                 .append("Animate from that first frame only; do not redraw the scene as an illustration or storyboard. ");
         if (refCount > 1) {

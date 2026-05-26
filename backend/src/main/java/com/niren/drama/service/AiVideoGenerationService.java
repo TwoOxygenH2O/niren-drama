@@ -752,9 +752,9 @@ public class AiVideoGenerationService {
             return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 5), 10), "pro", "1080P");
         }
         if ("B".equalsIgnoreCase(tier)) {
-            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 4), 8), "standard", "720P");
+            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 5), 8), "standard", "720P");
         }
-        return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 3), 6), "standard", "720P");
+        return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 4), 6), "standard", "720P");
     }
 
     private String resolveMotionTier(Storyboard shot) {

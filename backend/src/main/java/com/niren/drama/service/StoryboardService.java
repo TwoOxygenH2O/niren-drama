@@ -1884,7 +1884,7 @@ if (isStream) {
                 shot.setSubtitleText(textOrNull(shotNode, "subtitleText"));
                 shot.setTtsText(textOrNull(shotNode, "ttsText"));
                 int rawDur = shotNode.path("duration").asInt(5);
-                shot.setDuration(Math.min(Math.max(rawDur, 3), 8));
+                shot.setDuration(Math.min(Math.max(rawDur, 4), 8));
                 shot.setUserLockedSubtitle(false);
                 shot.setUserLockedTts(false);
                 shot.setStatus("draft");
