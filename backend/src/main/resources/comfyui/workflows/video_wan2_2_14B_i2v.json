@@ -95,7 +95,7 @@
   "12": {
     "class_type": "WanVideoTextEncode",
     "inputs": {
-      "positive_prompt": "Commercial vertical short-drama clip, same character, same outfit, same scene, natural subtle motion, one continuous shot.",
+      "positive_prompt": "WAN 2.2 image-to-video, commercial vertical short-drama, one continuous 9:16 live-action shot with clear actor performance, cinematic camera movement, and stable identity continuity.",
       "negative_prompt": "low quality, blurry, distorted, face morphing, identity drift, different person, changing clothes, scene jump, camera cut, flicker, jitter, subtitles, logo, watermark",
       "t5": ["11", 0],
       "force_offload": true,
@@ -147,15 +147,15 @@
       "width": 720,
       "height": 1280,
       "num_frames": 81,
-      "noise_aug_strength": 0.015,
-      "start_latent_strength": 1.0,
-      "end_latent_strength": 0.98,
+      "noise_aug_strength": 0.038,
+      "start_latent_strength": 0.94,
+      "end_latent_strength": 0.82,
       "force_offload": true,
       "vae": ["10", 0],
       "clip_embeds": ["17", 0],
       "start_image": ["13", 0],
       "tiled_vae": false,
-      "augment_empty_frames": 0.0
+      "augment_empty_frames": 0.06
     }
   },
   "19": {
@@ -164,7 +164,7 @@
       "embeds": ["18", 0],
       "vae": ["10", 0],
       "ref_image": ["14", 0],
-      "strength": 0.35,
+      "strength": 0.34,
       "start_percent": 0.0,
       "end_percent": 1.0
     }
@@ -176,7 +176,7 @@
       "vae": ["10", 0],
       "ref_image": ["15", 0],
       "clip_embeds": ["17", 0],
-      "strength": 0.25,
+      "strength": 0.22,
       "start_percent": 0.0,
       "end_percent": 1.0
     }
@@ -187,8 +187,8 @@
       "model": ["8", 0],
       "image_embeds": ["18", 0],
       "text_embeds": ["12", 0],
-      "steps": 12,
-      "cfg": 1.0,
+      "steps": 14,
+      "cfg": 1.15,
       "shift": 8.0,
       "seed": 43,
       "force_offload": true,
@@ -197,7 +197,7 @@
       "batched_cfg": false,
       "rope_function": "comfy",
       "start_step": 0,
-      "end_step": 6
+      "end_step": 7
     }
   },
   "22": {
@@ -207,8 +207,8 @@
       "image_embeds": ["18", 0],
       "text_embeds": ["12", 0],
       "samples": ["21", 0],
-      "steps": 12,
-      "cfg": 1.0,
+      "steps": 14,
+      "cfg": 1.15,
       "shift": 8.0,
       "seed": 43,
       "force_offload": true,
@@ -216,7 +216,7 @@
       "riflex_freq_index": 0,
       "batched_cfg": false,
       "rope_function": "comfy",
-      "start_step": 6,
+      "start_step": 7,
       "end_step": -1
     }
   },

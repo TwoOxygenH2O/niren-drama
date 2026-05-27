@@ -26,7 +26,7 @@ import java.util.UUID;
 @Slf4j
 public class ComfyUiVideoProvider implements VideoAiProvider {
 
-    private static final int DEFAULT_MAX_POLL_ATTEMPTS = 700;
+    private static final int DEFAULT_MAX_POLL_ATTEMPTS = 14_400;
     private static final long DEFAULT_POLL_INTERVAL_MS = 3000L;
 
     private final String apiBaseUrl;
@@ -77,7 +77,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         try {
             int[] wh = parseResolution(resolution);
             int frames = videoFrames(duration);
-            ObjectNode workflow = buildTextToVideoWorkflow(prompt, wh[0], wh[1], frames);
+            ObjectNode workflow = buildTextToVideoWorkflow(prompt, wh[0], wh[1], frames, quality);
             ObjectNode body = objectMapper.createObjectNode();
             body.set("prompt", workflow);
             requestBody = objectMapper.writeValueAsString(body);
@@ -152,7 +152,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         try {
             int[] wh = parseResolution(resolution);
             int frames = videoFrames(duration);
-            ObjectNode workflow = buildImageToVideoWorkflow(imageUrl, List.of(), prompt, wh[0], wh[1], frames);
+            ObjectNode workflow = buildImageToVideoWorkflow(imageUrl, List.of(), prompt, wh[0], wh[1], frames, quality);
             ObjectNode body = objectMapper.createObjectNode();
             body.set("prompt", workflow);
             requestBody = objectMapper.writeValueAsString(body);
@@ -228,7 +228,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             int[] wh = parseResolution(resolution);
             int frames = videoFrames(duration);
             String enhancedPrompt = buildShortDramaVideoPrompt(prompt, referenceImageUrls);
-            ObjectNode workflow = buildImageToVideoWorkflow(imageUrl, referenceImageUrls, enhancedPrompt, wh[0], wh[1], frames);
+            ObjectNode workflow = buildImageToVideoWorkflow(imageUrl, referenceImageUrls, enhancedPrompt, wh[0], wh[1], frames, quality);
             ObjectNode body = objectMapper.createObjectNode();
             body.set("prompt", workflow);
             requestBody = objectMapper.writeValueAsString(body);
@@ -451,9 +451,9 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return wf;
     }
 
-    private ObjectNode buildTextToVideoWorkflow(String prompt, int width, int height, int frames) {
+    private ObjectNode buildTextToVideoWorkflow(String prompt, int width, int height, int frames, String quality) {
         if (isWanModel()) {
-            return buildWan22T2vWorkflow(prompt, width, height, frames);
+            return buildWan22T2vWorkflow(prompt, width, height, frames, quality);
         }
         return buildLtx2T2vWorkflow(prompt, width, height, frames);
     }
@@ -609,13 +609,13 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     }
 
     /** 构建 Wan2.2 T2V 工作流，优先从 classpath 模板加载 */
-    private ObjectNode buildWan22T2vWorkflow(String prompt, int width, int height, int frames) {
+    private ObjectNode buildWan22T2vWorkflow(String prompt, int width, int height, int frames, String quality) {
         String templateName = "video_wan2_2_14B_t2v.json";
         ObjectNode template = ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, templateName);
         if (template != null) {
             ComfyUiWorkflowLoader.injectPrompt(template, prompt);
             injectNegativePromptToWorkflow(template);
-            injectVideoParams(template, width, height, frames);
+            injectVideoParams(template, width, height, frames, resolveWorkflowTuning(prompt, quality, frames), 0);
             return template;
         }
         return buildWan22T2vWorkflowInline(prompt, width, height, frames);
@@ -698,14 +698,15 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
 
     private ObjectNode buildImageToVideoWorkflow(String imageUrl, String prompt,
                                                   int width, int height, int frames) throws Exception {
-        return buildImageToVideoWorkflow(imageUrl, List.of(), prompt, width, height, frames);
+        return buildImageToVideoWorkflow(imageUrl, List.of(), prompt, width, height, frames, null);
     }
 
     private ObjectNode buildImageToVideoWorkflow(String imageUrl, List<String> referenceImageUrls, String prompt,
-                                                  int width, int height, int frames) throws Exception {
+                                                  int width, int height, int frames, String quality) throws Exception {
         String workflowFile = null;
         String primaryImage = uploadImageIfRemote(imageUrl);
         List<String> uploadedReferences = uploadReferenceImages(normalizeReferenceImageUrls(imageUrl, referenceImageUrls));
+        WorkflowTuning tuning = resolveWorkflowTuning(prompt, quality, frames);
         if (hasText(extra)) {
             try {
                 JsonNode extraJson = objectMapper.readTree(extra);
@@ -715,7 +716,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     injectPromptIntoWorkflow(wf, prompt);
                     injectImagesIntoWorkflow(wf, primaryImage, uploadedReferences);
                     injectNegativePromptToWorkflow(wf);
-                    injectVideoParams(wf, width, height, frames);
+                    injectVideoParams(wf, width, height, frames, tuning, uploadedReferences.size());
                     return wf;
                 }
                 String wf = extraJson.path("workflowFile").asText(null);
@@ -741,7 +742,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 injectPromptIntoWorkflow(template, prompt);
                 injectImagesIntoWorkflow(template, primaryImage, uploadedReferences);
                 injectNegativePromptToWorkflow(template);
-                injectVideoParams(template, width, height, frames);
+                injectVideoParams(template, width, height, frames, tuning, uploadedReferences.size());
                 return template;
             }
         }
@@ -973,6 +974,120 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return sb.toString();
     }
 
+    private record WorkflowTuning(String motionLevel,
+                                  int steps,
+                                  double cfg,
+                                  double shift,
+                                  String scheduler,
+                                  double noiseAugStrength,
+                                  double startLatentStrength,
+                                  double endLatentStrength,
+                                  double augmentEmptyFrames,
+                                  double referenceStrength,
+                                  double sceneReferenceStrength,
+                                  double ltxCfg,
+                                  String ltxSampler,
+                                  String cameraMotion) {}
+
+    private WorkflowTuning resolveWorkflowTuning(String prompt, String quality, int frames) {
+        String text = hasText(prompt) ? prompt.toLowerCase() : "";
+        String level;
+        if (text.contains("motion intensity: high")
+                || containsAny(text, "run", "chase", "fight", "奔跑", "追", "逃", "冲", "打", "推开", "摔", "转身", "跪下")) {
+            level = "high";
+        } else if (text.contains("motion intensity: low")
+                || containsAny(text, "凝视", "沉默", "静", "微笑", "breathing", "blink")) {
+            level = "low";
+        } else {
+            level = "medium";
+        }
+
+        boolean pro = hasText(quality) && quality.toLowerCase().contains("pro");
+        int steps = pro ? 16 : 14;
+        double cfg = 1.15d;
+        double shift = 8.0d;
+        double noise = 0.038d;
+        double startStrength = 0.94d;
+        double endStrength = 0.82d;
+        double augment = 0.06d;
+        double refStrength = 0.34d;
+        double sceneRefStrength = 0.22d;
+        double ltxCfg = 2.2d;
+
+        if ("high".equals(level)) {
+            steps = pro ? 18 : 16;
+            cfg = 1.25d;
+            shift = 8.5d;
+            noise = 0.055d;
+            startStrength = 0.90d;
+            endStrength = 0.72d;
+            augment = 0.12d;
+            refStrength = 0.28d;
+            sceneRefStrength = 0.18d;
+            ltxCfg = 2.4d;
+        } else if ("low".equals(level)) {
+            steps = pro ? 14 : 12;
+            cfg = 1.05d;
+            shift = 7.5d;
+            noise = 0.024d;
+            startStrength = 0.97d;
+            endStrength = 0.90d;
+            augment = 0.02d;
+            refStrength = 0.42d;
+            sceneRefStrength = 0.28d;
+            ltxCfg = 2.0d;
+        }
+
+        if (frames >= 129 && !"low".equals(level)) {
+            endStrength = Math.max(0.68d, endStrength - 0.04d);
+            augment = Math.min(0.16d, augment + 0.03d);
+        }
+
+        return new WorkflowTuning(
+                level,
+                steps,
+                cfg,
+                shift,
+                "dpm++_sde",
+                noise,
+                startStrength,
+                endStrength,
+                augment,
+                refStrength,
+                sceneRefStrength,
+                ltxCfg,
+                "euler",
+                resolveCameraMotionLabel(text, level));
+    }
+
+    private String resolveCameraMotionLabel(String text, String level) {
+        if (containsAny(text, "push-in", "push in", "推进", "推近")) {
+            return "slow_push_in";
+        }
+        if (containsAny(text, "pull-back", "pull back", "拉远")) {
+            return "slow_pull_back";
+        }
+        if (containsAny(text, "tracking", "track", "跟拍", "横移", "移镜")) {
+            return "tracking_pan";
+        }
+        if (containsAny(text, "tilt", "俯仰", "抬头", "低头")) {
+            return "gentle_tilt";
+        }
+        return "high".equals(level) ? "controlled_handheld" : "slow_push_in";
+    }
+
+    private boolean containsAny(String text, String... needles) {
+        if (!hasText(text)) {
+            return false;
+        }
+        for (String needle : needles) {
+            if (hasText(needle) && text.contains(needle.toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * 向工作流注入负向提示词。
      * 如果 sampler 的 positive/negative 指向同一节点，将负向提示词追加到同一个 text 字段中。
@@ -1079,9 +1194,20 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
      * 使模板工作流中的 duration 参数真正生效。
      */
     private void injectVideoParams(ObjectNode workflow, int width, int height, int frames) {
+        injectVideoParams(workflow, width, height, frames, resolveWorkflowTuning("", null, frames), 0);
+    }
+
+    private void injectVideoParams(ObjectNode workflow,
+                                   int width,
+                                   int height,
+                                   int frames,
+                                   WorkflowTuning tuning,
+                                   int auxiliaryReferenceCount) {
         int fps = workflowFrameRate(workflow);
         int seed = UUID.randomUUID().hashCode() & Integer.MAX_VALUE;
-        bypassWanOneToAllReferenceEmbeds(workflow);
+        if (shouldBypassWanReferenceEmbeds()) {
+            bypassWanOneToAllReferenceEmbeds(workflow);
+        }
         for (var it = workflow.fields(); it.hasNext(); ) {
             var entry = it.next();
             JsonNode node = entry.getValue();
@@ -1133,6 +1259,57 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 // LTX conditioning
                 case "LTXVConditioning":
                     inputs.put("frame_rate", fps);
+                    if (inputs.has("width")) {
+                        inputs.put("width", width);
+                    }
+                    if (inputs.has("height")) {
+                        inputs.put("height", height);
+                    }
+                    if (inputs.has("num_frames")) {
+                        inputs.put("num_frames", frames);
+                    }
+                    break;
+                case "CFGGuider":
+                    if (inputs.has("cfg")) {
+                        inputs.put("cfg", tuning.ltxCfg());
+                    }
+                    break;
+                case "KSamplerSelect":
+                    if (inputs.has("sampler_name")) {
+                        inputs.put("sampler_name", tuning.ltxSampler());
+                    }
+                    break;
+                case "BasicScheduler":
+                    if (inputs.has("steps")) {
+                        inputs.put("steps", Math.max(8, tuning.steps() - 4));
+                    }
+                    if (inputs.has("scheduler")) {
+                        inputs.put("scheduler", "normal");
+                    }
+                    if (inputs.has("denoise")) {
+                        inputs.put("denoise", "low".equals(tuning.motionLevel()) ? 0.92d : 1.0d);
+                    }
+                    break;
+                case "KSampler":
+                case "KSamplerAdvanced":
+                    if (inputs.has("seed")) {
+                        inputs.put("seed", seed);
+                    }
+                    if (inputs.has("steps")) {
+                        inputs.put("steps", tuning.steps());
+                    }
+                    if (inputs.has("cfg")) {
+                        inputs.put("cfg", Math.max(2.0d, tuning.ltxCfg()));
+                    }
+                    if (inputs.has("sampler_name")) {
+                        inputs.put("sampler_name", "dpmpp_2m_sde");
+                    }
+                    if (inputs.has("scheduler")) {
+                        inputs.put("scheduler", "karras");
+                    }
+                    if (inputs.has("denoise")) {
+                        inputs.put("denoise", "low".equals(tuning.motionLevel()) ? 0.88d : 0.96d);
+                    }
                     break;
                 // WAN / Hunyuan sampler
                 case "WanVideoSampler":
@@ -1144,12 +1321,36 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     if (inputs.has("num_frames")) {
                         inputs.put("num_frames", frames);
                     }
+                    if (inputs.has("steps")) {
+                        inputs.put("steps", tuning.steps());
+                    }
+                    if (inputs.has("cfg")) {
+                        inputs.put("cfg", tuning.cfg());
+                    }
+                    if (inputs.has("shift")) {
+                        inputs.put("shift", tuning.shift());
+                    }
+                    if (inputs.has("scheduler")) {
+                        inputs.put("scheduler", tuning.scheduler());
+                    }
+                    putIfPresent(inputs, "motion_strength", motionStrength(tuning));
+                    putIfPresent(inputs, "motion_scale", motionStrength(tuning));
+                    putIfPresent(inputs, "motion_guidance", motionStrength(tuning));
+                    putIfPresent(inputs, "guidance_scale", tuning.cfg());
+                    putIfPresent(inputs, "camera_motion", tuning.cameraMotion());
                     break;
                 case "WanVideoImageToVideoEncode":
                 case "WanVideoEmptyEmbeds":
                     inputs.put("width", width);
                     inputs.put("height", height);
                     inputs.put("num_frames", frames);
+                    if ("WanVideoImageToVideoEncode".equals(classType)) {
+                        putIfPresent(inputs, "noise_aug_strength", tuning.noiseAugStrength());
+                        putIfPresent(inputs, "start_latent_strength", tuning.startLatentStrength());
+                        putIfPresent(inputs, "end_latent_strength", tuning.endLatentStrength());
+                        putIfPresent(inputs, "augment_empty_frames", tuning.augmentEmptyFrames());
+                        putIfPresent(inputs, "motion_bucket_id", motionBucket(tuning));
+                    }
                     break;
                 // Hunyuan latent
                 case "HunyuanImageToVideo":
@@ -1174,10 +1375,193 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     if (inputs.has("num_frames")) {
                         inputs.put("num_frames", frames);
                     }
+                    putIfPresent(inputs, "strength", ltxImageStrength(tuning));
+                    putIfPresent(inputs, "motion_bucket_id", motionBucket(tuning));
                     break;
             }
+            injectGenericMotionControls(inputs, tuning);
         }
-        log.debug("注入视频参数: width={}, height={}, frames={}, fps={}", width, height, frames, fps);
+        bindWanAdvancedControlNodes(workflow, auxiliaryReferenceCount, tuning);
+        rebalanceWanSamplerSteps(workflow, tuning.steps());
+        log.debug("注入视频参数: width={}, height={}, frames={}, fps={}, motionLevel={}, steps={}, cfg={}, shift={}",
+                width, height, frames, fps, tuning.motionLevel(), tuning.steps(), tuning.cfg(), tuning.shift());
+    }
+
+    private void putIfPresent(ObjectNode inputs, String fieldName, double value) {
+        if (inputs.has(fieldName)) {
+            inputs.put(fieldName, value);
+        }
+    }
+
+    private void putIfPresent(ObjectNode inputs, String fieldName, int value) {
+        if (inputs.has(fieldName)) {
+            inputs.put(fieldName, value);
+        }
+    }
+
+    private void putIfPresent(ObjectNode inputs, String fieldName, String value) {
+        if (inputs.has(fieldName) && hasText(value)) {
+            inputs.put(fieldName, value);
+        }
+    }
+
+    private double motionStrength(WorkflowTuning tuning) {
+        return switch (tuning.motionLevel()) {
+            case "high" -> 1.35d;
+            case "low" -> 0.82d;
+            default -> 1.08d;
+        };
+    }
+
+    private int motionBucket(WorkflowTuning tuning) {
+        return switch (tuning.motionLevel()) {
+            case "high" -> 160;
+            case "low" -> 88;
+            default -> 124;
+        };
+    }
+
+    private double ltxImageStrength(WorkflowTuning tuning) {
+        return switch (tuning.motionLevel()) {
+            case "high" -> 0.88d;
+            case "low" -> 0.97d;
+            default -> 0.93d;
+        };
+    }
+
+    private void injectGenericMotionControls(ObjectNode inputs, WorkflowTuning tuning) {
+        putIfPresent(inputs, "motion_strength", motionStrength(tuning));
+        putIfPresent(inputs, "motion_scale", motionStrength(tuning));
+        putIfPresent(inputs, "motion_guidance", motionStrength(tuning));
+        putIfPresent(inputs, "camera_motion", tuning.cameraMotion());
+        putIfPresent(inputs, "camera_move", tuning.cameraMotion());
+        putIfPresent(inputs, "control_strength", tuning.referenceStrength());
+        putIfPresent(inputs, "guidance_scale", tuning.cfg());
+    }
+
+    private void bindWanAdvancedControlNodes(ObjectNode workflow, int auxiliaryReferenceCount, WorkflowTuning tuning) {
+        if (shouldBypassWanReferenceEmbeds() || auxiliaryReferenceCount <= 0) {
+            return;
+        }
+
+        String baseEmbedNodeId = findFirstNodeId(workflow, "WanVideoImageToVideoEncode", "WanVideoEmptyEmbeds");
+        if (!hasText(baseEmbedNodeId)) {
+            return;
+        }
+
+        List<String> patchNodeIds = new ArrayList<>();
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (node.isObject() && isWanReferencePatchNode(node.path("class_type").asText(""))) {
+                patchNodeIds.add(entry.getKey());
+            }
+        }
+        if (patchNodeIds.isEmpty()) {
+            return;
+        }
+
+        String currentEmbedNodeId = baseEmbedNodeId;
+        int used = 0;
+        for (String nodeId : patchNodeIds) {
+            JsonNode node = workflow.path(nodeId);
+            if (!node.isObject()) {
+                continue;
+            }
+            ObjectNode inputs = (ObjectNode) node.path("inputs");
+            ArrayNode embeds = inputs.putArray("embeds");
+            embeds.add(currentEmbedNodeId);
+            embeds.add(0);
+            if (inputs.has("strength")) {
+                inputs.put("strength", used == 0 ? tuning.referenceStrength() : tuning.sceneReferenceStrength());
+            }
+            putIfPresent(inputs, "start_percent", 0.0d);
+            putIfPresent(inputs, "end_percent", "high".equals(tuning.motionLevel()) ? 0.82d : 1.0d);
+            currentEmbedNodeId = nodeId;
+            used++;
+            if (used >= Math.min(auxiliaryReferenceCount, patchNodeIds.size())) {
+                break;
+            }
+        }
+
+        if (used <= 0 || currentEmbedNodeId.equals(baseEmbedNodeId)) {
+            return;
+        }
+
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            JsonNode node = it.next().getValue();
+            if (!node.isObject()) {
+                continue;
+            }
+            String classType = node.path("class_type").asText("");
+            if ("WanVideoSampler".equals(classType) || "WanVideoSamplerv2".equals(classType)) {
+                ObjectNode inputs = (ObjectNode) node.path("inputs");
+                ArrayNode imageEmbeds = inputs.putArray("image_embeds");
+                imageEmbeds.add(currentEmbedNodeId);
+                imageEmbeds.add(0);
+            }
+        }
+        log.debug("已连接 Wan 参考控制节点: base={}, final={}, refCount={}", baseEmbedNodeId, currentEmbedNodeId, auxiliaryReferenceCount);
+    }
+
+    private void rebalanceWanSamplerSteps(ObjectNode workflow, int steps) {
+        List<ObjectNode> samplers = new ArrayList<>();
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            JsonNode node = it.next().getValue();
+            if (node.isObject()) {
+                String classType = node.path("class_type").asText("");
+                if ("WanVideoSampler".equals(classType) || "WanVideoSamplerv2".equals(classType)) {
+                    samplers.add((ObjectNode) node);
+                }
+            }
+        }
+        if (samplers.size() < 2) {
+            return;
+        }
+        int split = Math.max(1, steps / 2);
+        ObjectNode firstInputs = (ObjectNode) samplers.get(0).path("inputs");
+        ObjectNode secondInputs = (ObjectNode) samplers.get(1).path("inputs");
+        if (firstInputs.has("start_step")) {
+            firstInputs.put("start_step", 0);
+        }
+        if (firstInputs.has("end_step")) {
+            firstInputs.put("end_step", split);
+        }
+        if (secondInputs.has("start_step")) {
+            secondInputs.put("start_step", split);
+        }
+        if (secondInputs.has("end_step")) {
+            secondInputs.put("end_step", -1);
+        }
+    }
+
+    private String findFirstNodeId(ObjectNode workflow, String... classTypes) {
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (!node.isObject()) {
+                continue;
+            }
+            String classType = node.path("class_type").asText("");
+            for (String expected : classTypes) {
+                if (expected.equals(classType)) {
+                    return entry.getKey();
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean shouldBypassWanReferenceEmbeds() {
+        if (!hasText(extra)) {
+            return false;
+        }
+        try {
+            JsonNode extraJson = objectMapper.readTree(extra);
+            return extraJson.path("bypassWanReferenceEmbeds").asBoolean(false);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private void bypassWanOneToAllReferenceEmbeds(ObjectNode workflow) {

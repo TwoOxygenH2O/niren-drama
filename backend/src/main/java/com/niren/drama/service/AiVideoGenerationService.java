@@ -8,7 +8,7 @@ import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.AiResolvedConfig;
 import com.niren.drama.ai.VideoAiProvider;
 import com.niren.drama.ai.trace.AiTraceSupport;
-import com.niren.drama.common.ProjectStyleSupport;
+import com.niren.drama.common.Wan22ShortDramaPromptBuilder;
 import com.niren.drama.entity.Character;
 import com.niren.drama.entity.Project;
 import com.niren.drama.entity.Scene;
@@ -38,7 +38,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class AiVideoGenerationService {
 
-    private static final Duration BLOCKING_POLL_TIMEOUT = Duration.ofMinutes(10);
+    private static final Duration BLOCKING_POLL_TIMEOUT = Duration.ofHours(12);
     private static final long POLL_INTERVAL_MS = 3000L;
 
     private final AiProviderFactory aiProviderFactory;
@@ -70,7 +70,7 @@ public class AiVideoGenerationService {
             return generateAliyunVideo(config, shot);
         }
         if (isComfyUiProvider(config.provider())) {
-            VideoTaskSubmission submission = submitComfyUiVideoTask(userId, config, shot);
+            VideoTaskSubmission submission = submitComfyUiVideoTask(userId, config, shot, null, false);
             if (hasText(submission.videoUrl())) {
                 return submission.videoUrl();
             }
@@ -80,6 +80,13 @@ public class AiVideoGenerationService {
     }
 
     public VideoTaskSubmission submitVideoTask(Long userId, Storyboard shot) {
+        return submitVideoTask(userId, shot, null, false);
+    }
+
+    public VideoTaskSubmission submitVideoTask(Long userId,
+                                               Storyboard shot,
+                                               String firstFrameOverrideUrl,
+                                               boolean chainedFromPreviousTail) {
         AiResolvedConfig config = aiProviderFactory.resolveConfig(userId, "video");
         log.debug("Submit video task: userId={}, shotId={}, shotNo={}, provider={}, model={}, hasImageUrl={}",
                 userId,
@@ -87,12 +94,29 @@ public class AiVideoGenerationService {
                 shot.getShotNo(),
                 config.provider(),
                 config.model(),
-                hasText(shot.getImageUrl()));
+                hasText(firstFrameOverrideUrl) || hasText(shot.getImageUrl()));
         if (isAliyunProvider(config.provider())) {
+            if (hasText(firstFrameOverrideUrl) || chainedFromPreviousTail) {
+                return submitAliyunVideoTask(
+                        config,
+                        resolvePrompt(shot, chainedFromPreviousTail),
+                        hasText(firstFrameOverrideUrl) ? firstFrameOverrideUrl : resolveReferenceImageUrl(shot),
+                        resolveDuration(shot),
+                        shot);
+            }
             return submitAliyunVideoTask(config, shot);
         }
         if (isComfyUiProvider(config.provider())) {
-            return submitComfyUiVideoTask(userId, config, shot);
+            return submitComfyUiVideoTask(userId, config, shot, firstFrameOverrideUrl, chainedFromPreviousTail);
+        }
+        if (hasText(firstFrameOverrideUrl) || chainedFromPreviousTail) {
+            return submitCustomVideoTask(
+                    config,
+                    resolvePrompt(shot, chainedFromPreviousTail),
+                    hasText(firstFrameOverrideUrl) ? firstFrameOverrideUrl : resolveReferenceImageUrl(shot),
+                    resolveReferenceImageUrls(shot, firstFrameOverrideUrl),
+                    resolveDuration(shot),
+                    shot);
         }
         return submitCustomVideoTask(config, shot);
     }
@@ -508,7 +532,7 @@ public class AiVideoGenerationService {
                 throw new RuntimeException("视频任务已成功，但响应中没有可用视频地址");
             }
         }
-        throw new RuntimeException("视频生成任务轮询超时，已等待至少10分钟，请稍后重试");
+        throw new RuntimeException("视频生成任务轮询超时，已等待最长轮询时间（12小时），请稍后查看任务进度");
     }
 
     private VideoTaskQueryResult queryVideoTask(String provider, String apiKey, String statusUrl) throws Exception {
@@ -742,19 +766,19 @@ public class AiVideoGenerationService {
     }
 
     private int resolveDuration(Storyboard shot) {
-        return shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 5;
+        return shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 10;
     }
 
     private VideoGenerationProfile resolveVideoGenerationProfile(Storyboard shot, int fallbackDuration) {
-        int baseDuration = fallbackDuration > 0 ? fallbackDuration : 5;
+        int baseDuration = fallbackDuration > 0 ? fallbackDuration : 10;
         String tier = resolveMotionTier(shot);
         if ("A".equalsIgnoreCase(tier)) {
             return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 5), 10), "pro", "1080P");
         }
         if ("B".equalsIgnoreCase(tier)) {
-            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 5), 8), "standard", "720P");
+            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 5), 10), "standard", "720P");
         }
-        return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 4), 6), "standard", "720P");
+        return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 5), 8), "standard", "720P");
     }
 
     private String resolveMotionTier(Storyboard shot) {
@@ -784,52 +808,17 @@ public class AiVideoGenerationService {
     }
 
     private String resolvePrompt(Storyboard shot) {
-        String basePrompt;
-        if (hasText(shot.getVideoPrompt())) {
-            basePrompt = shot.getVideoPrompt();
-        } else {
-            basePrompt = hasText(shot.getDescription()) ? shot.getDescription() : null;
-        }
-        if (!hasText(basePrompt)) {
+        return resolvePrompt(shot, false);
+    }
+
+    private String resolvePrompt(Storyboard shot, boolean chainedFromPreviousTail) {
+        if (shot == null || (!hasText(shot.getVideoPrompt()) && !hasText(shot.getDescription()))) {
             return null;
         }
         Project project = shot.getProjectId() != null ? projectService.getProject(shot.getProjectId()) : null;
-        String visualGuide = ProjectStyleSupport.buildVisualCreationRules(
-                project != null ? project.getProjectType() : null,
-                project != null ? project.getGenre() : null)
-                .replace("\n", " ")
-                .replace("- ", " ")
-                .replaceAll("\\s+", " ")
-                .trim();
-
-        // 视频生成只负责“让首帧动起来”，避免把图片提示词再次扩写成重绘画面。
-        StringBuilder sb = new StringBuilder();
-        sb.append("Commercial vertical short-drama I2V shot, one continuous 9:16 live-action take. ")
-                .append("The first frame is fixed and must remain the identity and scene anchor: same face, hairstyle, outfit, age, body shape, props, lighting, camera angle, and room/location layout. ")
-                .append("Do not redraw the image, do not turn it into sketch, comic, line art, monochrome, CGI, or posterized frames. ")
-                .append("Use video motion, not image description: slow push-in or gentle pan, natural breathing, blinking, subtle head/hand reaction, hair and clothing micro motion, and environmental light/shadow movement. ")
-                .append("Keep a beginning-middle-end rhythm inside the same shot, no cuts, no scene jump, no new person, no face morphing, no wardrobe change. ")
-                .append("Motion directive: ").append(basePrompt);
-
-        // 附加角色一致性要求
-        if (shot.getCharacterId() != null) {
-            Character character = characterMapper.selectById(shot.getCharacterId());
-            if (character != null && hasText(character.getName())) {
-                sb.append("。角色主体：").append(character.getName());
-                if (hasText(character.getAppearance())) {
-                    sb.append("（").append(trimToLength(character.getAppearance(), 60)).append("）");
-                }
-                sb.append("，必须保持同一张脸、同一发型、同一服装、同一年龄感，不漂移不换人");
-            }
-        }
-        sb.append("。项目视觉约束只作为风格边界，不要覆盖首帧：").append(trimToLength(visualGuide, 180));
-        sb.append("。成片目标：可直接作为短剧平台片段使用，运动连续、有真实镜头感，避免静帧幻灯片、线稿化、插画化和镜头碎片化。");
-        return sb.toString();
-    }
-
-    private String trimToLength(String text, int maxLen) {
-        if (text == null || text.isEmpty()) return "";
-        return text.length() <= maxLen ? text : text.substring(0, maxLen) + "...";
+        Character character = shot.getCharacterId() != null ? characterMapper.selectById(shot.getCharacterId()) : null;
+        Scene scene = shot.getSceneId() != null ? sceneMapper.selectById(shot.getSceneId()) : null;
+        return Wan22ShortDramaPromptBuilder.build(shot, character, scene, project, chainedFromPreviousTail);
     }
 
     private boolean isAliyunProvider(String provider) {
@@ -846,8 +835,12 @@ public class AiVideoGenerationService {
         return "comfyui".equalsIgnoreCase(provider != null ? provider.trim() : "");
     }
 
-    private VideoTaskSubmission submitComfyUiVideoTask(Long userId, AiResolvedConfig config, Storyboard shot) {
-        String prompt = resolvePrompt(shot);
+    private VideoTaskSubmission submitComfyUiVideoTask(Long userId,
+                                                       AiResolvedConfig config,
+                                                       Storyboard shot,
+                                                       String firstFrameOverrideUrl,
+                                                       boolean chainedFromPreviousTail) {
+        String prompt = resolvePrompt(shot, chainedFromPreviousTail);
         if (!hasText(prompt)) {
             throw new BusinessException("动态镜头缺少视频提示词，无法发起 ComfyUI 视频生成");
         }
@@ -855,11 +848,11 @@ public class AiVideoGenerationService {
         String resolution = profile.resolution();
         String quality = profile.qualityTier();
         int duration = profile.durationSeconds();
-        List<String> referenceImageUrls = resolveReferenceImageUrls(shot);
+        List<String> referenceImageUrls = resolveReferenceImageUrls(shot, firstFrameOverrideUrl);
         String referenceImageUrl = referenceImageUrls.isEmpty() ? null : referenceImageUrls.get(0);
 
-        log.debug("Start ComfyUI video generation: shotId={}, shotNo={}, hasImage={}, refCount={}, duration={}, resolution={}",
-                shot.getId(), shot.getShotNo(), hasText(referenceImageUrl), referenceImageUrls.size(), duration, resolution);
+        log.debug("Start ComfyUI video generation: shotId={}, shotNo={}, hasImage={}, refCount={}, chained={}, duration={}, resolution={}",
+                shot.getId(), shot.getShotNo(), hasText(referenceImageUrl), referenceImageUrls.size(), chainedFromPreviousTail, duration, resolution);
 
         try {
             VideoAiProvider provider = aiProviderFactory.getVideoProvider(userId);
@@ -888,10 +881,15 @@ public class AiVideoGenerationService {
     }
 
     private List<String> resolveReferenceImageUrls(Storyboard shot) {
+        return resolveReferenceImageUrls(shot, null);
+    }
+
+    private List<String> resolveReferenceImageUrls(Storyboard shot, String firstFrameOverrideUrl) {
         if (shot == null) {
             return List.of();
         }
         Set<String> references = new LinkedHashSet<>();
+        addPublicReference(references, firstFrameOverrideUrl);
         addPublicReference(references, shot.getImageUrl());
 
         if (shot.getCharacterId() != null) {
