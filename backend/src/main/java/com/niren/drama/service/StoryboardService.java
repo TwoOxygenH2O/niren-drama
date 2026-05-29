@@ -685,19 +685,20 @@ if (isStream) {
 
                 额外要求：
                 1. 只生成当前片段对应的镜头，禁止扩写到上一场、下一场。
-                2. 当前片段通常拆为 1-2 个镜头；只有强冲突、明确动作转折时才拆到 3 个，禁止把一句台词或一个动作切成多个碎镜头。
+                2. 当前片段通常拆为 1 个 8-10 秒镜头；只有强冲突、明确动作转折时才拆到 2 个，禁止把一句台词或一个动作切成多个碎镜头。
                 3. 如果这不是第 1 段，直接承接当前片段动作。
                 4. 如果这是最后一段，把当前场景收束补完整。
                 5. sceneName 优先使用“%s”。
                 6. 返回格式必须为 {"shots": [...]}。
                 7. 严禁Markdown格式文字。
-                8. dialogue 只写口播，短句、口语化；不要写“角色名：”前缀，用 characterName 标说话人；无口播可留空。
-                9. 若本段有两人交锋，优先用一个中近景连续镜头承载一来一回；只有视线/动作明显反转时再切第二个镜头。
-                10. 台词风格示例（仅示意语气，勿照抄）：「你再说一遍试试？」「试就试，你以为我不敢？」
-                11. 返回前执行自检，不满足则重写：
-                    - duration 必须 5-10 秒，信息量小的镜头也不要低于 5 秒；
+                8. ttsText 必填，采用“小说旁白读剧情 + 关键镜头展示”的口吻，每镜头 1-2 句可直接朗读的短段落。
+                9. narration 优先承载小说旁白；dialogue 只写角色必要口播，短句、口语化；不要写“角色名：”前缀，用 characterName 标说话人。
+                10. 若本段有两人交锋，优先用一个中近景连续镜头承载一来一回；只有视线/动作明显反转时再切第二个镜头。
+                11. 台词风格示例（仅示意语气，勿照抄）：「你再说一遍试试？」「试就试，你以为我不敢？」
+                12. 返回前执行自检，不满足则重写：
+                    - duration 必须 8-10 秒，优先 10 秒；
                     - subtitleText 若有值不得含角色名/情绪头；
-                    - narration 仅 VO/OS 且不与 dialogue 同句重复。
+                    - ttsText/narration/dialogue 不得出现字面量 \\n、孤立 n 字符或角色名冒号前缀。
                 """,
                 projectType,
                 genre,
@@ -1415,7 +1416,19 @@ if (isStream) {
     }
 
     private String buildTtsText(Storyboard shot) {
-        return DramaTextSanitizer.resolveEffectiveTts(shot);
+        String text = DramaTextSanitizer.resolveEffectiveTts(shot);
+        if (hasText(text)) {
+            return text;
+        }
+        String subtitle = DramaTextSanitizer.normalizeSpokenText(shot != null ? shot.getSubtitleText() : null);
+        if (hasText(subtitle)) {
+            return subtitle;
+        }
+        String description = DramaTextSanitizer.normalizeSpokenText(shot != null ? shot.getDescription() : null);
+        if (hasText(description)) {
+            return "画面里，" + trimPromptSegment(description, 70);
+        }
+        return "";
     }
 
     private String buildTtsInstruction(Storyboard shot, Character character, VoiceInfo voiceInfo, Project project) {
@@ -1752,11 +1765,11 @@ if (isStream) {
                 - shotNo: 镜头序号（从1开始）
                 - description: 极短镜头提示（景别/动线/光感即可）+ 生图仍靠 imagePrompt 写全细节
                 - cameraAngle: 镜头语言（close-up/medium/wide/overhead/pov/low-angle/high-angle/tracking）
-                - dialogue: 角色口播台词（口语短句、一句一镜；不要写“角色名：”前缀，用 characterName 表示；无口播可留空；禁小说说明体与长心理）
-                - narration: 少用笔法；仅极少数 VO/OS 画外；与 dialogue 不重复；不要当小说旁白铺满
+                - dialogue: 角色口播台词（口语短句、一句一镜；不要写“角色名：”前缀，用 characterName 表示；无口播可留空）
+                - narration: 小说旁白/画外叙事（每镜头 1-2 句，推动剧情、补心理和反转，但不要冗长堆砌；与 dialogue 不重复）
                 - subtitleText: 可选。上屏短句（无角色名/无情绪头）；默认可空，由系统从 dialogue 派生
-                - ttsText: 可选。更口语的念稿，可与上屏不同；默认可空，由旁白+对白派生
-                - duration: 镜头时长（秒，5-10 秒为主，对白/情绪镜头不少于5秒，动作或情绪爆发镜头6-10秒，避免每秒一切割的碎片感）
+                - ttsText: 必填。用于逐镜头配音的可朗读稿，采用“小说旁白读剧情 + 关键镜头展示”的方式，可含少量对白但不要写角色名冒号
+                - duration: 镜头时长（秒，8-10 秒为主，优先 10 秒；信息量小也不要低于 8 秒，避免每秒一切割的碎片感）
                 - characterName: 主要角色名（如有，用于角色一致性和图片复用）
                 - sceneName: 场景名称（用于场景复用优化）
                 - isDynamic: 必须为 true，短剧平台主流程所有镜头都需要AI视频
@@ -1767,8 +1780,8 @@ if (isStream) {
                 
                 # 分镜优化要求（稳定拆镜）
                 1. 按场景和对白稳定拆镜，不追求镜头数量堆叠，不得无意义乱切
-                2. 同一场景优先连续镜头表达：通常每个场景拆 1-3 个镜头，强冲突场景最多 4 个镜头
-                3. 全集建议 12-28 个镜头（除非剧本明显很长，不要超过 32 个镜头）
+                2. 同一场景优先连续镜头表达：通常每个场景拆 1-2 个镜头，强冲突场景最多 3 个镜头
+                3. 全集建议 8-18 个镜头（按单镜头约 10 秒控制预算，除非剧本明显很长，不要超过 22 个镜头）
                 4. 开场第1-2个镜头要建立人物关系与核心冲突，不要用多个空镜铺垫
                 5. 对话场景优先 close-up 和 medium，动作场景再使用 wide/tracking
                 6. 所有镜头都必须可生成动态视频；对白镜头也要设计呼吸、眨眼、轻微推镜、衣摆/光影等低幅动态
@@ -1776,8 +1789,8 @@ if (isStream) {
                 8. videoPrompt 只描述基于关键帧的动作和镜头运动，不重复画面基础描述
                 9. 禁止输出静态镜头；如果动作弱，也要输出轻动态设计并将 isDynamic 设为 true
                 10. 集末镜头组要形成明确悬念或情绪收束，服务下一集衔接
-                11. 若 subtitleText 为空，必须保证 dialogue/narration 至少一个可用于派生；不得三者全空
-                12. 若 ttsText 包含角色或情绪标签，必须放在可剥离前缀里（如【角色|情绪】），正文保持可直接朗读
+                11. 每个镜头必须保证 ttsText 可直接用于配音；dialogue/narration 至少一个可用于派生，不得三者全空
+                12. ttsText/narration/dialogue 不得包含字面量 \\n、孤立 n 字符、角色名冒号前缀或情绪标签，正文保持可直接朗读
                 
                 # imagePrompt 模板
                 每个 imagePrompt 必须非常详细，包含以下全部要素（按顺序）：
@@ -1883,8 +1896,8 @@ if (isStream) {
                 shot.setNarration(shotNode.path("narration").asText(null));
                 shot.setSubtitleText(textOrNull(shotNode, "subtitleText"));
                 shot.setTtsText(textOrNull(shotNode, "ttsText"));
-                int rawDur = shotNode.path("duration").asInt(6);
-                shot.setDuration(Math.min(Math.max(rawDur, 5), 10));
+                int rawDur = shotNode.path("duration").asInt(10);
+                shot.setDuration(Math.min(Math.max(rawDur, 8), 10));
                 shot.setUserLockedSubtitle(false);
                 shot.setUserLockedTts(false);
                 shot.setStatus("draft");
@@ -1926,7 +1939,7 @@ if (isStream) {
             placeholder.setEpisodeNo(1);
             placeholder.setShotNo(1);
             placeholder.setDescription("AI生成的分镜脚本（解析失败，请手动编辑）");
-            placeholder.setDuration(5);
+            placeholder.setDuration(10);
             Project project = resolveProjectById(request.getProjectId());
             placeholder.setImagePrompt(buildImagePrompt(placeholder, null, project));
             placeholder.setVideoPrompt(buildVideoPrompt(placeholder, "low", project));
@@ -1954,7 +1967,7 @@ if (isStream) {
         int badSubtitle = 0;
         int noDerive = 0;
         for (Storyboard shot : shots) {
-            if (shot.getDuration() != null && shot.getDuration() > 5) {
+            if (shot.getDuration() != null && shot.getDuration() > 10) {
                 overDuration++;
             }
             if (hasText(shot.getNarration())) {
@@ -1967,7 +1980,7 @@ if (isStream) {
             if (hasText(shot.getSubtitleText()) && shot.getSubtitleText().matches(".*[：:].*")) {
                 badSubtitle++;
             }
-            if (!hasText(shot.getSubtitleText()) && !hasText(shot.getDialogue()) && !hasText(shot.getNarration())) {
+            if (!hasText(shot.getSubtitleText()) && !hasText(shot.getTtsText()) && !hasText(shot.getDialogue()) && !hasText(shot.getNarration())) {
                 noDerive++;
             }
         }

@@ -2,7 +2,7 @@
   <div class="immersive-root">
     <header class="immersive-top">
       <div class="immersive-top-left">
-      <button type="button" class="top-logo" title="返回剧集列表" @click="goProjectEpisodes">
+      <button type="button" class="top-logo" title="返回剧集列表" aria-label="返回剧集列表" @click="goProjectEpisodes">
         <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true">
           <path
             d="M8 6c0-1.1.9-2 2-2h6a6 6 0 016 6v4a4 4 0 01-4 4h-4a2 2 0 00-2 2v6a2 2 0 01-2 2H6a2 2 0 01-2-2V18c0-2.2 1.8-4 4-4h4a2 2 0 002-2V8a2 2 0 00-2-2H8z"
@@ -27,12 +27,12 @@
           v-if="hasAnyShotVideo"
           type="button"
           class="top-compose-btn"
-          @click="goSynthesis"
+          @click="goPreview"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="5,3 19,12 5,21" />
           </svg>
-          视频合成
+          成片预览
         </button>
         <button type="button" class="vip-link" @click="noopVip">开通会员</button>
         <button type="button" class="icon-btn" title="通知" aria-label="通知" @click="noopBell">
@@ -54,13 +54,14 @@
               type="button"
               class="episode-dot"
               :class="{ active: ep === activeEpisode }"
+              :aria-label="`切换到第 ${ep} 集`"
               @click="activeEpisode = ep"
             >
               {{ String(ep).padStart(2, '0') }}
             </button>
           </div>
         </div>
-        <button type="button" class="episode-add" title="新增剧集" @click="openAddEpisodeDialog">
+        <button type="button" class="episode-add" title="新增剧集" aria-label="新增剧集" @click="openAddEpisodeDialog">
           +
         </button>
       </aside>
@@ -142,7 +143,7 @@
 
         <div class="composer-bottom">
           <div class="composer-inner">
-            <button type="button" class="attach-btn" title="附件" @click="noopAttach">
+            <button type="button" class="attach-btn" title="附件" aria-label="附件" @click="noopAttach">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
               </svg>
@@ -164,6 +165,7 @@
                 (workflowPhase === 'outline' && !outlineContent.trim())
               "
               title="发送（Cmd/Ctrl + Enter）"
+              aria-label="发送"
               @click="sendFollowUp"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -181,7 +183,7 @@
             <span class="plan-ep-badge">第 {{ String(activeEpisode).padStart(2, '0') }} 集</span>
             <h2 class="plan-title">{{ activePlanScript?.title || '—' }}</h2>
             <p class="plan-ai-note">内容由 AI 生成</p>
-            <button type="button" class="plan-close-btn" title="收起策划栏" @click="workflowPhase = 'outline'">✕</button>
+            <button type="button" class="plan-close-btn" title="收起策划栏" aria-label="收起策划栏" @click="workflowPhase = 'outline'">✕</button>
           </header>
 
           <div v-if="scriptWorkflowLoading" class="plan-loading">
@@ -275,7 +277,7 @@
             popper-class="shot-select-popover"
           >
             <template #reference>
-              <button type="button" class="btn-shot-select" :class="{ 'has-selection': selectedShotIds.length > 0 && !allSelected }">
+              <button type="button" class="btn-shot-select" aria-label="选择生成镜头" :class="{ 'has-selection': selectedShotIds.length > 0 && !allSelected }">
                 {{ shotSelectLabel }}
                 <span class="btn-shot-select-arrow">▾</span>
               </button>
@@ -485,6 +487,7 @@ const mediaTaskProgress = ref(0)
 const mediaTaskMessage = ref('')
 const activeMediaTaskId = ref('')
 let mediaPollTimer: ReturnType<typeof setTimeout> | null = null
+const VIDEO_TASK_POLL_TIMEOUT_MS = 12 * 60 * 60 * 1000
 /** 剧集切换或重复调度时递增，用于取消过期的分镜拉取/生成流程 */
 let sbEnsureGeneration = 0
 
@@ -493,8 +496,11 @@ const videoPromptsOpen = ref(false)
 /** 只要有任意分镜已生成视频，就展示合成入口 */
 const hasAnyShotVideo = computed(() => episodeShots.value.some((s: any) => s.videoUrl))
 
-function goSynthesis() {
-  router.push({ path: `/projects/${projectId.value}/synthesis` })
+function goPreview() {
+  router.push({
+    path: `/projects/${projectId.value}/immersive/workbench`,
+    query: { episode: String(activeEpisode.value), tab: 'video' },
+  })
 }
 
 function clearMediaTaskState() {
@@ -667,7 +673,7 @@ async function startOutlineStream() {
   }
 }
 
-async function pollTaskUntilDone(taskId: string, timeoutMs = 45 * 60 * 1000) {
+async function pollTaskUntilDone(taskId: string, timeoutMs = VIDEO_TASK_POLL_TIMEOUT_MS) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const ax = await taskApi.get(taskId)
@@ -828,16 +834,16 @@ async function onPrimaryVideoAction() {
     if (!tid) throw new Error('未返回任务 ID')
     activeMediaTaskId.value = tid
 
-    ElMessage.success('视频生成任务已提交，可在合成页查看进度')
+    ElMessage.success('视频生成任务已提交，可在成片预览查看进度')
     mediaTaskMessage.value = '视频生成中，请稍候…'
 
     // 非阻塞轮询：更新进度但不阻塞 UI
-    const deadline = Date.now() + 45 * 60 * 1000
+    const deadline = Date.now() + VIDEO_TASK_POLL_TIMEOUT_MS
     const poll = async () => {
       if (!mediaSubmitLoading.value || activeMediaTaskId.value !== tid) return
       if (Date.now() > deadline) {
         clearMediaTaskState()
-        ElMessage.warning('视频生成超时，请到合成页查看进度')
+        ElMessage.warning('视频生成轮询已达到 12 小时，请到成片预览查看进度')
         return
       }
       try {

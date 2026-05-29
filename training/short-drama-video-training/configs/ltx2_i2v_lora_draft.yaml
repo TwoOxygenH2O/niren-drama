@@ -1,0 +1,56 @@
+# LTX-2 I2V LoRA draft config for Niren short-drama preview mode.
+# This is a project-side planning config. Convert it to the exact LTX trainer
+# schema after installing the trainer version you will run.
+
+run:
+  name: niren_ltx2_preview_lora_v001
+  purpose: preview_generation
+  trigger_token: niren_short_drama
+  output_dir: training/short-drama-video-training/runs/ltx2_preview_v001
+
+data:
+  manifest: training/short-drama-video-training/data/manifests/shot_manifest.v001.csv
+  split: train
+  validation_split: val
+  video_root: training/short-drama-video-training/processed/ltx_dataset
+  resolution_bucket: 720x1280x121
+  fps: 24
+  min_duration_sec: 5
+  max_duration_sec: 8
+  use_first_frame_condition: true
+
+model:
+  family: ltx-2
+  base_checkpoint: D:/models/LTX/ltx-2-19b-distilled.safetensors
+  text_encoder: D:/models/LTX/gemma
+  training_mode: lora
+
+lora:
+  rank: 16
+  alpha: 16
+  dropout: 0.0
+  target_modules:
+    - to_q
+    - to_k
+    - to_v
+    - to_out.0
+
+optimization:
+  precision: bf16
+  batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 0.0001
+  max_steps: 3000
+  checkpoint_every_steps: 300
+  validation_every_steps: 300
+  low_vram: true
+  gradient_checkpointing: true
+
+validation:
+  fixed_prompts: training/short-drama-video-training/data/manifests/prompt_policy.val.jsonl
+  metrics:
+    - manual_accept_rate
+    - black_frame_rate
+    - frozen_frame_rate
+    - line_art_rate
+    - identity_consistency

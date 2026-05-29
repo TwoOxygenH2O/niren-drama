@@ -191,12 +191,16 @@ public class VideoCompositionService {
     private int composePreviewCrf;
     @Value("${niren.compose.export.preview.audio-bitrate:128k}")
     private String composePreviewAudioBitrate;
+    @Value("${niren.compose.export.preview.video-codec:h264_nvenc}")
+    private String composePreviewVideoCodec;
     @Value("${niren.compose.export.publish.preset:slow}")
     private String composePublishPreset;
     @Value("${niren.compose.export.publish.crf:19}")
     private int composePublishCrf;
     @Value("${niren.compose.export.publish.audio-bitrate:192k}")
     private String composePublishAudioBitrate;
+    @Value("${niren.compose.export.publish.video-codec:libx264}")
+    private String composePublishVideoCodec;
     @Value("${niren.dynamic-video.timeout-minutes:720}")
     private long dynamicVideoTimeoutMinutes;
     @Value("${niren.dynamic-video.poll.base-seconds:5}")
@@ -285,9 +289,11 @@ public class VideoCompositionService {
             throw new BusinessException("项目下没有分镜数据，请先生成分镜");
         }
 
-        long missingVideoCount = shots.stream().filter(s -> !hasText(s.getVideoUrl())).count();
-        if (missingVideoCount > 0) {
-            throw new BusinessException("分镜视频尚未生成完成，请先生成分镜视频（缺少 " + missingVideoCount + " 个镜头）");
+        long missingRenderableCount = shots.stream()
+                .filter(s -> !hasText(s.getVideoUrl()) && !hasText(s.getImageUrl()))
+                .count();
+        if (missingRenderableCount > 0) {
+            throw new BusinessException("分镜素材尚未补齐，请先生成首帧或镜头视频（缺少 " + missingRenderableCount + " 个镜头）");
         }
 
         log.debug("创建视频合成任务: userId={}, projectId={}, shotCount={}, filteredByIds={}",
@@ -395,6 +401,11 @@ public class VideoCompositionService {
                 log.info("恢复动态视频轮询任务: taskId={}, projectId={}, pendingShots={}",
                         task.getId(), task.getProjectId(), pendingCount);
                 scheduleDynamicVideoPoll(task.getUserId(), task.getProjectId(), task.getId(), dynamicVideoPollBaseSeconds);
+            } else if (isDynamicVideoTaskTimedOut(task)) {
+                task.setStatus("FAILED");
+                task.setMessage("动态视频任务已超过等待上限且没有可恢复的 ComfyUI prompt_id，已自动关闭");
+                taskRecordMapper.updateById(task);
+                log.warn("关闭陈旧动态视频任务: taskId={}, projectId={}", task.getId(), task.getProjectId());
             }
         }
     }
@@ -424,7 +435,7 @@ public class VideoCompositionService {
                     .filter(this::hasRenderableMedia)
                     .toList();
             if (renderableShots.isEmpty()) {
-                throw new BusinessException("没有可用于合成的分镜视频，请先生成分镜视频");
+                throw new BusinessException("没有可用于合成的镜头素材，请先生成首帧或分镜视频");
             }
 
             Path bgmPath = runtimeOptions.bgmEnabled()
@@ -615,7 +626,9 @@ public class VideoCompositionService {
                 }
             }
 
-            updateTask(task, "RUNNING", 10, "首帧检查完成，正在按分镜顺序生成并抽取尾帧接龙...");
+            updateTask(task, "RUNNING", 10, dynamicVideoFrameChainEnabled
+                    ? "首帧检查完成，正在按分镜顺序生成并抽取尾帧接龙..."
+                    : "首帧检查完成，正在生成动态镜头（预览模式不启用尾帧接龙）...");
 
             String chainedFirstFrameUrl = null;
             for (int index = 0; index < shots.size(); index++) {
@@ -674,6 +687,13 @@ public class VideoCompositionService {
                         storyboardMapper.updateById(shot);
                         log.debug("动态视频任务已受理: taskId={}, projectId={}, shotId={}, shotNo={}, vendorTaskId={}, statusUrl={}",
                                 taskId, projectId, shot.getId(), shot.getShotNo(), submission.taskId(), submission.statusUrl());
+                        if (!dynamicVideoFrameChainEnabled) {
+                            pending++;
+                            updateTask(task, "RUNNING",
+                                    10 + (80 * (index + 1) / Math.max(1, total)),
+                                    String.format("第%d/%d个镜头已提交，后台轮询生成结果...", index + 1, total));
+                            continue;
+                        }
                         videoUrl = waitForDynamicVideoResult(userId, task, shot, index, total);
                     }
 
@@ -702,7 +722,7 @@ public class VideoCompositionService {
                     shot.setStatus("video_failed");
                     storyboardMapper.updateById(shot);
                     String shotLabel = resolveShotLabel(shot);
-                    String errorMessage = hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName();
+                    String errorMessage = buildFailureReason(e);
                     failedDetails.add(String.format("镜头%s: %s", shotLabel, errorMessage));
                     log.warn("动态视频生成失败: shotLabel={}", shotLabel, e);
                 } finally {
@@ -710,12 +730,23 @@ public class VideoCompositionService {
                 }
             }
 
+            if (pending > 0) {
+                task.setStatus("RUNNING");
+                task.setProgress(calculateDynamicVideoProgress(total, generated, failed, pending));
+                task.setMessage(buildDynamicVideoRunningMessage(generated, failed, pending));
+                task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls,
+                        buildDynamicVideoSummary(taskId, total, generated, failed, pending)));
+                taskRecordMapper.updateById(task);
+                scheduleDynamicVideoPoll(userId, projectId, taskId, dynamicVideoPollBaseSeconds);
+                return;
+            }
+
             finishDynamicVideoTask(task, projectId, total, generated, failed, pending, failedDetails, traceCalls, omittedTraceCalls);
             log.debug("动态视频提交完成(无需轮询): taskId={}, projectId={}, total={}, generated={}, failed={}",
                     taskId, projectId, total, generated, failed);
         } catch (Exception e) {
             log.error("动态视频生成失败: taskId={}", taskId, e);
-            String errorMessage = hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName();
+            String errorMessage = buildFailureReason(e);
             task.setStatus("FAILED");
             task.setMessage("动态镜头生成失败: " + errorMessage);
             task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls,
@@ -783,7 +814,7 @@ public class VideoCompositionService {
                     }
                 } catch (Exception e) {
                     markDynamicVideoShotFailed(shot,
-                            hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName(),
+                            buildFailureReason(e),
                             failedDetails);
                 } finally {
                     omittedTraceCalls = appendTraceCalls(traceCalls, shot, AiTraceContext.drain(), omittedTraceCalls);
@@ -809,10 +840,11 @@ public class VideoCompositionService {
             finishDynamicVideoTask(task, projectId, total, generated, failed, pending, failedDetails, traceCalls, omittedTraceCalls);
         } catch (Exception e) {
             log.error("动态视频轮询失败: taskId={}", taskId, e);
+            String errorMessage = buildFailureReason(e);
             task.setStatus("FAILED");
-            task.setMessage("动态视频轮询失败: " + e.getMessage());
+            task.setMessage("动态视频轮询失败: " + errorMessage);
             task.setResult(mergeTaskTraceResult(task.getResult(), "video", projectId, traceCalls, omittedTraceCalls,
-                    Map.of("error", e.getMessage())));
+                    Map.of("error", errorMessage)));
             taskRecordMapper.updateById(task);
         }
     }
@@ -857,10 +889,7 @@ public class VideoCompositionService {
         cmd.add("-af");
         cmd.add(buildShotAudioFilter(renderPlan.clipDuration()));
 
-        // Video codec
-        cmd.add("-c:v"); cmd.add("libx264");
-        cmd.add("-preset"); cmd.add("medium");
-        cmd.add("-crf"); cmd.add("20");
+        addVideoEncodeOptions(cmd, resolveShotIntermediateProfile());
         cmd.add("-pix_fmt"); cmd.add("yuv420p");
         cmd.add("-r"); cmd.add(String.valueOf(FRAME_RATE));
 
@@ -904,9 +933,7 @@ public class VideoCompositionService {
         cmd.add("-af");
         cmd.add(buildShotAudioFilter(renderPlan.clipDuration()));
 
-        cmd.add("-c:v"); cmd.add("libx264");
-        cmd.add("-preset"); cmd.add("medium");
-        cmd.add("-crf"); cmd.add("20");
+        addVideoEncodeOptions(cmd, resolveShotIntermediateProfile());
         cmd.add("-pix_fmt"); cmd.add("yuv420p");
         cmd.add("-r"); cmd.add(String.valueOf(FRAME_RATE));
         cmd.add("-c:a"); cmd.add("aac");
@@ -1165,13 +1192,8 @@ public class VideoCompositionService {
         cmd.add("[vout]");
         cmd.add("-map");
         cmd.add("[aout]");
-        cmd.add("-c:v");
-        cmd.add("libx264");
         ComposeExportProfile exportProfile = resolveComposeExportProfile();
-        cmd.add("-preset");
-        cmd.add(exportProfile.preset());
-        cmd.add("-crf");
-        cmd.add(String.valueOf(exportProfile.crf()));
+        addVideoEncodeOptions(cmd, exportProfile);
         cmd.add("-pix_fmt");
         cmd.add("yuv420p");
         cmd.add("-r");
@@ -1833,9 +1855,9 @@ public class VideoCompositionService {
         if (shot == null) {
             return false;
         }
-        boolean renderable = hasText(shot.getVideoUrl());
+        boolean renderable = hasText(shot.getVideoUrl()) || hasText(shot.getImageUrl());
         if (!renderable) {
-            log.warn("镜头缺少分镜视频，跳过合成: shotNo={}", shot.getShotNo());
+            log.warn("镜头缺少可合成的视频或首帧，跳过合成: shotNo={}", shot.getShotNo());
         }
         return renderable;
     }
@@ -1899,20 +1921,71 @@ public class VideoCompositionService {
                 || consecutiveStaticSeconds >= Math.max(4d, composeRhythmMaxStaticSeconds);
     }
 
-    private record ComposeExportProfile(String preset, int crf, String audioBitrate) {}
+    private record ComposeExportProfile(String videoCodec, String preset, int crf, String audioBitrate) {}
+
+    private ComposeExportProfile resolveShotIntermediateProfile() {
+        return new ComposeExportProfile(
+                hasText(composePreviewVideoCodec) ? composePreviewVideoCodec.trim() : "h264_nvenc",
+                hasText(composePreviewPreset) ? composePreviewPreset.trim() : "veryfast",
+                Math.min(Math.max(composePreviewCrf, 16), 34),
+                hasText(composePreviewAudioBitrate) ? composePreviewAudioBitrate.trim() : "128k");
+    }
 
     private ComposeExportProfile resolveComposeExportProfile() {
         String normalized = hasText(composeExportProfile) ? composeExportProfile.trim().toLowerCase(Locale.ROOT) : "publish";
         if ("preview".equals(normalized)) {
             return new ComposeExportProfile(
+                    hasText(composePreviewVideoCodec) ? composePreviewVideoCodec.trim() : "h264_nvenc",
                     hasText(composePreviewPreset) ? composePreviewPreset.trim() : "veryfast",
                     Math.min(Math.max(composePreviewCrf, 16), 34),
                     hasText(composePreviewAudioBitrate) ? composePreviewAudioBitrate.trim() : "128k");
         }
         return new ComposeExportProfile(
+                hasText(composePublishVideoCodec) ? composePublishVideoCodec.trim() : "libx264",
                 hasText(composePublishPreset) ? composePublishPreset.trim() : "slow",
                 Math.min(Math.max(composePublishCrf, 14), 30),
                 hasText(composePublishAudioBitrate) ? composePublishAudioBitrate.trim() : "192k");
+    }
+
+    private void addVideoEncodeOptions(List<String> cmd, ComposeExportProfile profile) {
+        String codec = hasText(profile.videoCodec()) ? profile.videoCodec().trim() : "libx264";
+        cmd.add("-c:v");
+        cmd.add(codec);
+        if (isNvencCodec(codec)) {
+            cmd.add("-preset");
+            cmd.add(toNvencPreset(profile.preset()));
+            cmd.add("-rc");
+            cmd.add("vbr");
+            cmd.add("-cq");
+            cmd.add(String.valueOf(profile.crf()));
+            cmd.add("-b:v");
+            cmd.add("0");
+            return;
+        }
+        cmd.add("-preset");
+        cmd.add(hasText(profile.preset()) ? profile.preset() : "medium");
+        cmd.add("-crf");
+        cmd.add(String.valueOf(profile.crf()));
+    }
+
+    private boolean isNvencCodec(String codec) {
+        return hasText(codec) && codec.toLowerCase(Locale.ROOT).contains("_nvenc");
+    }
+
+    private String toNvencPreset(String preset) {
+        if (!hasText(preset)) {
+            return "p4";
+        }
+        return switch (preset.trim().toLowerCase(Locale.ROOT)) {
+            case "ultrafast", "superfast" -> "p1";
+            case "veryfast" -> "p2";
+            case "faster", "fast" -> "p3";
+            case "medium" -> "p4";
+            case "slow" -> "p5";
+            case "slower" -> "p6";
+            case "veryslow" -> "p7";
+            default -> preset.trim();
+        };
     }
 
     private String resolveTransitionName(Storyboard previous, Storyboard next, int index) {
@@ -2593,7 +2666,78 @@ public class VideoCompositionService {
             current = current.getCause();
         }
         String message = current.getMessage();
-        return hasText(message) ? message : current.getClass().getSimpleName();
+        return compactFailureReason(hasText(message) ? message : current.getClass().getSimpleName());
+    }
+
+    private String compactFailureReason(String raw) {
+        if (!hasText(raw)) {
+            return "unknown";
+        }
+        String normalized = raw.replace('\n', ' ').replace('\r', ' ').replaceAll("\\s+", " ").trim();
+        String exceptionType = extractJsonTextField(normalized, "exception_type");
+        String exceptionMessage = extractJsonTextField(normalized, "exception_message");
+        String nodeId = extractJsonNumberField(normalized, "node_id");
+        if (hasText(exceptionType) || hasText(exceptionMessage)) {
+            StringBuilder sb = new StringBuilder("ComfyUI");
+            if (hasText(exceptionType)) {
+                sb.append(" ").append(exceptionType);
+            }
+            if (hasText(nodeId)) {
+                sb.append(" node=").append(nodeId);
+            }
+            if (hasText(exceptionMessage)) {
+                sb.append(": ").append(exceptionMessage);
+            }
+            return truncateFailureReason(sb.toString());
+        }
+        if (normalized.contains("Sizes of tensors must match")) {
+            return truncateFailureReason("ComfyUI 参考图尺寸不一致: " + normalized);
+        }
+        if (normalized.contains("controlnet_strength")) {
+            return "ComfyUI WanVideoWrapper 节点版本不兼容: 缺少 controlnet_strength";
+        }
+        return truncateFailureReason(normalized);
+    }
+
+    private String extractJsonTextField(String text, String fieldName) {
+        String needle = "\"" + fieldName + "\"";
+        int key = text.indexOf(needle);
+        if (key < 0) {
+            return null;
+        }
+        int colon = text.indexOf(':', key + needle.length());
+        int startQuote = colon >= 0 ? text.indexOf('"', colon + 1) : -1;
+        int endQuote = startQuote >= 0 ? text.indexOf('"', startQuote + 1) : -1;
+        return endQuote > startQuote ? text.substring(startQuote + 1, endQuote) : null;
+    }
+
+    private String extractJsonNumberField(String text, String fieldName) {
+        String needle = "\"" + fieldName + "\"";
+        int key = text.indexOf(needle);
+        if (key < 0) {
+            return null;
+        }
+        int colon = text.indexOf(':', key + needle.length());
+        if (colon < 0) {
+            return null;
+        }
+        int start = colon + 1;
+        while (start < text.length() && Character.isWhitespace(text.charAt(start))) {
+            start++;
+        }
+        int end = start;
+        while (end < text.length() && Character.isDigit(text.charAt(end))) {
+            end++;
+        }
+        return end > start ? text.substring(start, end) : null;
+    }
+
+    private String truncateFailureReason(String message) {
+        int maxLength = 360;
+        if (!hasText(message) || message.length() <= maxLength) {
+            return message;
+        }
+        return message.substring(0, maxLength - 3) + "...";
     }
 
     private void cleanupDirectory(Path dir) {

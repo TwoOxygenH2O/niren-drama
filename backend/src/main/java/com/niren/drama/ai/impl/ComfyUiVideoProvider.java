@@ -14,6 +14,13 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.awt.AlphaComposite;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -22,12 +29,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import javax.imageio.ImageIO;
 
 @Slf4j
 public class ComfyUiVideoProvider implements VideoAiProvider {
 
     private static final int DEFAULT_MAX_POLL_ATTEMPTS = 14_400;
     private static final long DEFAULT_POLL_INTERVAL_MS = 3000L;
+    private static final int MAX_UPLOAD_CACHE_ENTRIES = 2048;
+    private static final ConcurrentMap<String, String> UPLOAD_CACHE = new ConcurrentHashMap<>();
+    private static final Pattern JSON_STRING_FIELD = Pattern.compile("\"%s\"\\s*:\\s*\"([^\"]*)\"");
+    private static final Pattern JSON_NUMBER_FIELD = Pattern.compile("\"%s\"\\s*:\\s*(\\d+)");
 
     private final String apiBaseUrl;
     private final String apiKey;
@@ -39,6 +55,9 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     private final long pollIntervalMs;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+
+    public record ComfyPromptSubmission(String promptId, String statusUrl) {}
+    public record ComfyPromptQueryResult(String status, String videoUrl, String errorMessage) {}
 
     public ComfyUiVideoProvider(String baseUrl, String apiKey, String model, String extra,
                                 String uploadPath, String publicBaseUrl) {
@@ -293,6 +312,159 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     @Override
     public double estimateCost(int durationSeconds, String quality, boolean hasReferenceVideo, boolean withSound) {
         return 0;
+    }
+
+    public ComfyPromptSubmission submitVideoFromTextTask(String prompt, int duration,
+                                                         String resolution, String quality,
+                                                         boolean withSound) {
+        try {
+            int[] wh = parseResolution(resolution);
+            int frames = videoFrames(duration);
+            ObjectNode workflow = buildTextToVideoWorkflow(prompt, wh[0], wh[1], frames, quality);
+            return submitPromptWorkflow("submit_video_text", workflow);
+        } catch (Exception e) {
+            throw new RuntimeException("Video submission failed: " + compactComfyError(e.getMessage()), e);
+        }
+    }
+
+    public ComfyPromptSubmission submitVideoFromImageTask(String imageUrl, List<String> referenceImageUrls,
+                                                          String prompt, int duration,
+                                                          String resolution, String quality,
+                                                          boolean withSound) {
+        try {
+            int[] wh = parseResolution(resolution);
+            int frames = videoFrames(duration);
+            String enhancedPrompt = buildShortDramaVideoPrompt(prompt, referenceImageUrls);
+            ObjectNode workflow = buildImageToVideoWorkflow(imageUrl, referenceImageUrls, enhancedPrompt,
+                    wh[0], wh[1], frames, quality);
+            return submitPromptWorkflow("submit_video_image", workflow);
+        } catch (Exception e) {
+            throw new RuntimeException("Video submission failed: " + compactComfyError(e.getMessage()), e);
+        }
+    }
+
+    public ComfyPromptQueryResult queryVideoTask(String promptId) {
+        if (!hasText(promptId)) {
+            return new ComfyPromptQueryResult("failed", null, "缺少 ComfyUI prompt_id");
+        }
+        String historyUrl = apiBaseUrl + "/history/" + promptId;
+        HttpResponse<String> response = null;
+        String responseBody = null;
+        String videoUrl = null;
+        String error = null;
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(historyUrl))
+                    .GET()
+                    .timeout(Duration.ofSeconds(30))
+                    .build();
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            responseBody = response.body();
+            if (response.statusCode() >= 400) {
+                error = "ComfyUI history 查询失败: HTTP " + response.statusCode();
+                return new ComfyPromptQueryResult("failed", null, error);
+            }
+
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode promptNode = root.path(promptId);
+            if (promptNode.isMissingNode() || promptNode.isNull()) {
+                String queueStatus = checkQueueStatus(promptId);
+                if ("running".equals(queueStatus) || "pending".equals(queueStatus)) {
+                    return new ComfyPromptQueryResult(queueStatus, null, null);
+                }
+                error = "ComfyUI 任务不在 history 或 queue 中: prompt_id=" + promptId;
+                return new ComfyPromptQueryResult("failed", null, error);
+            }
+
+            OutputInfo outputInfo = findOutputInfo(promptNode.path("outputs"));
+            if (outputInfo != null) {
+                videoUrl = buildOutputViewUrl(outputInfo);
+                videoUrl = RemoteAssetStorage.persistHttpUrl(videoUrl, uploadPath, publicBaseUrl,
+                        "generated-videos", httpClient, "mp4");
+                return new ComfyPromptQueryResult("completed", videoUrl, null);
+            }
+
+            JsonNode status = promptNode.path("status");
+            String statusStr = status.path("status_str").asText("");
+            if ("error".equalsIgnoreCase(statusStr)) {
+                error = compactComfyError(status.path("messages").toString());
+                return new ComfyPromptQueryResult("failed", null, error);
+            }
+            return new ComfyPromptQueryResult(hasText(statusStr) ? statusStr : "running", null, null);
+        } catch (Exception e) {
+            error = compactComfyError(e.getMessage());
+            return new ComfyPromptQueryResult("failed", null, error);
+        } finally {
+            AiTraceSupport.record(
+                    "video",
+                    "comfyui",
+                    "query_video_task",
+                    "GET",
+                    historyUrl,
+                    AiTraceSupport.jsonHeaders(apiKey),
+                    null,
+                    response != null ? response.statusCode() : null,
+                    response != null ? response.headers().firstValue("Content-Type").orElse(null) : null,
+                    responseBody,
+                    responseBody != null ? responseBody.length() : null,
+                    hasText(videoUrl) || error == null,
+                    videoUrl,
+                    error);
+        }
+    }
+
+    private ComfyPromptSubmission submitPromptWorkflow(String operation, ObjectNode workflow) throws Exception {
+        String promptEndpoint = apiBaseUrl + "/prompt";
+        String requestBody = null;
+        HttpResponse<String> response = null;
+        String responseBody = null;
+        String promptId = null;
+        String error = null;
+        try {
+            ObjectNode body = objectMapper.createObjectNode();
+            body.set("prompt", workflow);
+            requestBody = objectMapper.writeValueAsString(body);
+
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                    .uri(URI.create(promptEndpoint))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .timeout(Duration.ofSeconds(180));
+            if (hasText(apiKey)) {
+                requestBuilder.header("Authorization", "Bearer " + apiKey);
+            }
+
+            response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+            responseBody = response.body();
+            if (response.statusCode() >= 400) {
+                error = "HTTP " + response.statusCode() + " - " + responseBody;
+                throw new RuntimeException(error);
+            }
+            JsonNode root = objectMapper.readTree(responseBody);
+            promptId = root.path("prompt_id").asText(null);
+            if (!hasText(promptId)) {
+                error = "ComfyUI 未返回 prompt_id: " + responseBody;
+                throw new RuntimeException(error);
+            }
+            log.info("ComfyUI 视频任务已提交: operation={}, prompt_id={}", operation, promptId);
+            return new ComfyPromptSubmission(promptId, apiBaseUrl + "/history/" + promptId);
+        } finally {
+            AiTraceSupport.record(
+                    "video",
+                    "comfyui",
+                    operation,
+                    "POST",
+                    promptEndpoint,
+                    AiTraceSupport.jsonHeaders(apiKey),
+                    requestBody,
+                    response != null ? response.statusCode() : null,
+                    response != null ? response.headers().firstValue("Content-Type").orElse(null) : null,
+                    responseBody,
+                    responseBody != null ? responseBody.length() : null,
+                    hasText(promptId),
+                    null,
+                    hasText(error) ? compactComfyError(error) : null);
+        }
     }
 
     /**
@@ -704,8 +876,9 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     private ObjectNode buildImageToVideoWorkflow(String imageUrl, List<String> referenceImageUrls, String prompt,
                                                   int width, int height, int frames, String quality) throws Exception {
         String workflowFile = null;
-        String primaryImage = uploadImageIfRemote(imageUrl);
-        List<String> uploadedReferences = uploadReferenceImages(normalizeReferenceImageUrls(imageUrl, referenceImageUrls));
+        boolean explicitWorkflowFile = false;
+        String primaryImage = uploadImageIfRemote(imageUrl, width, height);
+        List<String> uploadedReferences = uploadReferenceImages(normalizeReferenceImageUrls(imageUrl, referenceImageUrls), width, height);
         WorkflowTuning tuning = resolveWorkflowTuning(prompt, quality, frames);
         if (hasText(extra)) {
             try {
@@ -720,9 +893,9 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     return wf;
                 }
                 String wf = extraJson.path("workflowFile").asText(null);
-                // 忽略 ComfyUI 用户工作流（user:前缀），只接受 classpath 模板
-                if (hasText(wf) && !wf.startsWith("user:")) {
+                if (hasText(wf)) {
                     workflowFile = wf;
+                    explicitWorkflowFile = true;
                 }
             } catch (Exception ignored) {
             }
@@ -734,8 +907,8 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     : "video_ltx2_i2v_short_drama_consistency.json";
         }
 
-        // 优先使用 classpath 模板（非 user: 前缀以避免加载已被废弃的旧版工作流）。
-        // 找不到则直接使用内联 LTX-2 I2V 工作流。
+        // 优先使用用户显式选择的工作流；支持 user: 前缀和 classpath 模板。
+        // 未显式指定时再按模型自动选择内置模板，最后回退到内联 LTX-2 I2V 工作流。
         if (hasText(workflowFile)) {
             ObjectNode template = ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile);
             if (template != null) {
@@ -744,6 +917,9 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 injectNegativePromptToWorkflow(template);
                 injectVideoParams(template, width, height, frames, tuning, uploadedReferences.size());
                 return template;
+            }
+            if (explicitWorkflowFile) {
+                throw new RuntimeException("指定的 ComfyUI 视频工作流不可用: " + workflowFile);
             }
         }
 
@@ -938,13 +1114,13 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return new ArrayList<>(normalized);
     }
 
-    private List<String> uploadReferenceImages(List<String> referenceImageUrls) throws Exception {
+    private List<String> uploadReferenceImages(List<String> referenceImageUrls, int width, int height) throws Exception {
         if (referenceImageUrls == null || referenceImageUrls.isEmpty()) {
             return List.of();
         }
         List<String> uploaded = new ArrayList<>();
         for (String url : referenceImageUrls) {
-            uploaded.add(uploadImageIfRemote(url));
+            uploaded.add(uploadImageIfRemote(url, width, height));
         }
         return uploaded;
     }
@@ -1338,6 +1514,11 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     putIfPresent(inputs, "motion_guidance", motionStrength(tuning));
                     putIfPresent(inputs, "guidance_scale", tuning.cfg());
                     putIfPresent(inputs, "camera_motion", tuning.cameraMotion());
+                    if (("WanVideoSampler".equals(classType) || "WanVideoSamplerv2".equals(classType))
+                            && shouldPatchWanControlnetStrength()
+                            && !inputs.has("controlnet_strength")) {
+                        inputs.put("controlnet_strength", 0.0d);
+                    }
                     break;
                 case "WanVideoImageToVideoEncode":
                 case "WanVideoEmptyEmbeds":
@@ -1564,6 +1745,18 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         }
     }
 
+    private boolean shouldPatchWanControlnetStrength() {
+        if (!hasText(extra)) {
+            return true;
+        }
+        try {
+            JsonNode extraJson = objectMapper.readTree(extra);
+            return extraJson.path("patchWanControlnetStrength").asBoolean(true);
+        } catch (Exception ignored) {
+            return true;
+        }
+    }
+
     private void bypassWanOneToAllReferenceEmbeds(ObjectNode workflow) {
         for (var it = workflow.fields(); it.hasNext(); ) {
             var entry = it.next();
@@ -1698,9 +1891,14 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return String.valueOf(max);
     }
 
-    private String uploadImageIfRemote(String imageUrl) throws Exception {
+    private String uploadImageIfRemote(String imageUrl, int width, int height) throws Exception {
         if (!isHttpUrl(imageUrl)) {
             return imageUrl;
+        }
+        String cacheKey = apiBaseUrl + "|" + width + "x" + height + "|" + imageUrl;
+        String cached = UPLOAD_CACHE.get(cacheKey);
+        if (hasText(cached)) {
+            return cached;
         }
 
         HttpRequest downloadRequest = HttpRequest.newBuilder()
@@ -1714,8 +1912,15 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             throw new RuntimeException("下载图生视频输入图片失败: HTTP " + downloadResponse.statusCode());
         }
 
+        String contentType = downloadResponse.headers().firstValue("Content-Type").orElse(null);
+        String filename = resolveUploadFilename(imageUrl, contentType);
+        NormalizedImage normalized = normalizeVideoInputImage(imageBytes, width, height);
+        if (normalized != null) {
+            imageBytes = normalized.bytes();
+            filename = forcePngFilename(filename);
+        }
+
         String boundary = "----niren-comfyui-" + UUID.randomUUID().toString().replace("-", "");
-        String filename = resolveUploadFilename(imageUrl, downloadResponse.headers().firstValue("Content-Type").orElse(null));
         byte[] body = buildMultipartBody(boundary, filename, imageBytes);
         HttpRequest uploadRequest = HttpRequest.newBuilder()
                 .uri(URI.create(apiBaseUrl + "/upload/image"))
@@ -1734,7 +1939,76 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         if (!hasText(name)) {
             throw new RuntimeException("ComfyUI 上传图片未返回文件名: " + uploadResponse.body());
         }
-        return hasText(subfolder) ? subfolder + "/" + name : name;
+        String uploadedName = hasText(subfolder) ? subfolder + "/" + name : name;
+        if (UPLOAD_CACHE.size() > MAX_UPLOAD_CACHE_ENTRIES) {
+            UPLOAD_CACHE.clear();
+        }
+        UPLOAD_CACHE.put(cacheKey, uploadedName);
+        return uploadedName;
+    }
+
+    private record NormalizedImage(byte[] bytes) {}
+
+    private NormalizedImage normalizeVideoInputImage(byte[] imageBytes, int targetWidth, int targetHeight) {
+        if (imageBytes == null || imageBytes.length == 0 || targetWidth <= 0 || targetHeight <= 0) {
+            return null;
+        }
+        try {
+            BufferedImage source = ImageIO.read(new ByteArrayInputStream(imageBytes));
+            if (source == null) {
+                return null;
+            }
+            if (source.getWidth() == targetWidth && source.getHeight() == targetHeight) {
+                return null;
+            }
+
+            BufferedImage canvas = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = canvas.createGraphics();
+            try {
+                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setColor(Color.BLACK);
+                g.fillRect(0, 0, targetWidth, targetHeight);
+                drawScaledCentered(g, source, targetWidth, targetHeight, true);
+                g.setComposite(AlphaComposite.SrcOver.derive(0.72f));
+                g.setColor(Color.BLACK);
+                g.fillRect(0, 0, targetWidth, targetHeight);
+                g.setComposite(AlphaComposite.SrcOver);
+                drawScaledCentered(g, source, targetWidth, targetHeight, false);
+            } finally {
+                g.dispose();
+            }
+
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            if (!ImageIO.write(canvas, "png", out)) {
+                return null;
+            }
+            return new NormalizedImage(out.toByteArray());
+        } catch (Exception e) {
+            log.warn("视频参考图归一化失败，将上传原图: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void drawScaledCentered(Graphics2D g, BufferedImage image, int targetWidth, int targetHeight, boolean cover) {
+        double xScale = targetWidth * 1.0d / image.getWidth();
+        double yScale = targetHeight * 1.0d / image.getHeight();
+        double scale = cover ? Math.max(xScale, yScale) : Math.min(xScale, yScale);
+        int drawWidth = Math.max(1, (int) Math.round(image.getWidth() * scale));
+        int drawHeight = Math.max(1, (int) Math.round(image.getHeight() * scale));
+        int x = (targetWidth - drawWidth) / 2;
+        int y = (targetHeight - drawHeight) / 2;
+        g.drawImage(image, x, y, drawWidth, drawHeight, null);
+    }
+
+    private String forcePngFilename(String filename) {
+        String base = hasText(filename) ? filename : UUID.randomUUID().toString().replace("-", "");
+        int dot = base.lastIndexOf('.');
+        if (dot > 0) {
+            base = base.substring(0, dot);
+        }
+        return base + ".png";
     }
 
     private byte[] buildMultipartBody(String boundary, String filename, byte[] imageBytes) {
@@ -1789,6 +2063,90 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return sb.toString();
     }
 
+    private OutputInfo findOutputInfo(JsonNode outputs) {
+        if (outputs == null || !outputs.isObject()) {
+            return null;
+        }
+        for (var it = outputs.fields(); it.hasNext(); ) {
+            JsonNode output = it.next().getValue();
+            OutputInfo info = firstOutputInfo(output.path("gifs"));
+            if (info != null) {
+                return info;
+            }
+            info = firstOutputInfo(output.path("videos"));
+            if (info != null) {
+                return info;
+            }
+            info = firstOutputInfo(output.path("images"));
+            if (info != null) {
+                return info;
+            }
+        }
+        return null;
+    }
+
+    private OutputInfo firstOutputInfo(JsonNode values) {
+        if (!values.isArray() || values.isEmpty()) {
+            return null;
+        }
+        JsonNode first = values.get(0);
+        String filename = first.path("filename").asText(null);
+        if (!hasText(filename)) {
+            return null;
+        }
+        return new OutputInfo(
+                filename,
+                first.path("type").asText("output"),
+                first.path("subfolder").asText(""));
+    }
+
+    private String compactComfyError(String raw) {
+        if (!hasText(raw)) {
+            return "未知错误";
+        }
+        String normalized = raw.replace('\n', ' ').replace('\r', ' ').replaceAll("\\s+", " ").trim();
+        String exceptionType = extractJsonString(normalized, "exception_type");
+        String exceptionMessage = extractJsonString(normalized, "exception_message");
+        String nodeId = extractJsonNumber(normalized, "node_id");
+        if (hasText(exceptionType) || hasText(exceptionMessage)) {
+            StringBuilder sb = new StringBuilder("ComfyUI");
+            if (hasText(exceptionType)) {
+                sb.append(" ").append(exceptionType);
+            }
+            if (hasText(nodeId)) {
+                sb.append(" node=").append(nodeId);
+            }
+            if (hasText(exceptionMessage)) {
+                sb.append(": ").append(exceptionMessage);
+            }
+            return truncateMessage(sb.toString(), 360);
+        }
+        if (normalized.contains("Sizes of tensors must match")) {
+            return truncateMessage("ComfyUI 参考图尺寸不一致: " + normalized, 360);
+        }
+        if (normalized.contains("controlnet_strength")) {
+            return "ComfyUI WanVideoWrapper 节点版本不兼容: 缺少 controlnet_strength";
+        }
+        return truncateMessage(normalized, 360);
+    }
+
+    private String extractJsonString(String text, String fieldName) {
+        Matcher matcher = Pattern.compile(String.format(JSON_STRING_FIELD.pattern(), Pattern.quote(fieldName))).matcher(text);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private String extractJsonNumber(String text, String fieldName) {
+        Matcher matcher = Pattern.compile(String.format(JSON_NUMBER_FIELD.pattern(), Pattern.quote(fieldName))).matcher(text);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private String truncateMessage(String message, int maxLength) {
+        if (!hasText(message) || message.length() <= maxLength) {
+            return message;
+        }
+        return message.substring(0, Math.max(0, maxLength - 3)) + "...";
+    }
+
     private OutputInfo pollForResult(String promptId) throws Exception {
         String historyUrl = apiBaseUrl + "/history/" + promptId;
         int attempt = 0;
@@ -1840,43 +2198,11 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             }
 
             JsonNode outputs = promptNode.path("outputs");
-            if (outputs.isObject()) {
-                for (var it = outputs.fields(); it.hasNext(); ) {
-                    var entry = it.next();
-                    JsonNode gifs = entry.getValue().path("gifs");
-                    if (gifs.isArray() && gifs.size() > 0) {
-                        JsonNode first = gifs.get(0);
-                        String filename = first.path("filename").asText(null);
-                        if (hasText(filename)) {
-                            String type = first.path("type").asText("output");
-                            String subfolder = first.path("subfolder").asText("");
-                            log.info("ComfyUI 视频生成完成, filename={}, type={}, subfolder={}", filename, type, subfolder);
-                            return new OutputInfo(filename, type, subfolder);
-                        }
-                    }
-                    JsonNode videos = entry.getValue().path("videos");
-                    if (videos.isArray() && videos.size() > 0) {
-                        JsonNode first = videos.get(0);
-                        String filename = first.path("filename").asText(null);
-                        if (hasText(filename)) {
-                            String type = first.path("type").asText("output");
-                            String subfolder = first.path("subfolder").asText("");
-                            log.info("ComfyUI 视频生成完成, filename={}, type={}, subfolder={}", filename, type, subfolder);
-                            return new OutputInfo(filename, type, subfolder);
-                        }
-                    }
-                    JsonNode images = entry.getValue().path("images");
-                    if (images.isArray() && images.size() > 0) {
-                        JsonNode first = images.get(0);
-                        String filename = first.path("filename").asText(null);
-                        if (hasText(filename)) {
-                            String type = first.path("type").asText("output");
-                            String subfolder = first.path("subfolder").asText("");
-                            log.info("ComfyUI 输出完成, filename={}, type={}, subfolder={}", filename, type, subfolder);
-                            return new OutputInfo(filename, type, subfolder);
-                        }
-                    }
-                }
+            OutputInfo outputInfo = findOutputInfo(outputs);
+            if (outputInfo != null) {
+                log.info("ComfyUI 视频生成完成, filename={}, type={}, subfolder={}",
+                        outputInfo.filename(), outputInfo.type(), outputInfo.subfolder());
+                return outputInfo;
             }
 
             JsonNode status = promptNode.path("status");
@@ -1885,7 +2211,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 if ("error".equalsIgnoreCase(statusStr)) {
                     JsonNode messages = status.path("messages");
                     String msg = messages.isArray() && messages.size() > 0
-                            ? messages.toString() : "未知错误";
+                            ? compactComfyError(messages.toString()) : "未知错误";
                     throw new RuntimeException("ComfyUI 视频任务执行失败: " + msg);
                 }
             }

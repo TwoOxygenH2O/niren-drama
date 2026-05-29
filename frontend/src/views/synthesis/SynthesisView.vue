@@ -418,6 +418,7 @@ function handleDownload() {
 }
 
 const taskPollState = new Map<string, { timer: any; startedAt: number; inFlight: boolean }>()
+const TASK_POLL_MAX_MS = 12 * 60 * 60 * 1000
 function startTaskPolling(taskId: string | number) {
   const key = String(taskId)
   if (taskPollState.has(key)) return
@@ -429,7 +430,7 @@ function stopPolling() { for (const [k, s] of taskPollState) { if (s.timer) clea
 async function pollTaskCycle(key: string) {
   const state = taskPollState.get(key)
   if (!state || state.inFlight) return
-  if (Date.now() - state.startedAt >= 3600000) { taskPollState.delete(key); return }
+  if (Date.now() - state.startedAt >= TASK_POLL_MAX_MS) { taskPollState.delete(key); return }
   state.inFlight = true
   try {
     const res = await taskApi.get(key)

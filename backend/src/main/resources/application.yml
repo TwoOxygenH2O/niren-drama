@@ -96,7 +96,10 @@ niren:
   dynamic-video:
     timeout-minutes: ${NIREN_DYNAMIC_VIDEO_TIMEOUT_MINUTES:720}
     chain:
-      enabled: ${NIREN_DYNAMIC_VIDEO_CHAIN_ENABLED:true}
+      enabled: ${NIREN_DYNAMIC_VIDEO_CHAIN_ENABLED:false}
+    reference:
+      # 预览止血默认只喂主首帧，避免 Wan 参考图尺寸/节点兼容问题；需要多参考时用环境变量或 extra.maxReferenceImages 放开。
+      max-images: ${NIREN_DYNAMIC_VIDEO_MAX_REFERENCE_IMAGES:1}
     retry:
       max-attempts: ${NIREN_DYNAMIC_VIDEO_RETRY_MAX_ATTEMPTS:2}
       backoff-seconds: ${NIREN_DYNAMIC_VIDEO_RETRY_BACKOFF_SECONDS:8}
@@ -104,10 +107,10 @@ niren:
       base-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_BASE_SECONDS:5}
       max-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_MAX_SECONDS:30}
   dynamic-priority:
-    # 目标动态镜头占比（主链路可看性优先，建议 0.95-1.0）
-    target-dynamic-ratio: ${NIREN_TARGET_DYNAMIC_RATIO:0.99}
-    # 是否默认把镜头按动态链路处理（除非明确手动关掉）
-    force-dynamic-by-default: ${NIREN_FORCE_DYNAMIC_BY_DEFAULT:true}
+    # 目标动态镜头占比；默认走推荐器的 20/70 左右，A 档关键镜头优先动态化。
+    target-dynamic-ratio: ${NIREN_TARGET_DYNAMIC_RATIO:0.29}
+    # 预览阶段不再默认全量动态化，避免一次构建把所有镜头都送进 Wan/LTX。
+    force-dynamic-by-default: ${NIREN_FORCE_DYNAMIC_BY_DEFAULT:false}
     # 动态镜头质量不理想时的最大重试次数（0=不重试）
     quality-max-retry: ${NIREN_DYNAMIC_QUALITY_MAX_RETRY:1}
   motion-tier:
@@ -202,6 +205,7 @@ niren:
       # 导出档位：preview（预览快）/publish（发布质感优先）。
       profile: ${COMPOSE_EXPORT_PROFILE:preview}
       preview:
+        video-codec: ${COMPOSE_EXPORT_PREVIEW_VIDEO_CODEC:h264_nvenc}
         # 预览编码速度档。越快越省时，画质略降。
         preset: ${COMPOSE_EXPORT_PREVIEW_PRESET:veryfast}
         # 预览 CRF。越大码率越低、体积越小、画质越低。
@@ -209,6 +213,7 @@ niren:
         # 预览音频码率。
         audio-bitrate: ${COMPOSE_EXPORT_PREVIEW_AUDIO_BITRATE:128k}
       publish:
+        video-codec: ${COMPOSE_EXPORT_PUBLISH_VIDEO_CODEC:libx264}
         # 发布编码速度档。越慢通常画质越稳、耗时越长。
         preset: ${COMPOSE_EXPORT_PUBLISH_PRESET:faster}
         # 发布 CRF。建议 17-20；越小画质越好体积越大。

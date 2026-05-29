@@ -199,8 +199,8 @@ public class CostEstimationService {
     }
 
     // Image resolution constants
-    private static final String RESOLUTION_LOW = "1024x1024";
-    private static final String RESOLUTION_STANDARD = "1024x1024";
+    private static final String RESOLUTION_LOW = "1024x1792";
+    private static final String RESOLUTION_STANDARD = "1024x1792";
     private static final String RESOLUTION_HIGH = "1024x1792";
     private static final String RESOLUTION_WIDE_LOW = "1024x1792";
 

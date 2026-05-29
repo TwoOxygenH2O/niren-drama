@@ -525,6 +525,7 @@ public final class ComfyUiWorkflowLoader {
                 Map.entry("LoraLoader", new String[]{"lora_name", "strength_model", "strength_clip"}),
                 Map.entry("CLIPTextEncode", new String[]{"text"}),
                 Map.entry("EmptyLatentImage", new String[]{"width", "height", "batch_size"}),
+                Map.entry("EmptySD3LatentImage", new String[]{"width", "height", "batch_size"}),
                 Map.entry("SaveImage", new String[]{"filename_prefix"}),
                 Map.entry("PreviewImage", new String[]{}),
                 Map.entry("LoadImage", new String[]{"image", "upload"}),

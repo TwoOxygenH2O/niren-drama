@@ -10,7 +10,7 @@ public final class ProjectStyleSupport {
 
     public static final String LIVE_ACTION = "真人短剧";
     public static final String COMIC = "漫画短剧";
-    private static final String DEFAULT_GENRE = "都市言情";
+    public static final String DEFAULT_GENRE = "古装复仇";
 
     private ProjectStyleSupport() {
     }
@@ -38,6 +38,7 @@ public final class ProjectStyleSupport {
             case "thriller" -> "悬疑惊悚";
             case "urban" -> "都市职场";
             case "historical" -> "古装历史";
+            case "costume_revenge", "ancient_revenge" -> "古装复仇";
             case "comedy" -> "喜剧搞笑";
             default -> normalized;
         };
@@ -66,17 +67,17 @@ public final class ProjectStyleSupport {
     }
 
     /**
-     * 写进分集大纲/剧本/分镜提示中，统一约束「真短剧」台词腔与字段职责，避免小说说明体与伪换行。
+     * 写进分集大纲/剧本/分镜提示中，统一约束「小说旁白 + 关键镜头」的字段职责，避免伪换行。
      */
     public static String buildDramaDialogueRules() {
         return """
-                1) 禁止小说体：大段心理、环境散文、“他开口说道/冷冷地看着/心里一沉”等说明不要写进 dialogue。镜头调度与站位只写进 description 一句短提示。
-                2) dialogue 只写角色嘴里的口语，短句、能一口气念完；一句台词一个镜头、整句时长约等于本镜 duration；单镜尽量不超过 5 秒、单句别超过约 20 个汉字（金句可略长）。
-                3) 角色名与情绪/音色不写在会「上屏读出来」的旁白里；导演与情绪可写在 ttsText（更口语的念稿）或让系统用 characterName+演绎指令处理；默认上屏用 subtitleText 或干净对白（不要读角色名+情绪头）。
-                4) 短剧优先少旁白；narration 仅用于极少数 VO/OS、系统提示类画外，不要拿 narration 当小说解说；不要与 dialogue 同句重复；若可合并则只留 dialogue。
-                5) 两人/多人对话拆成多镜短句，一来一回，不要一镜堆长段台词。
+                1) dialogue 只写角色嘴里的口语，短句、能一口气念完；不要把“他开口说道/冷冷地看着”等说明写进 dialogue。
+                2) narration 用作小说旁白/画外叙事，每镜头 1-2 句，补充心理、反转和剧情信息，但避免长篇散文。
+                3) ttsText 必须可直接朗读，优先使用 narration + 必要 dialogue 组织成自然念稿，适合“旁白读小说 + 关键镜头展示”。
+                4) 角色名与情绪/音色不写在会「上屏读出来」的文本里；说话人用 characterName 字段，演绎交给 TTS 指令。
+                5) 两人/多人对话尽量由同一 8-10 秒连续镜头承载一来一回，只有动作/视线明显转折再拆镜。
                 6) 不要在 dialogue 里写“角色名：”前缀；说话人用 characterName 字段，避免上屏/配音再念人名。
-                7) 不要输出字面量换行符 \\n；停顿用短句与标点。
+                7) 不要输出字面量换行符 \\n 或孤立 n 字符；停顿用短句与标点。
                 """;
     }
 
@@ -86,9 +87,9 @@ public final class ProjectStyleSupport {
     public static String buildShortDramaBeatBlock() {
         return """
                 ## 短剧黄金节拍与体量（每集须内化，数值为目标而非秒表硬卡）
-                - 约 3 秒内要出现钩子/悬念/冲击点；约 10 秒内需出现可见冲突；约每 30 秒有爽点/反转或信息升级；单集建议 120-180 秒，节奏密、告别小说朗读体。
+                - 约 3 秒内要出现钩子/悬念/冲击点；约 10 秒内需出现可见冲突；约每 30 秒有爽点/反转或信息升级；单集建议 120-180 秒。
                 - 开场 0-15 秒强钩子，不要长铺垫；集末 20-30 秒强悬念，利于续看。
-                - 单场 2-5 个视觉节拍；整集镜头数 20-45 个区间较省成本，不堆无意义分镜；单镜时长默认 2-5 秒（与一句口语对齐）。
+                - 单场 1-3 个视觉节拍；整集镜头数 8-18 个区间较稳；单镜时长默认 8-10 秒，服务旁白连续阅读和关键画面展示。
                 """;
     }
 
@@ -105,20 +106,21 @@ public final class ProjectStyleSupport {
     public static String buildStoryboardSelfCheckBlock() {
         return """
                 ## 输出前自检（不满足则重写）
-                - duration 必须在 1-5 秒；一句台词对应一个镜头。
-                - dialogue 仅口播台词，不写角色名前缀、不写心理或旁白解释。
-                - subtitleText 若有值，不得含角色名和情绪头；ttsText 若有标签需可被后处理剥离。
-                - narration 仅用于极少数 VO/OS，且不得与 dialogue 同句重复。
+                - duration 必须在 8-10 秒，优先 10 秒；避免碎切。
+                - dialogue 仅口播台词，不写角色名前缀；narration 承载小说旁白，不与 dialogue 同句重复。
+                - subtitleText 若有值，不得含角色名和情绪头；ttsText 必须可直接朗读。
+                - 每个镜头都必须有 ttsText 或 narration/dialogue 可派生配音。
                 - imagePrompt 与 videoPrompt 必须服务当前镜头，不得跑题或重复冗长描述。
                 """;
     }
 
     public static String buildNovelToneBlacklistFewShot() {
         return """
-                ## 小说腔禁用词与替代示例
-                - 禁用表达：他冷冷地看着、心里一沉、开口说道、她在心中想、空气仿佛凝固、沉默了很久
+                ## 字段误用禁用词与替代示例
+                - 禁止把这些说明写进 dialogue：他冷冷地看着、心里一沉、开口说道、她在心中想、空气仿佛凝固、沉默了很久
                 - 错误示例：林辰冷冷地看着苏晴，心里满是愤怒，他开口说道：你给我滚出去
                 - 正确示例（对白）：你给我滚出去！
+                - 正确示例（旁白）：林辰的忍耐在这一刻彻底断了，他盯着苏晴，只等她给出最后的答案。
                 - 正确示例（镜头提示）：近景，对峙，林辰压着怒气，苏晴后退半步
                 """;
     }
@@ -174,6 +176,8 @@ public final class ProjectStyleSupport {
         String resolvedGenre = resolveGenre(genre);
         if (containsAny(resolvedGenre, "民国")) {
             addAll(negativeTerms, "现代写字楼", "卫衣", "牛仔裤", "运动鞋", "霓虹灯牌", "现代汽车");
+        } else if (containsAny(resolvedGenre, "古装复仇")) {
+            addAll(negativeTerms, "西装", "衬衫领带", "卫衣", "牛仔裤", "汽车", "手机", "电脑", "现代建筑", "电线杆", "现代发型", "现代道具", "现代路牌");
         } else if (containsAny(resolvedGenre, "古装", "历史")) {
             addAll(negativeTerms, "西装", "衬衫领带", "汽车", "现代建筑", "电线杆", "现代发型");
         } else if (containsAny(resolvedGenre, "仙侠", "玄幻")) {
@@ -211,6 +215,9 @@ public final class ProjectStyleSupport {
         if (containsAny(resolvedGenre, "民国")) {
             return "强化民国时代关系秩序、家族门第、旧上海/旧城空间、服化礼仪和时代禁忌，矛盾与行为要有民国语境。";
         }
+        if (containsAny(resolvedGenre, "古装复仇")) {
+            return "以古代权谋和复仇爽点为核心：身份压迫、误会陷害、重生或隐忍后逆袭、逐步清算仇人、强情绪反转和集末钩子必须清楚；所有称谓、礼法、出行、惩戒和权力关系都要贴合古代语境，禁止现代职场、现代法律和现代网络口吻乱入。";
+        }
         if (containsAny(resolvedGenre, "古装", "历史")) {
             return "遵守古装历史语境，关系称谓、礼法、出行方式和冲突表达要贴合古代背景，避免现代口吻和现代价值表达生硬乱入。";
         }
@@ -242,6 +249,9 @@ public final class ProjectStyleSupport {
         if (containsAny(resolvedGenre, "民国")) {
             return "服装优先旗袍、长衫、军装、礼帽、民国学生装等，场景优先老洋房、旧街巷、商会、舞厅、报馆、黄包车、老上海灯光质感。";
         }
+        if (containsAny(resolvedGenre, "古装复仇")) {
+            return "视觉必须服务古代复仇短剧：府邸、宫墙、祠堂、刑堂、庭院、马车、烛火、冷色夜景和压迫式构图优先；服装以古代贵族/侍女/侍卫/官服体系为主，突出身份落差、忍辱、翻盘和清算瞬间，禁止现代服饰、现代建筑、现代道具和现代发型。";
+        }
         if (containsAny(resolvedGenre, "古装", "历史")) {
             return "服装、发饰、建筑、家具和道具都要以古风/古代体系为主，突出庭院、府邸、宫墙、廊桥、古灯和传统器物。";
         }
@@ -269,6 +279,9 @@ public final class ProjectStyleSupport {
     private static String buildGenreAudioRule(String resolvedGenre) {
         if (containsAny(resolvedGenre, "民国")) {
             return "对白和旁白要带一点民国语境中的克制、礼貌和时代感称谓，但不能故作文绉绉。";
+        }
+        if (containsAny(resolvedGenre, "古装复仇")) {
+            return "旁白要有压迫感、隐忍感和清算感，对白保留古风称谓与身份差异，情绪可以强但不能现代网感；复仇爽点处重音清晰，反转处留停顿。";
         }
         if (containsAny(resolvedGenre, "古装", "历史", "仙侠")) {
             return "避免现代网络口头禅，语气要更含蓄、稳，必要时保留古风称谓和时代气口。";

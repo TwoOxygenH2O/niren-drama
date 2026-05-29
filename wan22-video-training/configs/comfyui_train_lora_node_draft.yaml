@@ -1,0 +1,65 @@
+# Draft config for ComfyUI-based Wan2.2 LoRA experiments.
+# This is not a runnable ComfyUI workflow JSON yet. Convert it after confirming
+# the installed ComfyUI version, model loader node names, and exact local paths.
+
+run:
+  name: niren_wan22_comfyui_lora_smoke_v001
+  goal: GUI smoke test for LoRA training and immediate workflow validation
+  base_workflow: backend/src/main/resources/comfyui/workflows/video_wan2_2_14B_i2v.json
+
+route_a_builtin_train_lora_node:
+  status: experimental
+  intended_use: small image/caption or latent/conditioning LoRA smoke test
+  nodes:
+    dataset_prepare:
+      - LoadImageTextDataSetFromFolder
+      - MakeTrainingDataset
+      - SaveTrainingDataset
+      - LoadTrainingDataset
+    training:
+      - TrainLoraNode
+      - SaveLoRA
+      - LossGraphNode
+  recommended_start:
+    batch_size: 1
+    grad_accumulation_steps: 4
+    steps: 100
+    learning_rate: 0.0001
+    rank: 8
+    optimizer: AdamW
+    loss_function: MSE
+    training_dtype: bf16
+    lora_dtype: bf16
+    gradient_checkpointing: true
+    existing_lora: "[None]"
+  caveats:
+    - Official docs say TrainLoraNode is AI-generated documentation; validate node behavior in the installed ComfyUI version.
+    - Built-in training nodes are better for small experiments before relying on them for Wan2.2 A14B production LoRA.
+    - Video LoRA still needs a training dataset strategy; built-in dataset nodes primarily handle image/caption latents.
+
+route_b_comfyui_realtime_lora:
+  status: downloaded_reference
+  local_repo: wan22-video-training/external/comfyUI-Realtime-Lora
+  install_target: ComfyUI/custom_nodes/comfyUI-Realtime-Lora
+  node: Realtime LoRA Trainer (Wan 2.2 - Musubi Tuner)
+  backend: kohya-ss/musubi-tuner
+  wan_modes:
+    - High noise
+    - Low noise
+    - Combo
+  recommended_start:
+    vram_mode: Low (768px) fp8
+    blocks_to_swap: 26
+    training_steps: 500
+    learning_rate: 0.0001
+    lora_rank: 16
+    batch_size: 1
+  required_paths:
+    musubi_path: ""
+    dit_model_high_or_low_fp16: ""
+    vae_model: ""
+    text_encoder: ""
+    images_path: ""
+  caveats:
+    - The downloaded plugin route currently documents T2V Wan 2.2 training modes; confirm suitability before using it as the main I2V LoRA path.
+    - RTX 5090 may require PyTorch/CUDA versions that support Blackwell if using AI-Toolkit backends.

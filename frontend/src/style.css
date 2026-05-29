@@ -35,7 +35,7 @@
   /* ——— 文字 ——— */
   --text-primary: #111827;
   --text-secondary: #6b7280;
-  --text-muted: #9ca3af;
+  --text-muted: #7c8495;
 
   /* ——— 边框 ——— */
   --border: #e8ecf4;
@@ -107,6 +107,19 @@ body {
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:where(button, a, input, textarea, select, [role="button"]):focus-visible {
+  outline: 2px solid var(--primary-light);
+  outline-offset: 2px;
+}
+
+:where(button):active:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+:where(button):disabled {
+  cursor: not-allowed;
 }
 
 /* 全局滚动条 */

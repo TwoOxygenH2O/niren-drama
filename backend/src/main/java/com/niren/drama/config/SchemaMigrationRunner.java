@@ -16,6 +16,75 @@ public class SchemaMigrationRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        ensureTableExists(
+                "drama_asset_snapshot",
+                """
+                CREATE TABLE IF NOT EXISTS drama_asset_snapshot (
+                  id BIGINT NOT NULL PRIMARY KEY,
+                  project_id BIGINT NOT NULL,
+                  entity_type VARCHAR(50) NOT NULL,
+                  entity_id BIGINT NULL,
+                  asset_type VARCHAR(50) NOT NULL,
+                  content LONGTEXT NULL,
+                  asset_url VARCHAR(1000) NULL,
+                  prompt LONGTEXT NULL,
+                  provider VARCHAR(80) NULL,
+                  model VARCHAR(160) NULL,
+                  workflow_file VARCHAR(255) NULL,
+                  source_task_id BIGINT NULL,
+                  parent_snapshot_ids VARCHAR(1000) NULL,
+                  metadata LONGTEXT NULL,
+                  active TINYINT(1) NOT NULL DEFAULT 1,
+                  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                  update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  deleted INT NOT NULL DEFAULT 0,
+                  INDEX idx_asset_snapshot_entity (project_id, entity_type, entity_id, asset_type, active),
+                  INDEX idx_asset_snapshot_task (source_task_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+        );
+        ensureTableExists(
+                "drama_production_issue",
+                """
+                CREATE TABLE IF NOT EXISTS drama_production_issue (
+                  id BIGINT NOT NULL PRIMARY KEY,
+                  project_id BIGINT NOT NULL,
+                  shot_id BIGINT NULL,
+                  issue_type VARCHAR(80) NOT NULL,
+                  severity VARCHAR(30) NOT NULL DEFAULT 'warning',
+                  status VARCHAR(30) NOT NULL DEFAULT 'open',
+                  title VARCHAR(200) NOT NULL,
+                  message LONGTEXT NULL,
+                  recommended_action VARCHAR(80) NULL,
+                  actions LONGTEXT NULL,
+                  metadata LONGTEXT NULL,
+                  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                  update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  deleted INT NOT NULL DEFAULT 0,
+                  INDEX idx_production_issue_project (project_id, shot_id, status, severity)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+        );
+        ensureTableExists(
+                "drama_consistency_bible",
+                """
+                CREATE TABLE IF NOT EXISTS drama_consistency_bible (
+                  id BIGINT NOT NULL PRIMARY KEY,
+                  project_id BIGINT NOT NULL,
+                  bible_type VARCHAR(30) NOT NULL,
+                  ref_id BIGINT NULL,
+                  title VARCHAR(160) NOT NULL,
+                  locked_attributes LONGTEXT NULL,
+                  reference_snapshot_ids VARCHAR(1000) NULL,
+                  notes LONGTEXT NULL,
+                  locked TINYINT(1) NOT NULL DEFAULT 1,
+                  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                  update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  deleted INT NOT NULL DEFAULT 0,
+                  INDEX idx_consistency_bible_project (project_id, bible_type, ref_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+        );
         ensureColumnExists(
                 "drama_project",
                 "common_info",
@@ -107,6 +176,21 @@ public class SchemaMigrationRunner implements ApplicationRunner {
                 "longtext",
                 "ALTER TABLE drama_task_record MODIFY COLUMN result LONGTEXT COMMENT '任务结果（JSON）'"
         );
+    }
+
+    private void ensureTableExists(String tableName, String ddl) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+                Integer.class,
+                tableName
+        );
+
+        if (count != null && count > 0) {
+            return;
+        }
+
+        log.info("鎵ц鏁版嵁搴撹縼绉? 鏂板琛?{}", tableName);
+        jdbcTemplate.execute(ddl);
     }
 
     private void ensureColumnExists(String tableName, String columnName, String ddl) {

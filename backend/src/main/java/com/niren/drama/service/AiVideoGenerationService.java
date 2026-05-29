@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.AiResolvedConfig;
 import com.niren.drama.ai.VideoAiProvider;
+import com.niren.drama.ai.impl.ComfyUiVideoProvider;
 import com.niren.drama.ai.trace.AiTraceSupport;
 import com.niren.drama.common.Wan22ShortDramaPromptBuilder;
 import com.niren.drama.entity.Character;
@@ -19,6 +20,7 @@ import com.niren.drama.mapper.SceneMapper;
 import com.niren.drama.mapper.StoryboardMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -40,6 +42,9 @@ public class AiVideoGenerationService {
 
     private static final Duration BLOCKING_POLL_TIMEOUT = Duration.ofHours(12);
     private static final long POLL_INTERVAL_MS = 3000L;
+
+    @Value("${niren.dynamic-video.reference.max-images:1}")
+    private int dynamicVideoMaxReferenceImages;
 
     private final AiProviderFactory aiProviderFactory;
     private final ProjectService projectService;
@@ -73,6 +78,13 @@ public class AiVideoGenerationService {
             VideoTaskSubmission submission = submitComfyUiVideoTask(userId, config, shot, null, false);
             if (hasText(submission.videoUrl())) {
                 return submission.videoUrl();
+            }
+            if (hasText(submission.taskId())) {
+                try {
+                    return waitForComfyVideoResult(userId, submission.taskId());
+                } catch (Exception e) {
+                    throw new RuntimeException("ComfyUI 视频生成失败: " + e.getMessage(), e);
+                }
             }
             throw new RuntimeException("ComfyUI 视频生成未返回视频地址");
         }
@@ -135,6 +147,14 @@ public class AiVideoGenerationService {
         log.debug("Query submitted video task: shotId={}, shotNo={}, provider={}, statusUrl={}",
                 shot.getId(), shot.getShotNo(), provider, statusUrl);
         try {
+            if (isComfyUi) {
+                VideoAiProvider videoProvider = aiProviderFactory.getVideoProvider(userId);
+                if (!(videoProvider instanceof ComfyUiVideoProvider comfyUiVideoProvider)) {
+                    throw new BusinessException("ComfyUI 视频 Provider 初始化失败，无法轮询任务");
+                }
+                ComfyUiVideoProvider.ComfyPromptQueryResult result = comfyUiVideoProvider.queryVideoTask(shot.getVideoTaskId());
+                return new VideoTaskQueryResult("comfyui", result.status(), result.videoUrl(), result.errorMessage());
+            }
             return queryVideoTask(provider, config.apiKey(), statusUrl);
         } catch (BusinessException e) {
             throw e;
@@ -160,6 +180,21 @@ public class AiVideoGenerationService {
         if (isAliyunProvider(config.provider())) {
             return submitAliyunVideoTask(config, effectivePrompt, effectiveReferenceImageUrl, effectiveDuration, null);
         }
+        if (isComfyUiProvider(config.provider())) {
+            VideoAiProvider videoProvider = aiProviderFactory.getVideoProvider(userId);
+            if (!(videoProvider instanceof ComfyUiVideoProvider comfyUiVideoProvider)) {
+                throw new BusinessException("ComfyUI 视频 Provider 初始化失败");
+            }
+            ComfyUiVideoProvider.ComfyPromptSubmission submission = comfyUiVideoProvider.submitVideoFromImageTask(
+                    effectiveReferenceImageUrl,
+                    List.of(effectiveReferenceImageUrl),
+                    effectivePrompt,
+                    effectiveDuration,
+                    "720P",
+                    "standard",
+                    false);
+            return new VideoTaskSubmission("comfyui", submission.promptId(), submission.statusUrl(), null);
+        }
         return submitCustomVideoTask(config, effectivePrompt, effectiveReferenceImageUrl, effectiveDuration, null);
     }
 
@@ -174,6 +209,14 @@ public class AiVideoGenerationService {
             throw new BusinessException("缺少 taskId 或 statusUrl，无法查询视频任务");
         }
         try {
+            if (isComfyUi) {
+                VideoAiProvider videoProvider = aiProviderFactory.getVideoProvider(userId);
+                if (!(videoProvider instanceof ComfyUiVideoProvider comfyUiVideoProvider)) {
+                    throw new BusinessException("ComfyUI 视频 Provider 初始化失败，无法轮询任务");
+                }
+                ComfyUiVideoProvider.ComfyPromptQueryResult result = comfyUiVideoProvider.queryVideoTask(taskId);
+                return new VideoTaskQueryResult("comfyui", result.status(), result.videoUrl(), result.errorMessage());
+            }
             return queryVideoTask(config.provider(), config.apiKey(), resolvedStatusUrl);
         } catch (BusinessException e) {
             throw e;
@@ -535,6 +578,29 @@ public class AiVideoGenerationService {
         throw new RuntimeException("视频生成任务轮询超时，已等待最长轮询时间（12小时），请稍后查看任务进度");
     }
 
+    private String waitForComfyVideoResult(Long userId, String promptId) throws Exception {
+        long deadline = System.nanoTime() + BLOCKING_POLL_TIMEOUT.toNanos();
+        int attempt = 0;
+        VideoAiProvider videoProvider = aiProviderFactory.getVideoProvider(userId);
+        if (!(videoProvider instanceof ComfyUiVideoProvider comfyUiVideoProvider)) {
+            throw new BusinessException("ComfyUI 视频 Provider 初始化失败，无法轮询任务");
+        }
+        while (System.nanoTime() < deadline) {
+            attempt++;
+            Thread.sleep(POLL_INTERVAL_MS);
+            ComfyUiVideoProvider.ComfyPromptQueryResult result = comfyUiVideoProvider.queryVideoTask(promptId);
+            log.debug("ComfyUI polling attempt: promptId={}, attempt={}, status={}, hasVideoUrl={}",
+                    promptId, attempt, result.status(), hasText(result.videoUrl()));
+            if (hasText(result.videoUrl()) && (isSuccessStatus(result.status()) || !hasText(result.status()))) {
+                return result.videoUrl();
+            }
+            if (isFailureStatus(result.status())) {
+                throw new RuntimeException(hasText(result.errorMessage()) ? result.errorMessage() : "ComfyUI 视频生成任务失败");
+            }
+        }
+        throw new RuntimeException("ComfyUI 视频生成任务轮询超时，已等待最长轮询时间（12小时），请稍后查看任务进度");
+    }
+
     private VideoTaskQueryResult queryVideoTask(String provider, String apiKey, String statusUrl) throws Exception {
         HttpResponse<String> response = null;
         String responseBody = null;
@@ -848,7 +914,7 @@ public class AiVideoGenerationService {
         String resolution = profile.resolution();
         String quality = profile.qualityTier();
         int duration = profile.durationSeconds();
-        List<String> referenceImageUrls = resolveReferenceImageUrls(shot, firstFrameOverrideUrl);
+        List<String> referenceImageUrls = limitReferenceImageUrls(resolveReferenceImageUrls(shot, firstFrameOverrideUrl), config);
         String referenceImageUrl = referenceImageUrls.isEmpty() ? null : referenceImageUrls.get(0);
 
         log.debug("Start ComfyUI video generation: shotId={}, shotNo={}, hasImage={}, refCount={}, chained={}, duration={}, resolution={}",
@@ -856,18 +922,21 @@ public class AiVideoGenerationService {
 
         try {
             VideoAiProvider provider = aiProviderFactory.getVideoProvider(userId);
-            String videoUrl;
-            if (hasText(referenceImageUrl)) {
-                videoUrl = provider.generateVideoFromImage(referenceImageUrl, referenceImageUrls, prompt, duration, resolution, quality, false);
-            } else {
-                videoUrl = provider.generateVideoFromText(prompt, duration, resolution, quality, false);
+            if (provider instanceof ComfyUiVideoProvider comfyUiVideoProvider) {
+                ComfyUiVideoProvider.ComfyPromptSubmission submission;
+                if (hasText(referenceImageUrl)) {
+                    submission = comfyUiVideoProvider.submitVideoFromImageTask(
+                            referenceImageUrl, referenceImageUrls, prompt, duration, resolution, quality, false);
+                } else {
+                    submission = comfyUiVideoProvider.submitVideoFromTextTask(
+                            prompt, duration, resolution, quality, false);
+                }
+                return new VideoTaskSubmission("comfyui", submission.promptId(), submission.statusUrl(), null);
             }
-            if (hasText(videoUrl)) {
-                videoUrl = persistVideoUrl(videoUrl);
-            }
-            log.debug("ComfyUI video generation completed: shotId={}, shotNo={}, videoUrl={}",
-                    shot.getId(), shot.getShotNo(), videoUrl);
-            return new VideoTaskSubmission("comfyui", null, null, videoUrl);
+            String videoUrl = hasText(referenceImageUrl)
+                    ? provider.generateVideoFromImage(referenceImageUrl, referenceImageUrls, prompt, duration, resolution, quality, false)
+                    : provider.generateVideoFromText(prompt, duration, resolution, quality, false);
+            return new VideoTaskSubmission("comfyui", null, null, hasText(videoUrl) ? persistVideoUrl(videoUrl) : null);
         } catch (Exception e) {
             log.error("ComfyUI video generation failed for shot {}", shot.getShotNo(), e);
             maybeDowngradeToTierB(shot, e.getMessage());
@@ -909,6 +978,39 @@ public class AiVideoGenerationService {
         addPublicReference(references, findPreviousCharacterReference(shot));
         addPublicReference(references, findPreviousProjectReference(shot));
         return new ArrayList<>(references);
+    }
+
+    private List<String> limitReferenceImageUrls(List<String> referenceImageUrls, AiResolvedConfig config) {
+        if (referenceImageUrls == null || referenceImageUrls.isEmpty()) {
+            return List.of();
+        }
+        int maxImages = resolveMaxReferenceImages(config);
+        if (maxImages <= 0) {
+            maxImages = 1;
+        }
+        return referenceImageUrls.stream()
+                .filter(this::hasText)
+                .limit(maxImages)
+                .toList();
+    }
+
+    private int resolveMaxReferenceImages(AiResolvedConfig config) {
+        int fallback = Math.max(1, dynamicVideoMaxReferenceImages);
+        if (config == null || !hasText(config.extra())) {
+            return fallback;
+        }
+        try {
+            JsonNode extraJson = objectMapper.readTree(config.extra());
+            if (extraJson.has("auxiliaryReferencesEnabled")
+                    && !extraJson.path("auxiliaryReferencesEnabled").asBoolean(true)) {
+                return 1;
+            }
+            if (extraJson.has("maxReferenceImages")) {
+                return Math.min(Math.max(extraJson.path("maxReferenceImages").asInt(fallback), 1), 8);
+            }
+        } catch (Exception ignored) {
+        }
+        return fallback;
     }
 
     private void addPublicReference(Set<String> references, String imageUrl) {

@@ -1,0 +1,57 @@
+# Wan2.2 I2V LoRA draft config for Niren short-drama publish mode.
+# Convert this planning config to the exact DiffSynth-Studio CLI/config format
+# after installing the trainer version you will run.
+
+run:
+  name: niren_wan22_publish_lora_v001
+  purpose: publish_generation
+  output_dir: training/short-drama-video-training/runs/wan22_publish_v001
+
+data:
+  manifest: training/short-drama-video-training/data/manifests/shot_manifest.v001.csv
+  split: train
+  validation_split: val
+  video_root: training/short-drama-video-training/processed/wan_dataset
+  image_root: training/short-drama-video-training/processed/wan_dataset/first_frames
+  fps: 24
+  train_resolution: 720x1280
+  min_duration_sec: 5
+  max_duration_sec: 8
+  positive_only_for_lora: true
+
+model:
+  family: wan2.2
+  task: image_to_video
+  base_model_high_noise: D:/models/Wan2.2/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors
+  base_model_low_noise: D:/models/Wan2.2/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors
+  vae: D:/models/Wan2.2/wan_2.1_vae.safetensors
+  text_encoder: D:/models/Wan2.2/umt5-xxl-enc-bf16.safetensors
+  workflow_file: video_wan2_2_14B_i2v.json
+
+lora:
+  rank: 16
+  alpha: 16
+  strength_for_validation: 0.65
+  target: dit_transformer
+
+optimization:
+  precision: bf16
+  batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 0.00005
+  warmup_steps: 100
+  max_steps_first_run: 2000
+  max_steps_release_run: 8000
+  checkpoint_every_steps: 500
+  validation_every_steps: 500
+  gradient_checkpointing: true
+  offload: true
+
+validation:
+  fixed_set: training/short-drama-video-training/data/manifests/shot_manifest.val.csv
+  required_pass:
+    aspect_ratio_pass_rate: 0.98
+    manual_accept_rate: 0.75
+    identity_pass_rate: 0.85
+    costume_pass_rate: 0.85
+    no_extra_person_pass_rate: 0.90

@@ -1,11 +1,13 @@
 ﻿import request from './request'
 
-const VIDEO_STATUS_TIMEOUT = 60 * 60 * 1000
+const VIDEO_STATUS_TIMEOUT = 12 * 60 * 60 * 1000
 
 export type ComposeOptions = {
   narrationEnabled?: boolean
   narrationVolume?: number
   dialoguePriority?: boolean
+  bgmEnabled?: boolean
+  bgmVolume?: number
 }
 
 export type DynamicOptions = {
