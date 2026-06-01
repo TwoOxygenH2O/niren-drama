@@ -685,19 +685,20 @@ if (isStream) {
 
                 额外要求：
                 1. 只生成当前片段对应的镜头，禁止扩写到上一场、下一场。
-                2. 当前片段通常拆为 1-4 个镜头。
+                2. 当前片段通常拆为 1 个 8-10 秒镜头；只有强冲突、明确动作转折时才拆到 2 个，禁止把一句台词或一个动作切成多个碎镜头。
                 3. 如果这不是第 1 段，直接承接当前片段动作。
                 4. 如果这是最后一段，把当前场景收束补完整。
                 5. sceneName 优先使用“%s”。
                 6. 返回格式必须为 {"shots": [...]}。
                 7. 严禁Markdown格式文字。
-                8. dialogue 只写口播，短句、口语化；不要写“角色名：”前缀，用 characterName 标说话人；无口播可留空。
-                9. 若本段有两人交锋，请拆成多个镜头用短句形成一来一回，不要写成长段说明文。
-                10. 台词风格示例（仅示意语气，勿照抄）：「你再说一遍试试？」「试就试，你以为我不敢？」
-                11. 返回前执行自检，不满足则重写：
-                    - duration 必须 1-5 秒；
+                8. ttsText 必填，采用“小说旁白读剧情 + 关键镜头展示”的口吻，每镜头 1-2 句可直接朗读的短段落。
+                9. narration 优先承载小说旁白；dialogue 只写角色必要口播，短句、口语化；不要写“角色名：”前缀，用 characterName 标说话人。
+                10. 若本段有两人交锋，优先用一个中近景连续镜头承载一来一回；只有视线/动作明显反转时再切第二个镜头。
+                11. 台词风格示例（仅示意语气，勿照抄）：「你再说一遍试试？」「试就试，你以为我不敢？」
+                12. 返回前执行自检，不满足则重写：
+                    - duration 必须 8-10 秒，优先 10 秒；
                     - subtitleText 若有值不得含角色名/情绪头；
-                    - narration 仅 VO/OS 且不与 dialogue 同句重复。
+                    - ttsText/narration/dialogue 不得出现字面量 \\n、孤立 n 字符或角色名冒号前缀。
                 """,
                 projectType,
                 genre,
@@ -1415,7 +1416,19 @@ if (isStream) {
     }
 
     private String buildTtsText(Storyboard shot) {
-        return DramaTextSanitizer.resolveEffectiveTts(shot);
+        String text = DramaTextSanitizer.resolveEffectiveTts(shot);
+        if (hasText(text)) {
+            return text;
+        }
+        String subtitle = DramaTextSanitizer.normalizeSpokenText(shot != null ? shot.getSubtitleText() : null);
+        if (hasText(subtitle)) {
+            return subtitle;
+        }
+        String description = DramaTextSanitizer.normalizeSpokenText(shot != null ? shot.getDescription() : null);
+        if (hasText(description)) {
+            return "画面里，" + trimPromptSegment(description, 70);
+        }
+        return "";
     }
 
     private String buildTtsInstruction(Storyboard shot, Character character, VoiceInfo voiceInfo, Project project) {
@@ -1727,7 +1740,7 @@ if (isStream) {
         return """
                 # 角色定位
                 你是一位顶级短剧分镜导演，专精竖屏短剧（9:16）分镜脚本制作。
-                你的分镜脚本对标红果短剧、抖音短剧保底S+评级标准，需要做到：节奏精准、视觉冲击力强、爽点镜头密集。
+                你的分镜脚本对标红果短剧、抖音短剧保底S+评级标准，需要做到：节奏精准、视觉冲击力强、单镜头叙事完整，避免碎切和幻灯片式堆镜。
                 
                 # 项目类型与题材
                 %s
@@ -1752,32 +1765,32 @@ if (isStream) {
                 - shotNo: 镜头序号（从1开始）
                 - description: 极短镜头提示（景别/动线/光感即可）+ 生图仍靠 imagePrompt 写全细节
                 - cameraAngle: 镜头语言（close-up/medium/wide/overhead/pov/low-angle/high-angle/tracking）
-                - dialogue: 角色口播台词（口语短句、一句一镜；不要写“角色名：”前缀，用 characterName 表示；无口播可留空；禁小说说明体与长心理）
-                - narration: 少用笔法；仅极少数 VO/OS 画外；与 dialogue 不重复；不要当小说旁白铺满
+                - dialogue: 角色口播台词（口语短句、一句一镜；不要写“角色名：”前缀，用 characterName 表示；无口播可留空）
+                - narration: 小说旁白/画外叙事（每镜头 1-2 句，推动剧情、补心理和反转，但不要冗长堆砌；与 dialogue 不重复）
                 - subtitleText: 可选。上屏短句（无角色名/无情绪头）；默认可空，由系统从 dialogue 派生
-                - ttsText: 可选。更口语的念稿，可与上屏不同；默认可空，由旁白+对白派生
-                - duration: 镜头时长（秒，3-8 秒为主，对白镜头不少于3秒，动作或情绪爆发镜头5-8秒，避免每秒一切割的碎片感）
+                - ttsText: 必填。用于逐镜头配音的可朗读稿，采用“小说旁白读剧情 + 关键镜头展示”的方式，可含少量对白但不要写角色名冒号
+                - duration: 镜头时长（秒，8-10 秒为主，优先 10 秒；信息量小也不要低于 8 秒，避免每秒一切割的碎片感）
                 - characterName: 主要角色名（如有，用于角色一致性和图片复用）
                 - sceneName: 场景名称（用于场景复用优化）
-                - isDynamic: 是否为动态镜头（true=需要AI视频，false=静态图片即可）
-                - dynamicReason: 推荐/不推荐动态的具体原因
+                - isDynamic: 必须为 true，短剧平台主流程所有镜头都需要AI视频
+                - dynamicReason: 说明该镜头的动态设计，不要写“静态图片即可”
                 - imagePrompt: AI生图提示词（中文，需包含：主体描述+表情动作+环境光影+构图+风格关键词，竖版9:16）
                 - videoPrompt: 动态镜头视频提示词（基于关键帧的动作+镜头运动描述）
                 - motionLevel: 动态强度（low/medium/high）
                 
                 # 分镜优化要求（稳定拆镜）
                 1. 按场景和对白稳定拆镜，不追求镜头数量堆叠，不得无意义乱切
-                2. 同一场景优先连续镜头表达：通常每个场景拆 2-5 个镜头
-                3. 全集建议 20-45 个镜头（可根据台词和动作适度增减）
-                4. 开场第1-3个镜头要建立人物关系与核心冲突
+                2. 同一场景优先连续镜头表达：通常每个场景拆 1-2 个镜头，强冲突场景最多 3 个镜头
+                3. 全集建议 8-18 个镜头（按单镜头约 10 秒控制预算，除非剧本明显很长，不要超过 22 个镜头）
+                4. 开场第1-2个镜头要建立人物关系与核心冲突，不要用多个空镜铺垫
                 5. 对话场景优先 close-up 和 medium，动作场景再使用 wide/tracking
-                6. 动态镜头仅用于明显运动或情绪爆发段落，不超过镜头总数 30%%
+                6. 所有镜头都必须可生成动态视频；对白镜头也要设计呼吸、眨眼、轻微推镜、衣摆/光影等低幅动态
                 7. imagePrompt 必须足够详细：包含人物外貌、服装、表情、动作、场景环境、光影氛围、画面风格
                 8. videoPrompt 只描述基于关键帧的动作和镜头运动，不重复画面基础描述
-                9. 如果镜头更适合静态图，isDynamic 必须为 false，并给出 dynamicReason
+                9. 禁止输出静态镜头；如果动作弱，也要输出轻动态设计并将 isDynamic 设为 true
                 10. 集末镜头组要形成明确悬念或情绪收束，服务下一集衔接
-                11. 若 subtitleText 为空，必须保证 dialogue/narration 至少一个可用于派生；不得三者全空
-                12. 若 ttsText 包含角色或情绪标签，必须放在可剥离前缀里（如【角色|情绪】），正文保持可直接朗读
+                11. 每个镜头必须保证 ttsText 可直接用于配音；dialogue/narration 至少一个可用于派生，不得三者全空
+                12. ttsText/narration/dialogue 不得包含字面量 \\n、孤立 n 字符、角色名冒号前缀或情绪标签，正文保持可直接朗读
                 
                 # imagePrompt 模板
                 每个 imagePrompt 必须非常详细，包含以下全部要素（按顺序）：
@@ -1803,7 +1816,9 @@ if (isStream) {
                 重要约束：
                 - videoPrompt 只描述动态变化，不要重复画面构图和外观
                 - 必须包含镜头运动方式（不是"可能有运动"这种模糊表述）
-                - 如果 isDynamic=true，videoPrompt 必须详细；如果 isDynamic=false，videoPrompt 可简单
+                - 所有镜头 isDynamic 必须为 true，videoPrompt 必须详细
+                - videoPrompt 只能写连续镜头中的动作节拍、镜头运动、环境动态，禁止写成静态图片提示词
+                - videoPrompt 必须明确禁止切镜、跳场、换脸、线稿化、插画化、幻灯片式静帧
 
                 %s
                 
@@ -1881,8 +1896,8 @@ if (isStream) {
                 shot.setNarration(shotNode.path("narration").asText(null));
                 shot.setSubtitleText(textOrNull(shotNode, "subtitleText"));
                 shot.setTtsText(textOrNull(shotNode, "ttsText"));
-                int rawDur = shotNode.path("duration").asInt(5);
-                shot.setDuration(Math.min(Math.max(rawDur, 3), 8));
+                int rawDur = shotNode.path("duration").asInt(10);
+                shot.setDuration(Math.min(Math.max(rawDur, 8), 10));
                 shot.setUserLockedSubtitle(false);
                 shot.setUserLockedTts(false);
                 shot.setStatus("draft");
@@ -1924,16 +1939,18 @@ if (isStream) {
             placeholder.setEpisodeNo(1);
             placeholder.setShotNo(1);
             placeholder.setDescription("AI生成的分镜脚本（解析失败，请手动编辑）");
-            placeholder.setDuration(5);
+            placeholder.setDuration(10);
             Project project = resolveProjectById(request.getProjectId());
             placeholder.setImagePrompt(buildImagePrompt(placeholder, null, project));
             placeholder.setVideoPrompt(buildVideoPrompt(placeholder, "low", project));
             placeholder.setMotionLevel("low");
-            placeholder.setDynamicRecommended(false);
-            placeholder.setDynamicSelected(false);
+            placeholder.setDynamicRecommended(true);
+            placeholder.setDynamicSelected(true);
             placeholder.setDynamicScore(0);
-            placeholder.setDynamicReason("当前镜头更适合保留为静态图片");
-            placeholder.setRenderMode("image");
+            placeholder.setDynamicReason("短剧平台主流程要求全部镜头生成动态视频");
+            placeholder.setMotionTier("B");
+            placeholder.setMotionTierReason("解析失败占位镜头，按轻动态视频处理");
+            placeholder.setRenderMode("video");
             placeholder.setStatus("draft");
             shots.add(placeholder);
         }
@@ -1950,7 +1967,7 @@ if (isStream) {
         int badSubtitle = 0;
         int noDerive = 0;
         for (Storyboard shot : shots) {
-            if (shot.getDuration() != null && shot.getDuration() > 5) {
+            if (shot.getDuration() != null && shot.getDuration() > 10) {
                 overDuration++;
             }
             if (hasText(shot.getNarration())) {
@@ -1963,7 +1980,7 @@ if (isStream) {
             if (hasText(shot.getSubtitleText()) && shot.getSubtitleText().matches(".*[：:].*")) {
                 badSubtitle++;
             }
-            if (!hasText(shot.getSubtitleText()) && !hasText(shot.getDialogue()) && !hasText(shot.getNarration())) {
+            if (!hasText(shot.getSubtitleText()) && !hasText(shot.getTtsText()) && !hasText(shot.getDialogue()) && !hasText(shot.getNarration())) {
                 noDerive++;
             }
         }
@@ -2085,7 +2102,7 @@ if (isStream) {
                 && !hasAction
                 && !highEmotionDialogue) {
             score -= 14;
-            reasons.add("该镜头更偏静态对白，保留图片即可");
+            reasons.add("对白镜头动作弱，采用呼吸感与轻微推镜保持动态");
         }
 
         if (!hasText(dialogue) && !hasText(narration)) {
@@ -2100,20 +2117,24 @@ if (isStream) {
 
         score = Math.max(0, Math.min(score, 100));
         MotionTierDecision tierDecision = decideMotionTier(score, dialogueDensity, hasAction, highEmotionDialogue, aiDynamic);
-        boolean recommended = score >= dynamicRecommendMinScoreToRecommend || "A".equals(tierDecision.tier());
+        boolean recommended = true;
 
         if (!hasText(shot.getVideoPrompt())) {
             shot.setVideoPrompt(buildVideoPrompt(shot, resolveMotionLevel(aiMotionLevel, score), project));
         }
 
-        shot.setMotionLevel(resolveMotionLevelByTier(aiMotionLevel, score, tierDecision.tier()));
+        String motionTier = "C".equalsIgnoreCase(tierDecision.tier()) ? "B" : tierDecision.tier();
+        String tierReason = "C".equalsIgnoreCase(tierDecision.tier())
+                ? "短剧平台主流程要求全部镜头生成动态视频，弱动作镜头按轻动态处理"
+                : tierDecision.reason();
+        shot.setMotionLevel(resolveMotionLevelByTier(aiMotionLevel, score, motionTier));
         shot.setDynamicRecommended(recommended);
-        shot.setDynamicSelected(false);
+        shot.setDynamicSelected(true);
         shot.setDynamicScore(score);
         shot.setDynamicReason(buildDynamicReason(reasons, recommended));
-        shot.setMotionTier(tierDecision.tier());
-        shot.setMotionTierReason(tierDecision.reason());
-        shot.setRenderMode("image");
+        shot.setMotionTier(motionTier);
+        shot.setMotionTierReason(tierReason);
+        shot.setRenderMode("video");
     }
 
     private void recomputeDynamicRecommendations(List<Storyboard> shots, Project project) {
@@ -2133,37 +2154,24 @@ if (isStream) {
             List<Storyboard> episodeShots = entry.getValue();
             int total = episodeShots.size();
             int allowed = resolveEpisodeDynamicBudget(total);
-            List<Storyboard> candidates = episodeShots.stream()
-                    .filter(shot -> (shot.getDynamicScore() != null ? shot.getDynamicScore() : 0) >= dynamicRecommendMinScoreToRecommend
-                            && "A".equalsIgnoreCase(shot.getMotionTier()))
-                    .sorted((a, b) -> Integer.compare(
-                            b.getDynamicScore() != null ? b.getDynamicScore() : 0,
-                            a.getDynamicScore() != null ? a.getDynamicScore() : 0))
-                    .toList();
-            int kept = 0;
             for (Storyboard shot : episodeShots) {
-                shot.setDynamicRecommended(false);
-                shot.setDynamicSelected(false);
-                shot.setRenderMode("image");
-            }
-            for (Storyboard shot : candidates) {
-                if (kept >= allowed) {
-                    break;
-                }
                 shot.setDynamicRecommended(true);
                 shot.setDynamicSelected(true);
                 shot.setRenderMode("video");
-                kept++;
+                if (!hasText(shot.getMotionTier()) || "C".equalsIgnoreCase(shot.getMotionTier())) {
+                    shot.setMotionTier("B");
+                    shot.setMotionTierReason("短剧平台主流程要求全部镜头生成动态视频，弱动作镜头按轻动态处理");
+                }
             }
-            int trimmed = Math.max(0, candidates.size() - kept);
-            int avgScore = candidates.isEmpty()
+            int kept = episodeShots.size();
+            int avgScore = episodeShots.isEmpty()
                     ? 0
-                    : (int) Math.round(candidates.stream().mapToInt(s -> s.getDynamicScore() != null ? s.getDynamicScore() : 0).average().orElse(0));
+                    : (int) Math.round(episodeShots.stream().mapToInt(s -> s.getDynamicScore() != null ? s.getDynamicScore() : 0).average().orElse(0));
             long tierACount = episodeShots.stream().filter(s -> "A".equalsIgnoreCase(s.getMotionTier())).count();
             long tierBCount = episodeShots.stream().filter(s -> "B".equalsIgnoreCase(s.getMotionTier())).count();
             long tierCCount = episodeShots.stream().filter(s -> "C".equalsIgnoreCase(s.getMotionTier())).count();
-            log.debug("动态推荐统计: episodeNo={}, totalShots={}, candidateCount={}, kept={}, trimmed={}, avgScore={}, tierA={}, tierB={}, tierC={}",
-                    ep, total, candidates.size(), kept, trimmed, avgScore, tierACount, tierBCount, tierCCount);
+            log.debug("动态推荐统计: episodeNo={}, totalShots={}, allowedBudget={}, selected={}, avgScore={}, tierA={}, tierB={}, tierC={}",
+                    ep, total, allowed, kept, avgScore, tierACount, tierBCount, tierCCount);
         }
         if (forceDynamicByDefault && !motionTierEnabled) {
             enforceDynamicTargetRatio(shots);
@@ -2174,24 +2182,11 @@ if (isStream) {
         if (shots == null || shots.isEmpty()) {
             return;
         }
-        int total = shots.size();
-        int target = Math.max(1, (int) Math.ceil(total * Math.max(0.5d, Math.min(1.0d, targetDynamicRatio))));
-        List<Storyboard> sorted = shots.stream()
-                .sorted((a, b) -> Integer.compare(
-                        b.getDynamicScore() != null ? b.getDynamicScore() : 0,
-                        a.getDynamicScore() != null ? a.getDynamicScore() : 0))
-                .toList();
-        int selected = 0;
-        for (Storyboard shot : sorted) {
-            boolean enable = selected < target;
-            shot.setDynamicSelected(enable);
-            shot.setRenderMode(enable ? "video" : "image");
-            if (enable) {
-                selected++;
-            }
+        for (Storyboard shot : shots) {
+            shot.setDynamicSelected(true);
+            shot.setRenderMode("video");
         }
-        log.debug("动态占比策略生效: totalShots={}, targetDynamicRatio={}, targetCount={}, selected={}",
-                total, targetDynamicRatio, target, selected);
+        log.debug("动态镜头策略生效: totalShots={}, selected=all", shots.size());
     }
 
     private int resolveEpisodeDynamicBudget(int totalShots) {
@@ -2227,13 +2222,13 @@ if (isStream) {
             if (score >= dynamicRecommendMinScoreToRecommend) {
                 return new MotionTierDecision("A", "兼容旧逻辑：高分镜头按动态处理");
             }
-            return new MotionTierDecision("C", "兼容旧逻辑：低分镜头按静态处理");
+            return new MotionTierDecision("C", "兼容旧逻辑：低分镜头按轻动态兜底处理");
         }
         if ((score >= 76 && dialogueDensity <= 20d) || (score >= 70 && hasAction && aiDynamic)) {
             return new MotionTierDecision("A", "动作与冲突强，且台词密度可控，优先真 i2v");
         }
         if (dialogueDensity >= 24d && !hasAction && !highEmotionDialogue) {
-            return new MotionTierDecision("C", "台词密度高且动作弱，使用静态基线避免喧宾夺主");
+            return new MotionTierDecision("C", "台词密度高且动作弱，使用低幅轻动态避免喧宾夺主");
         }
         return new MotionTierDecision("B", "采用基线轻动态，保持节奏连贯并控制成本");
     }
@@ -2266,7 +2261,7 @@ if (isStream) {
 
     private String buildDynamicReason(LinkedHashSet<String> reasons, boolean recommended) {
         if (reasons.isEmpty()) {
-            return recommended ? "建议做轻动态处理以增强镜头表现" : "当前镜头更适合保留为静态图片";
+            return recommended ? "建议做轻动态处理以增强镜头表现" : "动作弱，采用轻动态保持画面生命力";
         }
 
         List<String> topReasons = new ArrayList<>(reasons).subList(0, Math.min(2, reasons.size()));
@@ -2275,20 +2270,18 @@ if (isStream) {
 
     private String buildVideoPrompt(Storyboard shot, String motionLevel, Project project) {
         String motionInstruction = switch (normalizeMotionLevel(motionLevel)) {
-            case "high" -> "镜头快速推进或急甩，人物动作幅度大且连贯流畅（走动/转身/大幅度手势），情绪爆发式表情变化，画面张力和冲击力十足，背景虚化快速变化";
-            case "medium" -> "镜头持续平缓推进（Ken Burns推拉），人物有明确可见的肢体动作（转头/抬手/眼神流转/嘴微动说话），面部微表情丰富变化，光影缓慢移动，背景虚化层次渐变";
-            default -> "镜头持续缓慢但可见的推进（5-8%%缓推），人物保持自然姿态但有明确微动作（眨眼/嘴唇微动/转头/身体微倾/手势轻抬），背景光影自然流转，发丝和衣角轻微飘动，营造真实的呼吸感和画面生命力，画面必须有可见的动态变化，不能是完全静止的图片";
+            case "high" -> "单镜头连续推进或轻微手持跟随，人物完成一个完整反应动作（转身/迈步/抬手/靠近/退后），动作从起势到收束连贯，情绪明显但不夸张";
+            case "medium" -> "单镜头平缓推进或横移，人物有清晰可见的转头、眼神变化、抬手、嘴唇微动或身体重心变化，光影与背景层次同步缓慢流动";
+            default -> "单镜头缓慢推进或轻微横移，人物自然呼吸、眨眼、轻微转头、嘴唇微动、手部小反应，发丝衣角和环境光影持续变化，避免完全静止";
         };
 
         String sceneContext = hasText(shot.getDescription()) ? trimPromptSegment(shot.getDescription(), 100) : "保持剧情连续性";
         String characterContext = buildCharacterContextForVideo(shot);
-        String projectVisualGuide = compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project)));
         return clampPromptLength(String.format(
-                "基于该关键帧生成%ds竖屏9:16动态镜头。%s。%s项目视觉约束：%s。角色主体保持一致，避免面部漂移变形和场景穿帮。镜头内容：%s。动态效果自然流畅，符合短剧叙事张力节奏。",
+                "首帧已确定，不重画画面。生成%ds竖屏9:16真人短剧视频，必须是一个连续单镜头。运动设计：%s。%s动作节拍：前20%%从首帧自然起势，中段完成主要表情或肢体反应，末20%%轻微收束并保持同一场景。剧情动作锚点：%s。必须保持同一张脸、同一服装、同一地点、同一光线。禁止切镜、跳场、换人、换衣、线稿化、插画化、黑白素描、静帧幻灯片。",
                 shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 5,
                 motionInstruction,
                 hasText(characterContext) ? characterContext + "。" : "",
-                projectVisualGuide,
                 sceneContext), VIDEO_PROMPT_MAX_CHARS);
     }
 

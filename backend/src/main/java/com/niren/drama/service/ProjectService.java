@@ -24,7 +24,7 @@ public class ProjectService {
         project.setName(request.getName());
         project.setDescription(request.getDescription());
         project.setProjectType(ProjectStyleSupport.resolveProjectType(request.getProjectType()));
-        project.setGenre(StringUtils.trimToNull(request.getGenre()));
+        project.setGenre(ProjectStyleSupport.resolveGenre(request.getGenre()));
         project.setEpisodes(request.getEpisodes());
         project.setEpisodeDuration(request.getEpisodeDuration());
         project.setStatus("draft");
@@ -70,7 +70,7 @@ public class ProjectService {
         project.setName(request.getName());
         project.setDescription(request.getDescription());
         project.setProjectType(ProjectStyleSupport.resolveProjectType(request.getProjectType()));
-        project.setGenre(StringUtils.trimToNull(request.getGenre()));
+        project.setGenre(ProjectStyleSupport.resolveGenre(request.getGenre()));
         if (request.getEpisodes() != null) project.setEpisodes(request.getEpisodes());
         if (request.getEpisodeDuration() != null) project.setEpisodeDuration(request.getEpisodeDuration());
         projectMapper.updateById(project);

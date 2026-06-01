@@ -27,7 +27,10 @@ public final class DramaTextSanitizer {
                 .replace('\r', ' ')
                 .replace('\n', ' ')
                 .replace("\\n", " ")
+                .replace("\\N", " ")
                 .replace("\\r", " ")
+                .replaceAll("(?<=[\\p{IsHan}])n(?=[\\p{IsHan}])", " ")
+                .replaceAll("(?<=[\\p{IsHan}])N(?=[\\p{IsHan}])", " ")
                 .replaceAll("\\s+", " ")
                 // 中文相邻字符之间不保留空格，避免出现“母亲。 女儿”这类不自然显示
                 .replaceAll("(?<=[\\p{IsHan}])\\s+(?=[\\p{IsHan}])", "")

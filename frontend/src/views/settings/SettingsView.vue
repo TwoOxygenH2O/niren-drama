@@ -94,6 +94,15 @@
               </div>
             </div>
             <div class="debug-field">
+              <label class="debug-label">辅助参考图 URL</label>
+              <el-input
+                v-model="imageToVideoReferenceUrls"
+                type="textarea"
+                :rows="2"
+                placeholder="可选。人物定妆图、场景图等，每行一个 URL；用于锁定角色、服装和场景一致性"
+              />
+            </div>
+            <div class="debug-field">
               <label class="debug-label">视频提示词</label>
               <el-input
                 v-model="imageToVideoPrompt"
@@ -148,6 +157,28 @@
             <video :src="imageToVideoResultUrl" class="debug-video" controls playsinline />
             <p class="debug-url">{{ imageToVideoResultUrl }}</p>
           </div>
+        </div>
+      </section>
+
+      <section v-if="activeTab === 'video'" class="preset-section">
+        <div class="preset-header">
+          <div>
+            <h3>视频工作流预设</h3>
+            <p>普通生产使用预设，复杂调参再进入专家模式。</p>
+          </div>
+        </div>
+        <div class="preset-grid">
+          <button
+            v-for="preset in videoPresets"
+            :key="preset.id"
+            type="button"
+            class="preset-card"
+            @click="openVideoPreset(preset.id)"
+          >
+            <span>{{ preset.title }}</span>
+            <b>{{ preset.meta }}</b>
+            <small>{{ preset.desc }}</small>
+          </button>
         </div>
       </section>
 
@@ -352,13 +383,14 @@ const activeTab = ref('text')
 const isDefault = ref(false)
 
 const imageDebugPrompt = ref('黄昏时分的江南水乡，青瓦白墙，电影感柔光，竖屏短剧分镜')
-const imageDebugSize = ref('1024x1024')
+const imageDebugSize = ref('1024x1792')
 const imageDebugLoading = ref(false)
 const imageDebugResultUrl = ref('')
 const imageDebugProviderUrl = ref('')
 const imageDebugError = ref('')
 
 const imageToVideoImageUrl = ref('')
+const imageToVideoReferenceUrls = ref('')
 const imageToVideoPrompt = ref('镜头缓慢推进，画面有轻微动态，电影感光影')
 const imageToVideoDuration = ref(5)
 const imageToVideoResolution = ref('720x1280')
@@ -387,6 +419,27 @@ const typeOptions = [
   { value: 'image', label: '图像', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/></svg>' },
   { value: 'video', label: '视频', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>' },
   { value: 'tts', label: '语音', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/></svg>' },
+]
+
+const videoPresets = [
+  {
+    id: 'ltx',
+    title: '快测 LTX',
+    meta: '720P · 5-8 秒 · 预览',
+    desc: '用于快速验证镜头节奏和对白衔接。',
+  },
+  {
+    id: 'wan',
+    title: '高质 Wan2.2',
+    meta: '主首帧 · 发布质量',
+    desc: '用于 A 档镜头和最终发布生成。',
+  },
+  {
+    id: 'expert',
+    title: '专家模式',
+    meta: '自定义 workflow',
+    desc: '保留完整 JSON 和工作流选择能力。',
+  },
 ]
 
 const allProviders = [
@@ -470,7 +523,7 @@ const form = ref({ id: null as any, configType: 'text', provider: 'deepseek', ba
 const commonModelOptions: Record<string, string[]> = {
   text: ['gpt-4o', 'gpt-4.1', 'deepseek-chat', 'qwen-plus', 'glm-4'],
   image: ['qwen-image-2.0', 'qwen-image-2.0-pro'],
-  video: ['wan2.6-t2v'],
+  video: ['wan2.6-t2v', 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors', 'ltx-2-19b-distilled.safetensors'],
   tts: ['qwen3-tts-instruct-flash', 'qwen3-tts-flash', 'qwen-tts-latest'],
 }
 
@@ -541,7 +594,7 @@ function openDialog(row?: any) {
   } else {
     const defaultProvider = activeTab.value === 'text' ? 'deepseek' :
       activeTab.value === 'image' ? 'aliyun' :
-      activeTab.value === 'video' ? 'aliyun' : 'aliyun'
+      activeTab.value === 'video' ? 'comfyui' : 'aliyun'
     form.value = {
       id: null, configType: activeTab.value, provider: defaultProvider,
       baseUrl: resolveProviderDefaultUrl(defaultProvider, activeTab.value),
@@ -554,9 +607,37 @@ function openDialog(row?: any) {
   showDialog.value = true
 }
 
+function openVideoPreset(preset: string) {
+  activeTab.value = 'video'
+  if (preset === 'expert') {
+    openDialog()
+    showAdvancedExtra.value = ['advanced']
+    return
+  }
+
+  const isWan = preset === 'wan'
+  editing.value = false
+  showAdvancedExtra.value = []
+  form.value = {
+    id: null,
+    configType: 'video',
+    provider: 'comfyui',
+    baseUrl: resolveProviderDefaultUrl('comfyui', 'video'),
+    apiKey: '',
+    model: isWan ? 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors' : 'ltx-2-19b-distilled.safetensors',
+    extra: JSON.stringify(isWan
+      ? { workflowFile: 'video_wan2_2_14B_i2v.json', maxReferenceImages: 1, patchWanControlnetStrength: true, bypassWanReferenceEmbeds: true }
+      : { workflowFile: 'video_ltx2_i2v_short_drama_consistency.json', maxReferenceImages: 1 }),
+  }
+  selectedComfyUiWorkflow.value = isWan ? 'video_wan2_2_14B_i2v.json' : 'video_ltx2_i2v_short_drama_consistency.json'
+  isDefault.value = true
+  fetchComfyUiWorkflows()
+  showDialog.value = true
+}
+
 function onTypeChange() {
   const type = form.value.configType
-  const defaultProvider = type === 'text' ? 'deepseek' : 'aliyun'
+  const defaultProvider = type === 'text' ? 'deepseek' : type === 'video' ? 'comfyui' : 'aliyun'
   form.value.provider = defaultProvider
   void onProviderChange(defaultProvider)
 }
@@ -669,6 +750,10 @@ async function runImageToVideoDebug() {
   try {
     const res = await aiConfigApi.debugGenerateImageToVideo({
       imageUrl: imageToVideoImageUrl.value.trim(),
+      referenceImageUrls: imageToVideoReferenceUrls.value
+        .split(/\r?\n|,/)
+        .map((url) => url.trim())
+        .filter(Boolean),
       prompt: imageToVideoPrompt.value.trim(),
       duration: imageToVideoDuration.value,
       resolution: imageToVideoResolution.value,
@@ -788,6 +873,74 @@ onMounted(load)
 .settings-tab.active .settings-tab-badge {
   background: var(--primary-glow);
   color: var(--primary-light);
+}
+
+.preset-section {
+  margin: 0 0 18px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.preset-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.preset-header h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.preset-header p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 104px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-muted);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.preset-card:hover {
+  border-color: var(--primary);
+}
+
+.preset-card span {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.preset-card b {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--primary-light);
+}
+
+.preset-card small {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 /* Config List */

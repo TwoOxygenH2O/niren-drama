@@ -1,5 +1,7 @@
 package com.niren.drama.ai;
 
+import java.util.List;
+
 /**
  * AI video generation provider interface.
  * Supports providers like Kling AI (可灵), Seedance, Runway, etc.
@@ -31,6 +33,16 @@ public interface VideoAiProvider {
      * @return URL or identifier of the generated video
      */
     String generateVideoFromImage(String imageUrl, String prompt, int duration, String resolution, String quality, boolean withSound);
+
+    /**
+     * Generate a video from a primary keyframe plus optional identity/scene references.
+     * Providers that cannot consume multiple images should use {@code imageUrl} as the
+     * source-of-truth first frame and fold the auxiliary references into prompt constraints.
+     */
+    default String generateVideoFromImage(String imageUrl, List<String> referenceImageUrls, String prompt,
+                                          int duration, String resolution, String quality, boolean withSound) {
+        return generateVideoFromImage(imageUrl, prompt, duration, resolution, quality, withSound);
+    }
 
     /**
      * Estimate the cost of generating a video in CNY (¥).

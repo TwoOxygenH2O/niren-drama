@@ -1,0 +1,2 @@
+sample_id,project_id,shot_id,video_path,first_frame_path,mid_frame_path,last_frame_path,label_black_frame,label_frozen_frame,label_line_art,label_identity_drift,label_costume_drift,label_extra_person,label_wrong_aspect_ratio,label_duration_out_of_range,manual_decision,reviewer,notes
+sample_0001,1001,9001,raw/videos/project_1001_ep_01_shot_001.mp4,raw/first_frames/project_1001_ep_01_shot_001.png,processed/quality_gate/sample_0001_mid.png,processed/quality_gate/sample_0001_last.png,0,0,0,0,0,0,0,0,ok,reviewer_name,"示例行，复制后替换"

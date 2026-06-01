@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -19,12 +20,13 @@ public class AiVideoDebugService {
 
     private final AiProviderFactory aiProviderFactory;
 
-    public Map<String, Object> generateImageToVideo(Long userId, String imageUrl, String prompt, Integer duration,
-                                                    String resolution, String quality, Boolean withSound) {
+    public Map<String, Object> generateImageToVideo(Long userId, String imageUrl, List<String> referenceImageUrls,
+                                                    String prompt, Integer duration, String resolution,
+                                                    String quality, Boolean withSound) {
         if (imageUrl == null || imageUrl.isBlank()) {
             throw new BusinessException("请输入图片 URL");
         }
-        int normalizedDuration = duration != null && duration > 0 ? duration : DEFAULT_DURATION;
+        int normalizedDuration = clampDuration(duration != null && duration > 0 ? duration : DEFAULT_DURATION);
         String normalizedResolution = resolution != null && !resolution.isBlank() ? resolution.trim() : DEFAULT_RESOLUTION;
         String normalizedQuality = quality != null && !quality.isBlank() ? quality.trim() : DEFAULT_QUALITY;
         boolean normalizedWithSound = Boolean.TRUE.equals(withSound);
@@ -35,6 +37,7 @@ public class AiVideoDebugService {
         try {
             videoUrl = provider.generateVideoFromImage(
                     imageUrl.trim(),
+                    normalizeReferences(referenceImageUrls),
                     normalizedPrompt,
                     normalizedDuration,
                     normalizedResolution,
@@ -52,6 +55,23 @@ public class AiVideoDebugService {
         out.put("resolution", normalizedResolution);
         out.put("quality", normalizedQuality);
         out.put("withSound", normalizedWithSound);
+        out.put("referenceCount", normalizeReferences(referenceImageUrls).size());
         return out;
+    }
+
+    private List<String> normalizeReferences(List<String> referenceImageUrls) {
+        if (referenceImageUrls == null) {
+            return List.of();
+        }
+        return referenceImageUrls.stream()
+                .filter(url -> url != null && !url.isBlank())
+                .map(String::trim)
+                .distinct()
+                .limit(6)
+                .toList();
+    }
+
+    private int clampDuration(int duration) {
+        return Math.min(Math.max(duration, 3), 10);
     }
 }

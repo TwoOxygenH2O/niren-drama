@@ -14,16 +14,36 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.awt.AlphaComposite;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import javax.imageio.ImageIO;
 
 @Slf4j
 public class ComfyUiVideoProvider implements VideoAiProvider {
 
-    private static final int DEFAULT_MAX_POLL_ATTEMPTS = 700;
+    private static final int DEFAULT_MAX_POLL_ATTEMPTS = 14_400;
     private static final long DEFAULT_POLL_INTERVAL_MS = 3000L;
+    private static final int MAX_UPLOAD_CACHE_ENTRIES = 2048;
+    private static final ConcurrentMap<String, String> UPLOAD_CACHE = new ConcurrentHashMap<>();
+    private static final Pattern JSON_STRING_FIELD = Pattern.compile("\"%s\"\\s*:\\s*\"([^\"]*)\"");
+    private static final Pattern JSON_NUMBER_FIELD = Pattern.compile("\"%s\"\\s*:\\s*(\\d+)");
 
     private final String apiBaseUrl;
     private final String apiKey;
@@ -35,6 +55,9 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     private final long pollIntervalMs;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+
+    public record ComfyPromptSubmission(String promptId, String statusUrl) {}
+    public record ComfyPromptQueryResult(String status, String videoUrl, String errorMessage) {}
 
     public ComfyUiVideoProvider(String baseUrl, String apiKey, String model, String extra,
                                 String uploadPath, String publicBaseUrl) {
@@ -72,8 +95,8 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
 
         try {
             int[] wh = parseResolution(resolution);
-            int frames = ltxFrames(duration);
-            ObjectNode workflow = buildTextToVideoWorkflow(prompt, wh[0], wh[1], frames);
+            int frames = videoFrames(duration);
+            ObjectNode workflow = buildTextToVideoWorkflow(prompt, wh[0], wh[1], frames, quality);
             ObjectNode body = objectMapper.createObjectNode();
             body.set("prompt", workflow);
             requestBody = objectMapper.writeValueAsString(body);
@@ -147,8 +170,8 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
 
         try {
             int[] wh = parseResolution(resolution);
-            int frames = ltxFrames(duration);
-            ObjectNode workflow = buildImageToVideoWorkflow(imageUrl, prompt, wh[0], wh[1], frames);
+            int frames = videoFrames(duration);
+            ObjectNode workflow = buildImageToVideoWorkflow(imageUrl, List.of(), prompt, wh[0], wh[1], frames, quality);
             ObjectNode body = objectMapper.createObjectNode();
             body.set("prompt", workflow);
             requestBody = objectMapper.writeValueAsString(body);
@@ -210,8 +233,238 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     }
 
     @Override
+    public String generateVideoFromImage(String imageUrl, List<String> referenceImageUrls, String prompt, int duration,
+                                          String resolution, String quality, boolean withSound) {
+        String promptEndpoint = apiBaseUrl + "/prompt";
+        String requestBody = null;
+        HttpResponse<String> response = null;
+        String responseBody = null;
+        String videoUrl = null;
+        String error = null;
+        Map<String, String> headers = AiTraceSupport.jsonHeaders(apiKey);
+
+        try {
+            int[] wh = parseResolution(resolution);
+            int frames = videoFrames(duration);
+            String enhancedPrompt = buildShortDramaVideoPrompt(prompt, referenceImageUrls);
+            ObjectNode workflow = buildImageToVideoWorkflow(imageUrl, referenceImageUrls, enhancedPrompt, wh[0], wh[1], frames, quality);
+            ObjectNode body = objectMapper.createObjectNode();
+            body.set("prompt", workflow);
+            requestBody = objectMapper.writeValueAsString(body);
+
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                    .uri(URI.create(promptEndpoint))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .timeout(Duration.ofSeconds(180));
+
+            if (hasText(apiKey)) {
+                requestBuilder.header("Authorization", "Bearer " + apiKey);
+            }
+
+            response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+            responseBody = response.body();
+            if (response.statusCode() >= 400) {
+                error = "HTTP " + response.statusCode() + " - " + responseBody;
+                throw new RuntimeException(error);
+            }
+
+            JsonNode root = objectMapper.readTree(responseBody);
+            String promptId = root.path("prompt_id").asText(null);
+            if (!hasText(promptId)) {
+                error = "ComfyUI 未返回 prompt_id: " + responseBody;
+                throw new RuntimeException(error);
+            }
+
+            log.info("ComfyUI 视频生成任务已提交 (image2video), prompt_id={}, refCount={}",
+                    promptId, normalizeReferenceImageUrls(imageUrl, referenceImageUrls).size());
+            OutputInfo outputInfo = pollForResult(promptId);
+            videoUrl = buildOutputViewUrl(outputInfo);
+            videoUrl = RemoteAssetStorage.persistHttpUrl(videoUrl, uploadPath, publicBaseUrl,
+                    "generated-videos", httpClient, "mp4");
+
+            return videoUrl;
+        } catch (Exception e) {
+            if (!hasText(error)) {
+                error = e.getMessage();
+            }
+            log.error("ComfyUI 视频生成失败 (image2video)", e);
+            throw new RuntimeException("Video generation failed: " + error, e);
+        } finally {
+            AiTraceSupport.record(
+                    "video",
+                    "comfyui",
+                    "generate_video_image",
+                    "POST",
+                    promptEndpoint,
+                    headers,
+                    requestBody,
+                    response != null ? response.statusCode() : null,
+                    response != null ? response.headers().firstValue("Content-Type").orElse(null) : null,
+                    responseBody,
+                    responseBody != null ? responseBody.length() : null,
+                    hasText(videoUrl),
+                    videoUrl,
+                    error);
+        }
+    }
+
+    @Override
     public double estimateCost(int durationSeconds, String quality, boolean hasReferenceVideo, boolean withSound) {
         return 0;
+    }
+
+    public ComfyPromptSubmission submitVideoFromTextTask(String prompt, int duration,
+                                                         String resolution, String quality,
+                                                         boolean withSound) {
+        try {
+            int[] wh = parseResolution(resolution);
+            int frames = videoFrames(duration);
+            ObjectNode workflow = buildTextToVideoWorkflow(prompt, wh[0], wh[1], frames, quality);
+            return submitPromptWorkflow("submit_video_text", workflow);
+        } catch (Exception e) {
+            throw new RuntimeException("Video submission failed: " + compactComfyError(e.getMessage()), e);
+        }
+    }
+
+    public ComfyPromptSubmission submitVideoFromImageTask(String imageUrl, List<String> referenceImageUrls,
+                                                          String prompt, int duration,
+                                                          String resolution, String quality,
+                                                          boolean withSound) {
+        try {
+            int[] wh = parseResolution(resolution);
+            int frames = videoFrames(duration);
+            String enhancedPrompt = buildShortDramaVideoPrompt(prompt, referenceImageUrls);
+            ObjectNode workflow = buildImageToVideoWorkflow(imageUrl, referenceImageUrls, enhancedPrompt,
+                    wh[0], wh[1], frames, quality);
+            return submitPromptWorkflow("submit_video_image", workflow);
+        } catch (Exception e) {
+            throw new RuntimeException("Video submission failed: " + compactComfyError(e.getMessage()), e);
+        }
+    }
+
+    public ComfyPromptQueryResult queryVideoTask(String promptId) {
+        if (!hasText(promptId)) {
+            return new ComfyPromptQueryResult("failed", null, "缺少 ComfyUI prompt_id");
+        }
+        String historyUrl = apiBaseUrl + "/history/" + promptId;
+        HttpResponse<String> response = null;
+        String responseBody = null;
+        String videoUrl = null;
+        String error = null;
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(historyUrl))
+                    .GET()
+                    .timeout(Duration.ofSeconds(30))
+                    .build();
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            responseBody = response.body();
+            if (response.statusCode() >= 400) {
+                error = "ComfyUI history 查询失败: HTTP " + response.statusCode();
+                return new ComfyPromptQueryResult("failed", null, error);
+            }
+
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode promptNode = root.path(promptId);
+            if (promptNode.isMissingNode() || promptNode.isNull()) {
+                String queueStatus = checkQueueStatus(promptId);
+                if ("running".equals(queueStatus) || "pending".equals(queueStatus)) {
+                    return new ComfyPromptQueryResult(queueStatus, null, null);
+                }
+                error = "ComfyUI 任务不在 history 或 queue 中: prompt_id=" + promptId;
+                return new ComfyPromptQueryResult("failed", null, error);
+            }
+
+            OutputInfo outputInfo = findOutputInfo(promptNode.path("outputs"));
+            if (outputInfo != null) {
+                videoUrl = buildOutputViewUrl(outputInfo);
+                videoUrl = RemoteAssetStorage.persistHttpUrl(videoUrl, uploadPath, publicBaseUrl,
+                        "generated-videos", httpClient, "mp4");
+                return new ComfyPromptQueryResult("completed", videoUrl, null);
+            }
+
+            JsonNode status = promptNode.path("status");
+            String statusStr = status.path("status_str").asText("");
+            if ("error".equalsIgnoreCase(statusStr)) {
+                error = compactComfyError(status.path("messages").toString());
+                return new ComfyPromptQueryResult("failed", null, error);
+            }
+            return new ComfyPromptQueryResult(hasText(statusStr) ? statusStr : "running", null, null);
+        } catch (Exception e) {
+            error = compactComfyError(e.getMessage());
+            return new ComfyPromptQueryResult("failed", null, error);
+        } finally {
+            AiTraceSupport.record(
+                    "video",
+                    "comfyui",
+                    "query_video_task",
+                    "GET",
+                    historyUrl,
+                    AiTraceSupport.jsonHeaders(apiKey),
+                    null,
+                    response != null ? response.statusCode() : null,
+                    response != null ? response.headers().firstValue("Content-Type").orElse(null) : null,
+                    responseBody,
+                    responseBody != null ? responseBody.length() : null,
+                    hasText(videoUrl) || error == null,
+                    videoUrl,
+                    error);
+        }
+    }
+
+    private ComfyPromptSubmission submitPromptWorkflow(String operation, ObjectNode workflow) throws Exception {
+        String promptEndpoint = apiBaseUrl + "/prompt";
+        String requestBody = null;
+        HttpResponse<String> response = null;
+        String responseBody = null;
+        String promptId = null;
+        String error = null;
+        try {
+            ObjectNode body = objectMapper.createObjectNode();
+            body.set("prompt", workflow);
+            requestBody = objectMapper.writeValueAsString(body);
+
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                    .uri(URI.create(promptEndpoint))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .timeout(Duration.ofSeconds(180));
+            if (hasText(apiKey)) {
+                requestBuilder.header("Authorization", "Bearer " + apiKey);
+            }
+
+            response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+            responseBody = response.body();
+            if (response.statusCode() >= 400) {
+                error = "HTTP " + response.statusCode() + " - " + responseBody;
+                throw new RuntimeException(error);
+            }
+            JsonNode root = objectMapper.readTree(responseBody);
+            promptId = root.path("prompt_id").asText(null);
+            if (!hasText(promptId)) {
+                error = "ComfyUI 未返回 prompt_id: " + responseBody;
+                throw new RuntimeException(error);
+            }
+            log.info("ComfyUI 视频任务已提交: operation={}, prompt_id={}", operation, promptId);
+            return new ComfyPromptSubmission(promptId, apiBaseUrl + "/history/" + promptId);
+        } finally {
+            AiTraceSupport.record(
+                    "video",
+                    "comfyui",
+                    operation,
+                    "POST",
+                    promptEndpoint,
+                    AiTraceSupport.jsonHeaders(apiKey),
+                    requestBody,
+                    response != null ? response.statusCode() : null,
+                    response != null ? response.headers().firstValue("Content-Type").orElse(null) : null,
+                    responseBody,
+                    responseBody != null ? responseBody.length() : null,
+                    hasText(promptId),
+                    null,
+                    hasText(error) ? compactComfyError(error) : null);
+        }
     }
 
     /**
@@ -223,12 +476,30 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return ((base - 1 + 7) / 8) * 8 + 1;
     }
 
+    private static int wanFrames(int durationSeconds) {
+        int base = Math.max(17, durationSeconds * 16);
+        return ((base - 1 + 3) / 4) * 4 + 1;
+    }
+
+    private int videoFrames(int durationSeconds) {
+        int normalizedDuration = Math.min(Math.max(durationSeconds, 3), 10);
+        if (isWanModel()) {
+            return wanFrames(normalizedDuration);
+        }
+        return ltxFrames(normalizedDuration);
+    }
+
     private static final String DEFAULT_NEGATIVE_PROMPT =
             "低质量, 模糊, 扭曲, 变形, 丑陋, 多余手指, 畸形手, 文字, 水印, "
           + "low quality, blurry, distorted, deformed, ugly, extra fingers, bad anatomy, text, watermark, "
           + "jpeg artifacts, worst quality, bad proportions, duplicate, mutation, "
           + "anime, cartoon, illustration, CGI, 3D render, plastic skin, wax figure, "
-          + "动漫, 二次元, 插画, 卡通, 游戏CG, 塑料感, 蜡像, 3D渲染";
+          + "sketch, line art, pencil drawing, hand drawn, monochrome, black and white, storyboard, comic panel, manga, cel shading, "
+          + "slideshow, still frame, frozen frame, static image, no motion, posterized, over-sharpened, "
+          + "face morphing, identity drift, different person, new person, extra person, unwanted person, changing clothes, scene jump, camera cut, "
+          + "split screen, duplicated character, flicker, jitter, warped hands, melted face, subtitles, logo, "
+          + "动漫, 二次元, 插画, 卡通, 游戏CG, 塑料感, 蜡像, 3D渲染, 线稿, 素描, 铅笔画, 手绘, 黑白, 漫画分镜, 静帧, 幻灯片, 无动作, "
+          + "换脸, 换衣服, 跳场, 闪烁, 字幕, 平台水印";
 
     /** 构建 LTX-2 T2V 最小工作流（使用 Gemma CLIP loader） */
     private ObjectNode buildLtx2T2vWorkflow(String prompt, int width, int height, int frames) {
@@ -352,14 +623,14 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return wf;
     }
 
-    private ObjectNode buildTextToVideoWorkflow(String prompt, int width, int height, int frames) {
+    private ObjectNode buildTextToVideoWorkflow(String prompt, int width, int height, int frames, String quality) {
         if (isWanModel()) {
-            return buildWan22T2vWorkflow(prompt, width, height, frames);
+            return buildWan22T2vWorkflow(prompt, width, height, frames, quality);
         }
         return buildLtx2T2vWorkflow(prompt, width, height, frames);
     }
 
-    /** 构建 LTX-2 I2V 工作流（基于 T2V 工作流，增加参考图注入） */
+    /** 构建 LTX-2 I2V 工作流：主关键帧锁首帧，独立正/负提示词，适合 3-10 秒短剧镜头。 */
     private ObjectNode buildLtx2I2vWorkflow(String imageUrl, String prompt, int width, int height, int frames) {
         ObjectNode wf = objectMapper.createObjectNode();
 
@@ -385,33 +656,29 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         ArrayNode clipRef = posInputs.putArray("clip");
         clipRef.add("2"); clipRef.add(0);
 
-        // Node 4: LTXVConditioning
-        ObjectNode cond = wf.putObject("4");
+        // Node 4: CLIPTextEncode (negative prompt)
+        ObjectNode negClip = wf.putObject("4");
+        negClip.put("class_type", "CLIPTextEncode");
+        ObjectNode negInputs = negClip.putObject("inputs");
+        negInputs.put("text", DEFAULT_NEGATIVE_PROMPT);
+        ArrayNode negClipRef = negInputs.putArray("clip");
+        negClipRef.add("2"); negClipRef.add(0);
+
+        // Node 5: LTXVConditioning
+        ObjectNode cond = wf.putObject("5");
         cond.put("class_type", "LTXVConditioning");
         ObjectNode condInputs = cond.putObject("inputs");
         ArrayNode condPos = condInputs.putArray("positive");
         condPos.add("3"); condPos.add(0);
         ArrayNode condNeg = condInputs.putArray("negative");
-        condNeg.add("3"); condNeg.add(0);
+        condNeg.add("4"); condNeg.add(0);
         condInputs.put("frame_rate", 24.0);
-        condInputs.put("width", width);
-        condInputs.put("height", height);
-        condInputs.put("num_frames", frames);
 
-        // Node 5: LoadImage (reference image for I2V)
-        ObjectNode loadImg = wf.putObject("5");
+        // Node 6: LoadImage (primary shot keyframe for I2V)
+        ObjectNode loadImg = wf.putObject("6");
         loadImg.put("class_type", "LoadImage");
         ObjectNode loadImgInputs = loadImg.putObject("inputs");
         loadImgInputs.put("image", imageUrl);
-
-        // Node 6: VAEEncode (encode reference image to latent)
-        ObjectNode vaeEncode = wf.putObject("6");
-        vaeEncode.put("class_type", "VAEEncode");
-        ObjectNode vaeEncodeInputs = vaeEncode.putObject("inputs");
-        ArrayNode vaeEncPixels = vaeEncodeInputs.putArray("pixels");
-        vaeEncPixels.add("5"); vaeEncPixels.add(0);
-        ArrayNode vaeEncVae = vaeEncodeInputs.putArray("vae");
-        vaeEncVae.add("1"); vaeEncVae.add(2);
 
         // Node 7: EmptyLTXVLatentVideo (target video latent space)
         ObjectNode vidLatent = wf.putObject("7");
@@ -427,7 +694,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         i2vCond.put("class_type", "LTXVImgToVideoConditionOnly");
         ObjectNode i2vCondInputs = i2vCond.putObject("inputs");
         ArrayNode i2vImg = i2vCondInputs.putArray("image");
-        i2vImg.add("5"); i2vImg.add(0);
+        i2vImg.add("6"); i2vImg.add(0);
         ArrayNode i2vVae = i2vCondInputs.putArray("vae");
         i2vVae.add("1"); i2vVae.add(2);
         ArrayNode i2vLatent = i2vCondInputs.putArray("latent");
@@ -448,9 +715,9 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         ArrayNode gModel = guiderInputs.putArray("model");
         gModel.add("1"); gModel.add(0);
         ArrayNode gPos = guiderInputs.putArray("positive");
-        gPos.add("4"); gPos.add(0);
+        gPos.add("5"); gPos.add(0);
         ArrayNode gNeg = guiderInputs.putArray("negative");
-        gNeg.add("4"); gNeg.add(1);
+        gNeg.add("5"); gNeg.add(1);
         guiderInputs.put("cfg", 2.0);
 
         // Node 11: KSamplerSelect
@@ -464,7 +731,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         sched.put("class_type", "BasicScheduler");
         ObjectNode schedInputs = sched.putObject("inputs");
         schedInputs.put("scheduler", "normal");
-        schedInputs.put("steps", 8);
+        schedInputs.put("steps", 10);
         schedInputs.put("denoise", 1.0);
         ArrayNode schedModel = schedInputs.putArray("model");
         schedModel.add("1"); schedModel.add(0);
@@ -514,13 +781,13 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     }
 
     /** 构建 Wan2.2 T2V 工作流，优先从 classpath 模板加载 */
-    private ObjectNode buildWan22T2vWorkflow(String prompt, int width, int height, int frames) {
+    private ObjectNode buildWan22T2vWorkflow(String prompt, int width, int height, int frames, String quality) {
         String templateName = "video_wan2_2_14B_t2v.json";
         ObjectNode template = ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, templateName);
         if (template != null) {
             ComfyUiWorkflowLoader.injectPrompt(template, prompt);
             injectNegativePromptToWorkflow(template);
-            injectVideoParams(template, width, height, frames);
+            injectVideoParams(template, width, height, frames, resolveWorkflowTuning(prompt, quality, frames), 0);
             return template;
         }
         return buildWan22T2vWorkflowInline(prompt, width, height, frames);
@@ -603,7 +870,16 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
 
     private ObjectNode buildImageToVideoWorkflow(String imageUrl, String prompt,
                                                   int width, int height, int frames) throws Exception {
+        return buildImageToVideoWorkflow(imageUrl, List.of(), prompt, width, height, frames, null);
+    }
+
+    private ObjectNode buildImageToVideoWorkflow(String imageUrl, List<String> referenceImageUrls, String prompt,
+                                                  int width, int height, int frames, String quality) throws Exception {
         String workflowFile = null;
+        boolean explicitWorkflowFile = false;
+        String primaryImage = uploadImageIfRemote(imageUrl, width, height);
+        List<String> uploadedReferences = uploadReferenceImages(normalizeReferenceImageUrls(imageUrl, referenceImageUrls), width, height);
+        WorkflowTuning tuning = resolveWorkflowTuning(prompt, quality, frames);
         if (hasText(extra)) {
             try {
                 JsonNode extraJson = objectMapper.readTree(extra);
@@ -611,36 +887,45 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 if (workflowNode.isObject()) {
                     ObjectNode wf = (ObjectNode) workflowNode.deepCopy();
                     injectPromptIntoWorkflow(wf, prompt);
-                    injectImageIntoWorkflow(wf, uploadImageIfRemote(imageUrl));
+                    injectImagesIntoWorkflow(wf, primaryImage, uploadedReferences);
                     injectNegativePromptToWorkflow(wf);
-                    injectVideoParams(wf, width, height, frames);
+                    injectVideoParams(wf, width, height, frames, tuning, uploadedReferences.size());
                     return wf;
                 }
                 String wf = extraJson.path("workflowFile").asText(null);
-                // 忽略 ComfyUI 用户工作流（user:前缀），只接受 classpath 模板
-                if (hasText(wf) && !wf.startsWith("user:")) {
+                if (hasText(wf)) {
                     workflowFile = wf;
+                    explicitWorkflowFile = true;
                 }
             } catch (Exception ignored) {
             }
         }
 
-        // 优先使用 classpath 模板（非 user: 前缀以避免加载已被废弃的旧版工作流），
-        // 找不到则直接使用内联 LTX-2 I2V 工作流
+        if (!hasText(workflowFile)) {
+            workflowFile = isWanModel()
+                    ? "video_wan2_2_14B_i2v.json"
+                    : "video_ltx2_i2v_short_drama_consistency.json";
+        }
+
+        // 优先使用用户显式选择的工作流；支持 user: 前缀和 classpath 模板。
+        // 未显式指定时再按模型自动选择内置模板，最后回退到内联 LTX-2 I2V 工作流。
         if (hasText(workflowFile)) {
             ObjectNode template = ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile);
             if (template != null) {
                 injectPromptIntoWorkflow(template, prompt);
-                injectImageIntoWorkflow(template, uploadImageIfRemote(imageUrl));
+                injectImagesIntoWorkflow(template, primaryImage, uploadedReferences);
                 injectNegativePromptToWorkflow(template);
-                injectVideoParams(template, width, height, frames);
+                injectVideoParams(template, width, height, frames, tuning, uploadedReferences.size());
                 return template;
+            }
+            if (explicitWorkflowFile) {
+                throw new RuntimeException("指定的 ComfyUI 视频工作流不可用: " + workflowFile);
             }
         }
 
         // 模板不可用 → 始终使用内联 LTX-2 I2V 工作流
         log.info("使用内联 LTX-2 I2V 工作流 (width={}, height={}, frames={})", width, height, frames);
-        return buildLtx2I2vWorkflow(uploadImageIfRemote(imageUrl), prompt, width, height, frames);
+        return buildLtx2I2vWorkflow(primaryImage, prompt, width, height, frames);
     }
 
     private ObjectNode buildDefaultVideoWorkflow(String prompt, String imageUrl,
@@ -734,6 +1019,13 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             JsonNode node = entry.getValue();
             if (node.isObject()) {
                 String classType = node.path("class_type").asText("");
+                if ("WanVideoTextEncode".equals(classType) || "WanVideoTextEncodeCached".equals(classType)) {
+                    JsonNode inputs = node.path("inputs");
+                    if (inputs.has("positive_prompt")) {
+                        ((ObjectNode) inputs).put("positive_prompt", prompt);
+                        return;
+                    }
+                }
                 if ("CLIPTextEncode".equals(classType)) {
                     JsonNode inputs = node.path("inputs");
                     if (inputs.has("text")) {
@@ -772,6 +1064,204 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 }
             }
         }
+    }
+
+    private void injectImagesIntoWorkflow(ObjectNode workflow, String primaryImageUrl, List<String> referenceImageUrls) {
+        List<String> images = new ArrayList<>();
+        if (hasText(primaryImageUrl)) {
+            images.add(primaryImageUrl);
+        }
+        if (referenceImageUrls != null) {
+            images.addAll(referenceImageUrls);
+        }
+        if (images.isEmpty()) {
+            return;
+        }
+
+        int idx = 0;
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (!node.isObject()) {
+                continue;
+            }
+            if (!"LoadImage".equals(node.path("class_type").asText(""))) {
+                continue;
+            }
+            ((ObjectNode) node.path("inputs")).put("image", images.get(Math.min(idx, images.size() - 1)));
+            idx++;
+        }
+    }
+
+    private List<String> normalizeReferenceImageUrls(String primaryImageUrl, List<String> referenceImageUrls) {
+        if (referenceImageUrls == null || referenceImageUrls.isEmpty()) {
+            return List.of();
+        }
+        Set<String> normalized = new LinkedHashSet<>();
+        String primary = primaryImageUrl != null ? primaryImageUrl.trim() : "";
+        for (String url : referenceImageUrls) {
+            if (!hasText(url)) {
+                continue;
+            }
+            String trimmed = url.trim();
+            if (!trimmed.equals(primary)) {
+                normalized.add(trimmed);
+            }
+            if (normalized.size() >= 5) {
+                break;
+            }
+        }
+        return new ArrayList<>(normalized);
+    }
+
+    private List<String> uploadReferenceImages(List<String> referenceImageUrls, int width, int height) throws Exception {
+        if (referenceImageUrls == null || referenceImageUrls.isEmpty()) {
+            return List.of();
+        }
+        List<String> uploaded = new ArrayList<>();
+        for (String url : referenceImageUrls) {
+            uploaded.add(uploadImageIfRemote(url, width, height));
+        }
+        return uploaded;
+    }
+
+    private String buildShortDramaVideoPrompt(String prompt, List<String> referenceImageUrls) {
+        String base = hasText(prompt) ? prompt.trim() : "";
+        if (base.contains("Commercial vertical short-drama I2V shot")
+                || base.contains("首帧已确定，不重画画面")) {
+            return base + " Strict video-only style lock: photorealistic live action, no sketch, no line art, no manga, no monochrome, no slideshow, no frozen frame.";
+        }
+        int refCount = referenceImageUrls != null ? referenceImageUrls.size() : 0;
+        StringBuilder sb = new StringBuilder();
+        sb.append("Commercial vertical short-drama video, one continuous 9:16 live-action shot, 4-10 seconds. ")
+                .append("The input image is the exact first frame: keep the same face, hairstyle, outfit, body shape, props, lighting, camera angle, and scene layout. ")
+                .append("Animate from that first frame only; do not redraw the scene as an illustration or storyboard. ");
+        if (refCount > 1) {
+            sb.append("Auxiliary character and scene references are consistency references only; do not create collage panels or extra characters. ");
+        }
+        sb.append("Shot language: slow push-in, gentle pan, or slight handheld parallax; keep it as a single camera take with no cut, no scene jump, no new person. ")
+                .append("Performance: natural breathing, eye blink, small head turn, hand reaction, lip micro movement only when dialogue exists, clothing and hair micro motion. ")
+                .append("Environment: subtle light shift, curtain or smoke movement, shadow flow, water or rain movement when present. ")
+                .append("Temporal rhythm: clear beginning, middle, and end in the same shot; enough visible motion to avoid slideshow feeling, but no exaggerated action. ")
+                .append("Strict style lock: photorealistic live action, natural skin, no sketch, no line art, no manga, no monochrome, no drawn frames. ");
+        if (hasText(base)) {
+            sb.append("Motion directive: ").append(base);
+        }
+        return sb.toString();
+    }
+
+    private record WorkflowTuning(String motionLevel,
+                                  int steps,
+                                  double cfg,
+                                  double shift,
+                                  String scheduler,
+                                  double noiseAugStrength,
+                                  double startLatentStrength,
+                                  double endLatentStrength,
+                                  double augmentEmptyFrames,
+                                  double referenceStrength,
+                                  double sceneReferenceStrength,
+                                  double ltxCfg,
+                                  String ltxSampler,
+                                  String cameraMotion) {}
+
+    private WorkflowTuning resolveWorkflowTuning(String prompt, String quality, int frames) {
+        String text = hasText(prompt) ? prompt.toLowerCase() : "";
+        String level;
+        if (text.contains("motion intensity: high")
+                || containsAny(text, "run", "chase", "fight", "奔跑", "追", "逃", "冲", "打", "推开", "摔", "转身", "跪下")) {
+            level = "high";
+        } else if (text.contains("motion intensity: low")
+                || containsAny(text, "凝视", "沉默", "静", "微笑", "breathing", "blink")) {
+            level = "low";
+        } else {
+            level = "medium";
+        }
+
+        boolean pro = hasText(quality) && quality.toLowerCase().contains("pro");
+        int steps = pro ? 16 : 14;
+        double cfg = 1.15d;
+        double shift = 8.0d;
+        double noise = 0.038d;
+        double startStrength = 0.94d;
+        double endStrength = 0.82d;
+        double augment = 0.06d;
+        double refStrength = 0.34d;
+        double sceneRefStrength = 0.22d;
+        double ltxCfg = 2.2d;
+
+        if ("high".equals(level)) {
+            steps = pro ? 18 : 16;
+            cfg = 1.25d;
+            shift = 8.5d;
+            noise = 0.055d;
+            startStrength = 0.90d;
+            endStrength = 0.72d;
+            augment = 0.12d;
+            refStrength = 0.28d;
+            sceneRefStrength = 0.18d;
+            ltxCfg = 2.4d;
+        } else if ("low".equals(level)) {
+            steps = pro ? 14 : 12;
+            cfg = 1.05d;
+            shift = 7.5d;
+            noise = 0.024d;
+            startStrength = 0.97d;
+            endStrength = 0.90d;
+            augment = 0.02d;
+            refStrength = 0.42d;
+            sceneRefStrength = 0.28d;
+            ltxCfg = 2.0d;
+        }
+
+        if (frames >= 129 && !"low".equals(level)) {
+            endStrength = Math.max(0.68d, endStrength - 0.04d);
+            augment = Math.min(0.16d, augment + 0.03d);
+        }
+
+        return new WorkflowTuning(
+                level,
+                steps,
+                cfg,
+                shift,
+                "dpm++_sde",
+                noise,
+                startStrength,
+                endStrength,
+                augment,
+                refStrength,
+                sceneRefStrength,
+                ltxCfg,
+                "euler",
+                resolveCameraMotionLabel(text, level));
+    }
+
+    private String resolveCameraMotionLabel(String text, String level) {
+        if (containsAny(text, "push-in", "push in", "推进", "推近")) {
+            return "slow_push_in";
+        }
+        if (containsAny(text, "pull-back", "pull back", "拉远")) {
+            return "slow_pull_back";
+        }
+        if (containsAny(text, "tracking", "track", "跟拍", "横移", "移镜")) {
+            return "tracking_pan";
+        }
+        if (containsAny(text, "tilt", "俯仰", "抬头", "低头")) {
+            return "gentle_tilt";
+        }
+        return "high".equals(level) ? "controlled_handheld" : "slow_push_in";
+    }
+
+    private boolean containsAny(String text, String... needles) {
+        if (!hasText(text)) {
+            return false;
+        }
+        for (String needle : needles) {
+            if (hasText(needle) && text.contains(needle.toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -845,6 +1335,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         // 找不到 → 尝试创建一个简单的 negative prompt 节点
         // 找到 CLIP 引用来创建
         String clipRef = findClipReferenceForNegative(workflow);
+        int clipOutputIndex = findClipOutputIndexForNegative(workflow);
         if (clipRef == null) return;
 
         String negNodeId = String.valueOf(Integer.parseInt(findMaxNodeId(workflow)) + 1);
@@ -854,7 +1345,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         negInputs.put("text", DEFAULT_NEGATIVE_PROMPT);
         ArrayNode clipArr = negInputs.putArray("clip");
         clipArr.add(clipRef);
-        clipArr.add(1);
+        clipArr.add(clipOutputIndex);
 
         // 连接到 sampler 的 negative 输入
         for (var it = workflow.fields(); it.hasNext(); ) {
@@ -879,7 +1370,20 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
      * 使模板工作流中的 duration 参数真正生效。
      */
     private void injectVideoParams(ObjectNode workflow, int width, int height, int frames) {
-        int fps = 8; // 统一使用 8fps
+        injectVideoParams(workflow, width, height, frames, resolveWorkflowTuning("", null, frames), 0);
+    }
+
+    private void injectVideoParams(ObjectNode workflow,
+                                   int width,
+                                   int height,
+                                   int frames,
+                                   WorkflowTuning tuning,
+                                   int auxiliaryReferenceCount) {
+        int fps = workflowFrameRate(workflow);
+        int seed = UUID.randomUUID().hashCode() & Integer.MAX_VALUE;
+        if (shouldBypassWanReferenceEmbeds()) {
+            bypassWanOneToAllReferenceEmbeds(workflow);
+        }
         for (var it = workflow.fields(); it.hasNext(); ) {
             var entry = it.next();
             JsonNode node = entry.getValue();
@@ -894,6 +1398,9 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 case "CreateVideo":
                     inputs.put("frame_rate", fps);
                     break;
+                case "RandomNoise":
+                    inputs.put("noise_seed", seed);
+                    break;
                 // 潜在空间设置
                 case "EmptyLatentImage":
                     inputs.put("width", width);
@@ -901,6 +1408,16 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     inputs.put("batch_size", frames);
                     break;
                 case "EmptyLTXVLatentVideo":
+                    inputs.put("width", width);
+                    inputs.put("height", height);
+                    if (inputs.has("length")) {
+                        inputs.put("length", frames);
+                    }
+                    if (inputs.has("num_frames")) {
+                        inputs.put("num_frames", frames);
+                    }
+                    inputs.put("batch_size", 1);
+                    break;
                 case "EmptyHunyuanLatentVideo":
                 case "EmptyHunyuanVideo15Latent":
                     inputs.put("width", width);
@@ -917,16 +1434,103 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     break;
                 // LTX conditioning
                 case "LTXVConditioning":
-                    inputs.put("width", width);
-                    inputs.put("height", height);
-                    inputs.put("num_frames", frames);
+                    inputs.put("frame_rate", fps);
+                    if (inputs.has("width")) {
+                        inputs.put("width", width);
+                    }
+                    if (inputs.has("height")) {
+                        inputs.put("height", height);
+                    }
+                    if (inputs.has("num_frames")) {
+                        inputs.put("num_frames", frames);
+                    }
+                    break;
+                case "CFGGuider":
+                    if (inputs.has("cfg")) {
+                        inputs.put("cfg", tuning.ltxCfg());
+                    }
+                    break;
+                case "KSamplerSelect":
+                    if (inputs.has("sampler_name")) {
+                        inputs.put("sampler_name", tuning.ltxSampler());
+                    }
+                    break;
+                case "BasicScheduler":
+                    if (inputs.has("steps")) {
+                        inputs.put("steps", Math.max(8, tuning.steps() - 4));
+                    }
+                    if (inputs.has("scheduler")) {
+                        inputs.put("scheduler", "normal");
+                    }
+                    if (inputs.has("denoise")) {
+                        inputs.put("denoise", "low".equals(tuning.motionLevel()) ? 0.92d : 1.0d);
+                    }
+                    break;
+                case "KSampler":
+                case "KSamplerAdvanced":
+                    if (inputs.has("seed")) {
+                        inputs.put("seed", seed);
+                    }
+                    if (inputs.has("steps")) {
+                        inputs.put("steps", tuning.steps());
+                    }
+                    if (inputs.has("cfg")) {
+                        inputs.put("cfg", Math.max(2.0d, tuning.ltxCfg()));
+                    }
+                    if (inputs.has("sampler_name")) {
+                        inputs.put("sampler_name", "dpmpp_2m_sde");
+                    }
+                    if (inputs.has("scheduler")) {
+                        inputs.put("scheduler", "karras");
+                    }
+                    if (inputs.has("denoise")) {
+                        inputs.put("denoise", "low".equals(tuning.motionLevel()) ? 0.88d : 0.96d);
+                    }
                     break;
                 // WAN / Hunyuan sampler
                 case "WanVideoSampler":
                 case "WanVideoSamplerv2":
                 case "LTXVScheduler":
+                    if (inputs.has("seed")) {
+                        inputs.put("seed", seed);
+                    }
                     if (inputs.has("num_frames")) {
                         inputs.put("num_frames", frames);
+                    }
+                    if (inputs.has("steps")) {
+                        inputs.put("steps", tuning.steps());
+                    }
+                    if (inputs.has("cfg")) {
+                        inputs.put("cfg", tuning.cfg());
+                    }
+                    if (inputs.has("shift")) {
+                        inputs.put("shift", tuning.shift());
+                    }
+                    if (inputs.has("scheduler")) {
+                        inputs.put("scheduler", tuning.scheduler());
+                    }
+                    putIfPresent(inputs, "motion_strength", motionStrength(tuning));
+                    putIfPresent(inputs, "motion_scale", motionStrength(tuning));
+                    putIfPresent(inputs, "motion_guidance", motionStrength(tuning));
+                    putIfPresent(inputs, "guidance_scale", tuning.cfg());
+                    putIfPresent(inputs, "camera_motion", tuning.cameraMotion());
+                    if (("WanVideoSampler".equals(classType) || "WanVideoSamplerv2".equals(classType))
+                            && shouldPatchWanControlnetStrength()
+                            && !inputs.has("controlnet_strength")) {
+                        inputs.put("controlnet_strength", 0.0d);
+                    }
+                    break;
+                case "WanVideoImageToVideoEncode":
+                case "WanVideoEmptyEmbeds":
+                    inputs.put("width", width);
+                    inputs.put("height", height);
+                    inputs.put("num_frames", frames);
+                    if ("WanVideoImageToVideoEncode".equals(classType)) {
+                        putIfPresent(inputs, "noise_aug_strength", tuning.noiseAugStrength());
+                        putIfPresent(inputs, "start_latent_strength", tuning.startLatentStrength());
+                        putIfPresent(inputs, "end_latent_strength", tuning.endLatentStrength());
+                        putIfPresent(inputs, "augment_empty_frames", tuning.augmentEmptyFrames());
+                        putIfPresent(inputs, "motion_bucket_id", motionBucket(tuning));
                     }
                     break;
                 // Hunyuan latent
@@ -952,10 +1556,284 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     if (inputs.has("num_frames")) {
                         inputs.put("num_frames", frames);
                     }
+                    putIfPresent(inputs, "strength", ltxImageStrength(tuning));
+                    putIfPresent(inputs, "motion_bucket_id", motionBucket(tuning));
                     break;
             }
+            injectGenericMotionControls(inputs, tuning);
         }
-        log.debug("注入视频参数: width={}, height={}, frames={}, fps={}", width, height, frames, fps);
+        bindWanAdvancedControlNodes(workflow, auxiliaryReferenceCount, tuning);
+        rebalanceWanSamplerSteps(workflow, tuning.steps());
+        log.debug("注入视频参数: width={}, height={}, frames={}, fps={}, motionLevel={}, steps={}, cfg={}, shift={}",
+                width, height, frames, fps, tuning.motionLevel(), tuning.steps(), tuning.cfg(), tuning.shift());
+    }
+
+    private void putIfPresent(ObjectNode inputs, String fieldName, double value) {
+        if (inputs.has(fieldName)) {
+            inputs.put(fieldName, value);
+        }
+    }
+
+    private void putIfPresent(ObjectNode inputs, String fieldName, int value) {
+        if (inputs.has(fieldName)) {
+            inputs.put(fieldName, value);
+        }
+    }
+
+    private void putIfPresent(ObjectNode inputs, String fieldName, String value) {
+        if (inputs.has(fieldName) && hasText(value)) {
+            inputs.put(fieldName, value);
+        }
+    }
+
+    private double motionStrength(WorkflowTuning tuning) {
+        return switch (tuning.motionLevel()) {
+            case "high" -> 1.35d;
+            case "low" -> 0.82d;
+            default -> 1.08d;
+        };
+    }
+
+    private int motionBucket(WorkflowTuning tuning) {
+        return switch (tuning.motionLevel()) {
+            case "high" -> 160;
+            case "low" -> 88;
+            default -> 124;
+        };
+    }
+
+    private double ltxImageStrength(WorkflowTuning tuning) {
+        return switch (tuning.motionLevel()) {
+            case "high" -> 0.88d;
+            case "low" -> 0.97d;
+            default -> 0.93d;
+        };
+    }
+
+    private void injectGenericMotionControls(ObjectNode inputs, WorkflowTuning tuning) {
+        putIfPresent(inputs, "motion_strength", motionStrength(tuning));
+        putIfPresent(inputs, "motion_scale", motionStrength(tuning));
+        putIfPresent(inputs, "motion_guidance", motionStrength(tuning));
+        putIfPresent(inputs, "camera_motion", tuning.cameraMotion());
+        putIfPresent(inputs, "camera_move", tuning.cameraMotion());
+        putIfPresent(inputs, "control_strength", tuning.referenceStrength());
+        putIfPresent(inputs, "guidance_scale", tuning.cfg());
+    }
+
+    private void bindWanAdvancedControlNodes(ObjectNode workflow, int auxiliaryReferenceCount, WorkflowTuning tuning) {
+        if (shouldBypassWanReferenceEmbeds() || auxiliaryReferenceCount <= 0) {
+            return;
+        }
+
+        String baseEmbedNodeId = findFirstNodeId(workflow, "WanVideoImageToVideoEncode", "WanVideoEmptyEmbeds");
+        if (!hasText(baseEmbedNodeId)) {
+            return;
+        }
+
+        List<String> patchNodeIds = new ArrayList<>();
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (node.isObject() && isWanReferencePatchNode(node.path("class_type").asText(""))) {
+                patchNodeIds.add(entry.getKey());
+            }
+        }
+        if (patchNodeIds.isEmpty()) {
+            return;
+        }
+
+        String currentEmbedNodeId = baseEmbedNodeId;
+        int used = 0;
+        for (String nodeId : patchNodeIds) {
+            JsonNode node = workflow.path(nodeId);
+            if (!node.isObject()) {
+                continue;
+            }
+            ObjectNode inputs = (ObjectNode) node.path("inputs");
+            ArrayNode embeds = inputs.putArray("embeds");
+            embeds.add(currentEmbedNodeId);
+            embeds.add(0);
+            if (inputs.has("strength")) {
+                inputs.put("strength", used == 0 ? tuning.referenceStrength() : tuning.sceneReferenceStrength());
+            }
+            putIfPresent(inputs, "start_percent", 0.0d);
+            putIfPresent(inputs, "end_percent", "high".equals(tuning.motionLevel()) ? 0.82d : 1.0d);
+            currentEmbedNodeId = nodeId;
+            used++;
+            if (used >= Math.min(auxiliaryReferenceCount, patchNodeIds.size())) {
+                break;
+            }
+        }
+
+        if (used <= 0 || currentEmbedNodeId.equals(baseEmbedNodeId)) {
+            return;
+        }
+
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            JsonNode node = it.next().getValue();
+            if (!node.isObject()) {
+                continue;
+            }
+            String classType = node.path("class_type").asText("");
+            if ("WanVideoSampler".equals(classType) || "WanVideoSamplerv2".equals(classType)) {
+                ObjectNode inputs = (ObjectNode) node.path("inputs");
+                ArrayNode imageEmbeds = inputs.putArray("image_embeds");
+                imageEmbeds.add(currentEmbedNodeId);
+                imageEmbeds.add(0);
+            }
+        }
+        log.debug("已连接 Wan 参考控制节点: base={}, final={}, refCount={}", baseEmbedNodeId, currentEmbedNodeId, auxiliaryReferenceCount);
+    }
+
+    private void rebalanceWanSamplerSteps(ObjectNode workflow, int steps) {
+        List<ObjectNode> samplers = new ArrayList<>();
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            JsonNode node = it.next().getValue();
+            if (node.isObject()) {
+                String classType = node.path("class_type").asText("");
+                if ("WanVideoSampler".equals(classType) || "WanVideoSamplerv2".equals(classType)) {
+                    samplers.add((ObjectNode) node);
+                }
+            }
+        }
+        if (samplers.size() < 2) {
+            return;
+        }
+        int split = Math.max(1, steps / 2);
+        ObjectNode firstInputs = (ObjectNode) samplers.get(0).path("inputs");
+        ObjectNode secondInputs = (ObjectNode) samplers.get(1).path("inputs");
+        if (firstInputs.has("start_step")) {
+            firstInputs.put("start_step", 0);
+        }
+        if (firstInputs.has("end_step")) {
+            firstInputs.put("end_step", split);
+        }
+        if (secondInputs.has("start_step")) {
+            secondInputs.put("start_step", split);
+        }
+        if (secondInputs.has("end_step")) {
+            secondInputs.put("end_step", -1);
+        }
+    }
+
+    private String findFirstNodeId(ObjectNode workflow, String... classTypes) {
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (!node.isObject()) {
+                continue;
+            }
+            String classType = node.path("class_type").asText("");
+            for (String expected : classTypes) {
+                if (expected.equals(classType)) {
+                    return entry.getKey();
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean shouldBypassWanReferenceEmbeds() {
+        if (!hasText(extra)) {
+            return false;
+        }
+        try {
+            JsonNode extraJson = objectMapper.readTree(extra);
+            return extraJson.path("bypassWanReferenceEmbeds").asBoolean(false);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean shouldPatchWanControlnetStrength() {
+        if (!hasText(extra)) {
+            return true;
+        }
+        try {
+            JsonNode extraJson = objectMapper.readTree(extra);
+            return extraJson.path("patchWanControlnetStrength").asBoolean(true);
+        } catch (Exception ignored) {
+            return true;
+        }
+    }
+
+    private void bypassWanOneToAllReferenceEmbeds(ObjectNode workflow) {
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (!node.isObject()) {
+                continue;
+            }
+            String classType = node.path("class_type").asText("");
+            ObjectNode inputs = (ObjectNode) node.path("inputs");
+            if ("WanVideoSampler".equals(classType) || "WanVideoSamplerv2".equals(classType)) {
+                replaceWanEmbedLinkIfNeeded(workflow, inputs, "image_embeds", entry.getKey());
+            } else if (isWanReferencePatchNode(classType)) {
+                replaceWanEmbedLinkIfNeeded(workflow, inputs, "embeds", entry.getKey());
+            }
+        }
+    }
+
+    private void replaceWanEmbedLinkIfNeeded(ObjectNode workflow, ObjectNode inputs, String fieldName, String nodeId) {
+        JsonNode link = inputs.path(fieldName);
+        JsonNode resolved = resolveWanBaseEmbedLink(workflow, link);
+        if (resolved == link || !resolved.isArray() || resolved.size() < 2) {
+            return;
+        }
+        ArrayNode replacement = inputs.putArray(fieldName);
+        replacement.add(resolved.get(0).asText());
+        replacement.add(resolved.get(1).asInt());
+        log.info("已绕过 Wan 参考增强节点以兼容当前 WanVideoWrapper: node={}, field={}", nodeId, fieldName);
+    }
+
+    private JsonNode resolveWanBaseEmbedLink(ObjectNode workflow, JsonNode link) {
+        JsonNode current = link;
+        Set<String> visited = new LinkedHashSet<>();
+        while (current.isArray() && current.size() >= 2) {
+            String upstreamId = current.get(0).asText("");
+            if (!visited.add(upstreamId)) {
+                return current;
+            }
+            JsonNode upstream = workflow.path(upstreamId);
+            String upstreamClass = upstream.path("class_type").asText("");
+            if (!isWanReferencePatchNode(upstreamClass)) {
+                return current;
+            }
+            JsonNode next = upstream.path("inputs").path("embeds");
+            if (!next.isArray() || next.size() < 2) {
+                return current;
+            }
+            current = next;
+        }
+        return current;
+    }
+
+    private boolean isWanReferencePatchNode(String classType) {
+        return "WanVideoAddOneToAllReferenceEmbeds".equals(classType)
+                || "WanVideoAddOneToAllPoseEmbeds".equals(classType)
+                || "WanVideoAddSCAILReferenceEmbeds".equals(classType)
+                || "WanVideoAddSCAILPoseEmbeds".equals(classType);
+    }
+
+    private int workflowFrameRate(ObjectNode workflow) {
+        if (workflowContainsClass(workflow, "LTXVConditioning")) {
+            return 24;
+        }
+        if (workflowContainsClass(workflow, "WanVideoImageToVideoEncode")
+                || workflowContainsClass(workflow, "WanVideoSampler")) {
+            return 16;
+        }
+        return 8;
+    }
+
+    private boolean workflowContainsClass(ObjectNode workflow, String classType) {
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            JsonNode node = it.next().getValue();
+            if (node.isObject() && classType.equals(node.path("class_type").asText(""))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isSamplerNode(String classType) {
@@ -984,6 +1862,22 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return null;
     }
 
+    private int findClipOutputIndexForNegative(ObjectNode workflow) {
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            var entry = it.next();
+            JsonNode node = entry.getValue();
+            if (!node.isObject()) continue;
+            String classType = node.path("class_type").asText("");
+            if ("CLIPTextEncode".equals(classType)) {
+                JsonNode clip = node.path("inputs").path("clip");
+                if (clip.isArray() && clip.size() >= 2 && clip.get(1).canConvertToInt()) {
+                    return clip.get(1).asInt();
+                }
+            }
+        }
+        return 1;
+    }
+
     private String findMaxNodeId(ObjectNode workflow) {
         int max = 0;
         for (var it = workflow.fields(); it.hasNext(); ) {
@@ -997,9 +1891,14 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return String.valueOf(max);
     }
 
-    private String uploadImageIfRemote(String imageUrl) throws Exception {
+    private String uploadImageIfRemote(String imageUrl, int width, int height) throws Exception {
         if (!isHttpUrl(imageUrl)) {
             return imageUrl;
+        }
+        String cacheKey = apiBaseUrl + "|" + width + "x" + height + "|" + imageUrl;
+        String cached = UPLOAD_CACHE.get(cacheKey);
+        if (hasText(cached)) {
+            return cached;
         }
 
         HttpRequest downloadRequest = HttpRequest.newBuilder()
@@ -1013,8 +1912,15 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             throw new RuntimeException("下载图生视频输入图片失败: HTTP " + downloadResponse.statusCode());
         }
 
+        String contentType = downloadResponse.headers().firstValue("Content-Type").orElse(null);
+        String filename = resolveUploadFilename(imageUrl, contentType);
+        NormalizedImage normalized = normalizeVideoInputImage(imageBytes, width, height);
+        if (normalized != null) {
+            imageBytes = normalized.bytes();
+            filename = forcePngFilename(filename);
+        }
+
         String boundary = "----niren-comfyui-" + UUID.randomUUID().toString().replace("-", "");
-        String filename = resolveUploadFilename(imageUrl, downloadResponse.headers().firstValue("Content-Type").orElse(null));
         byte[] body = buildMultipartBody(boundary, filename, imageBytes);
         HttpRequest uploadRequest = HttpRequest.newBuilder()
                 .uri(URI.create(apiBaseUrl + "/upload/image"))
@@ -1033,7 +1939,76 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         if (!hasText(name)) {
             throw new RuntimeException("ComfyUI 上传图片未返回文件名: " + uploadResponse.body());
         }
-        return hasText(subfolder) ? subfolder + "/" + name : name;
+        String uploadedName = hasText(subfolder) ? subfolder + "/" + name : name;
+        if (UPLOAD_CACHE.size() > MAX_UPLOAD_CACHE_ENTRIES) {
+            UPLOAD_CACHE.clear();
+        }
+        UPLOAD_CACHE.put(cacheKey, uploadedName);
+        return uploadedName;
+    }
+
+    private record NormalizedImage(byte[] bytes) {}
+
+    private NormalizedImage normalizeVideoInputImage(byte[] imageBytes, int targetWidth, int targetHeight) {
+        if (imageBytes == null || imageBytes.length == 0 || targetWidth <= 0 || targetHeight <= 0) {
+            return null;
+        }
+        try {
+            BufferedImage source = ImageIO.read(new ByteArrayInputStream(imageBytes));
+            if (source == null) {
+                return null;
+            }
+            if (source.getWidth() == targetWidth && source.getHeight() == targetHeight) {
+                return null;
+            }
+
+            BufferedImage canvas = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = canvas.createGraphics();
+            try {
+                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setColor(Color.BLACK);
+                g.fillRect(0, 0, targetWidth, targetHeight);
+                drawScaledCentered(g, source, targetWidth, targetHeight, true);
+                g.setComposite(AlphaComposite.SrcOver.derive(0.72f));
+                g.setColor(Color.BLACK);
+                g.fillRect(0, 0, targetWidth, targetHeight);
+                g.setComposite(AlphaComposite.SrcOver);
+                drawScaledCentered(g, source, targetWidth, targetHeight, false);
+            } finally {
+                g.dispose();
+            }
+
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            if (!ImageIO.write(canvas, "png", out)) {
+                return null;
+            }
+            return new NormalizedImage(out.toByteArray());
+        } catch (Exception e) {
+            log.warn("视频参考图归一化失败，将上传原图: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void drawScaledCentered(Graphics2D g, BufferedImage image, int targetWidth, int targetHeight, boolean cover) {
+        double xScale = targetWidth * 1.0d / image.getWidth();
+        double yScale = targetHeight * 1.0d / image.getHeight();
+        double scale = cover ? Math.max(xScale, yScale) : Math.min(xScale, yScale);
+        int drawWidth = Math.max(1, (int) Math.round(image.getWidth() * scale));
+        int drawHeight = Math.max(1, (int) Math.round(image.getHeight() * scale));
+        int x = (targetWidth - drawWidth) / 2;
+        int y = (targetHeight - drawHeight) / 2;
+        g.drawImage(image, x, y, drawWidth, drawHeight, null);
+    }
+
+    private String forcePngFilename(String filename) {
+        String base = hasText(filename) ? filename : UUID.randomUUID().toString().replace("-", "");
+        int dot = base.lastIndexOf('.');
+        if (dot > 0) {
+            base = base.substring(0, dot);
+        }
+        return base + ".png";
     }
 
     private byte[] buildMultipartBody(String boundary, String filename, byte[] imageBytes) {
@@ -1088,6 +2063,90 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         return sb.toString();
     }
 
+    private OutputInfo findOutputInfo(JsonNode outputs) {
+        if (outputs == null || !outputs.isObject()) {
+            return null;
+        }
+        for (var it = outputs.fields(); it.hasNext(); ) {
+            JsonNode output = it.next().getValue();
+            OutputInfo info = firstOutputInfo(output.path("gifs"));
+            if (info != null) {
+                return info;
+            }
+            info = firstOutputInfo(output.path("videos"));
+            if (info != null) {
+                return info;
+            }
+            info = firstOutputInfo(output.path("images"));
+            if (info != null) {
+                return info;
+            }
+        }
+        return null;
+    }
+
+    private OutputInfo firstOutputInfo(JsonNode values) {
+        if (!values.isArray() || values.isEmpty()) {
+            return null;
+        }
+        JsonNode first = values.get(0);
+        String filename = first.path("filename").asText(null);
+        if (!hasText(filename)) {
+            return null;
+        }
+        return new OutputInfo(
+                filename,
+                first.path("type").asText("output"),
+                first.path("subfolder").asText(""));
+    }
+
+    private String compactComfyError(String raw) {
+        if (!hasText(raw)) {
+            return "未知错误";
+        }
+        String normalized = raw.replace('\n', ' ').replace('\r', ' ').replaceAll("\\s+", " ").trim();
+        String exceptionType = extractJsonString(normalized, "exception_type");
+        String exceptionMessage = extractJsonString(normalized, "exception_message");
+        String nodeId = extractJsonNumber(normalized, "node_id");
+        if (hasText(exceptionType) || hasText(exceptionMessage)) {
+            StringBuilder sb = new StringBuilder("ComfyUI");
+            if (hasText(exceptionType)) {
+                sb.append(" ").append(exceptionType);
+            }
+            if (hasText(nodeId)) {
+                sb.append(" node=").append(nodeId);
+            }
+            if (hasText(exceptionMessage)) {
+                sb.append(": ").append(exceptionMessage);
+            }
+            return truncateMessage(sb.toString(), 360);
+        }
+        if (normalized.contains("Sizes of tensors must match")) {
+            return truncateMessage("ComfyUI 参考图尺寸不一致: " + normalized, 360);
+        }
+        if (normalized.contains("controlnet_strength")) {
+            return "ComfyUI WanVideoWrapper 节点版本不兼容: 缺少 controlnet_strength";
+        }
+        return truncateMessage(normalized, 360);
+    }
+
+    private String extractJsonString(String text, String fieldName) {
+        Matcher matcher = Pattern.compile(String.format(JSON_STRING_FIELD.pattern(), Pattern.quote(fieldName))).matcher(text);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private String extractJsonNumber(String text, String fieldName) {
+        Matcher matcher = Pattern.compile(String.format(JSON_NUMBER_FIELD.pattern(), Pattern.quote(fieldName))).matcher(text);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private String truncateMessage(String message, int maxLength) {
+        if (!hasText(message) || message.length() <= maxLength) {
+            return message;
+        }
+        return message.substring(0, Math.max(0, maxLength - 3)) + "...";
+    }
+
     private OutputInfo pollForResult(String promptId) throws Exception {
         String historyUrl = apiBaseUrl + "/history/" + promptId;
         int attempt = 0;
@@ -1139,43 +2198,11 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             }
 
             JsonNode outputs = promptNode.path("outputs");
-            if (outputs.isObject()) {
-                for (var it = outputs.fields(); it.hasNext(); ) {
-                    var entry = it.next();
-                    JsonNode gifs = entry.getValue().path("gifs");
-                    if (gifs.isArray() && gifs.size() > 0) {
-                        JsonNode first = gifs.get(0);
-                        String filename = first.path("filename").asText(null);
-                        if (hasText(filename)) {
-                            String type = first.path("type").asText("output");
-                            String subfolder = first.path("subfolder").asText("");
-                            log.info("ComfyUI 视频生成完成, filename={}, type={}, subfolder={}", filename, type, subfolder);
-                            return new OutputInfo(filename, type, subfolder);
-                        }
-                    }
-                    JsonNode videos = entry.getValue().path("videos");
-                    if (videos.isArray() && videos.size() > 0) {
-                        JsonNode first = videos.get(0);
-                        String filename = first.path("filename").asText(null);
-                        if (hasText(filename)) {
-                            String type = first.path("type").asText("output");
-                            String subfolder = first.path("subfolder").asText("");
-                            log.info("ComfyUI 视频生成完成, filename={}, type={}, subfolder={}", filename, type, subfolder);
-                            return new OutputInfo(filename, type, subfolder);
-                        }
-                    }
-                    JsonNode images = entry.getValue().path("images");
-                    if (images.isArray() && images.size() > 0) {
-                        JsonNode first = images.get(0);
-                        String filename = first.path("filename").asText(null);
-                        if (hasText(filename)) {
-                            String type = first.path("type").asText("output");
-                            String subfolder = first.path("subfolder").asText("");
-                            log.info("ComfyUI 输出完成, filename={}, type={}, subfolder={}", filename, type, subfolder);
-                            return new OutputInfo(filename, type, subfolder);
-                        }
-                    }
-                }
+            OutputInfo outputInfo = findOutputInfo(outputs);
+            if (outputInfo != null) {
+                log.info("ComfyUI 视频生成完成, filename={}, type={}, subfolder={}",
+                        outputInfo.filename(), outputInfo.type(), outputInfo.subfolder());
+                return outputInfo;
             }
 
             JsonNode status = promptNode.path("status");
@@ -1184,7 +2211,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 if ("error".equalsIgnoreCase(statusStr)) {
                     JsonNode messages = status.path("messages");
                     String msg = messages.isArray() && messages.size() > 0
-                            ? messages.toString() : "未知错误";
+                            ? compactComfyError(messages.toString()) : "未知错误";
                     throw new RuntimeException("ComfyUI 视频任务执行失败: " + msg);
                 }
             }

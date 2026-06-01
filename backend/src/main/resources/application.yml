@@ -75,7 +75,7 @@ niren:
       provider: ${AI_VIDEO_PROVIDER:comfyui}
       base-url: ${AI_VIDEO_BASE_URL:http://127.0.0.1:8188}
       api-key: ${AI_VIDEO_API_KEY:}
-      model: ${AI_VIDEO_MODEL:ltx-2-19b-distilled.safetensors}
+      model: ${AI_VIDEO_MODEL:wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors}
     tts:
       provider: ${AI_TTS_PROVIDER:aliyun}
       base-url: ${AI_TTS_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
@@ -94,15 +94,23 @@ niren:
       backoff-ms: ${NIREN_IMAGE_RETRY_BACKOFF_MS:1200}
       concurrency-throttle-ms: ${NIREN_IMAGE_RETRY_THROTTLE_MS:220}
   dynamic-video:
-    timeout-minutes: ${NIREN_DYNAMIC_VIDEO_TIMEOUT_MINUTES:35}
+    timeout-minutes: ${NIREN_DYNAMIC_VIDEO_TIMEOUT_MINUTES:720}
+    chain:
+      enabled: ${NIREN_DYNAMIC_VIDEO_CHAIN_ENABLED:false}
+    reference:
+      # 预览止血默认只喂主首帧，避免 Wan 参考图尺寸/节点兼容问题；需要多参考时用环境变量或 extra.maxReferenceImages 放开。
+      max-images: ${NIREN_DYNAMIC_VIDEO_MAX_REFERENCE_IMAGES:1}
+    retry:
+      max-attempts: ${NIREN_DYNAMIC_VIDEO_RETRY_MAX_ATTEMPTS:2}
+      backoff-seconds: ${NIREN_DYNAMIC_VIDEO_RETRY_BACKOFF_SECONDS:8}
     poll:
       base-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_BASE_SECONDS:5}
       max-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_MAX_SECONDS:30}
   dynamic-priority:
-    # 目标动态镜头占比（主链路可看性优先，建议 0.95-1.0）
-    target-dynamic-ratio: ${NIREN_TARGET_DYNAMIC_RATIO:0.99}
-    # 是否默认把镜头按动态链路处理（除非明确手动关掉）
-    force-dynamic-by-default: ${NIREN_FORCE_DYNAMIC_BY_DEFAULT:true}
+    # 目标动态镜头占比；默认走推荐器的 20/70 左右，A 档关键镜头优先动态化。
+    target-dynamic-ratio: ${NIREN_TARGET_DYNAMIC_RATIO:0.29}
+    # 预览阶段不再默认全量动态化，避免一次构建把所有镜头都送进 Wan/LTX。
+    force-dynamic-by-default: ${NIREN_FORCE_DYNAMIC_BY_DEFAULT:false}
     # 动态镜头质量不理想时的最大重试次数（0=不重试）
     quality-max-retry: ${NIREN_DYNAMIC_QUALITY_MAX_RETRY:1}
   motion-tier:
@@ -118,11 +126,11 @@ niren:
       # 推荐最低分阈值：55 更容易凑齐20个；太高会推荐不足
       min-score-to-recommend: ${NIREN_DYNAMIC_RECOMMEND_MIN_SCORE:55}
   ffmpeg:
-    path: ${FFMPEG_PATH:D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffmpeg.exe}
-    ffprobe-path: ${FFPROBE_PATH:D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffprobe.exe}
+    path: ${FFMPEG_PATH:ffmpeg}
+    ffprobe-path: ${FFPROBE_PATH:ffprobe}
   compose:
-    # 单镜头内容时长上限（秒）。建议 4.5-5.0；过大容易“念小说感”，过小会切太碎。
-    max-shot-duration-seconds: 4.5
+    # 单镜头内容时长上限（秒）。小说旁白 + 关键镜头展示适合更长镜头，目标约 10 秒。
+    max-shot-duration-seconds: 10.0
     transition:
       # 默认转场时长（秒）。无明显情绪标签时使用；越小节奏越快。
       duration-seconds: ${COMPOSE_TRANSITION_DURATION:0.32}
@@ -197,6 +205,7 @@ niren:
       # 导出档位：preview（预览快）/publish（发布质感优先）。
       profile: ${COMPOSE_EXPORT_PROFILE:preview}
       preview:
+        video-codec: ${COMPOSE_EXPORT_PREVIEW_VIDEO_CODEC:h264_nvenc}
         # 预览编码速度档。越快越省时，画质略降。
         preset: ${COMPOSE_EXPORT_PREVIEW_PRESET:veryfast}
         # 预览 CRF。越大码率越低、体积越小、画质越低。
@@ -204,6 +213,7 @@ niren:
         # 预览音频码率。
         audio-bitrate: ${COMPOSE_EXPORT_PREVIEW_AUDIO_BITRATE:128k}
       publish:
+        video-codec: ${COMPOSE_EXPORT_PUBLISH_VIDEO_CODEC:libx264}
         # 发布编码速度档。越慢通常画质越稳、耗时越长。
         preset: ${COMPOSE_EXPORT_PUBLISH_PRESET:faster}
         # 发布 CRF。建议 17-20；越小画质越好体积越大。
@@ -220,10 +230,10 @@ niren:
       volume: ${COMPOSE_NARRATION_VOLUME:0.22}
       # 对白存在时是否自动压低旁白
       ducking-when-dialogue: ${COMPOSE_NARRATION_DUCKING_WHEN_DIALOGUE:true}
-      # 单段旁白最大时长（秒），避免长段抢戏
-      max-segment-seconds: ${COMPOSE_NARRATION_MAX_SEGMENT_SECONDS:3.5}
-      # 冲突镜头是否暂停旁白（遵循对白优先）
-      pause-on-conflict: ${COMPOSE_NARRATION_PAUSE_ON_CONFLICT:true}
+      # 单段旁白最大时长（秒），用于形成连续小说旁白轨。
+      max-segment-seconds: ${COMPOSE_NARRATION_MAX_SEGMENT_SECONDS:8.0}
+      # 冲突镜头是否暂停旁白；默认不中断，交给 ducking 自动让位。
+      pause-on-conflict: ${COMPOSE_NARRATION_PAUSE_ON_CONFLICT:false}
     mix:
       # 是否启用对白绝对优先混音策略
       dialogue-priority: ${COMPOSE_MIX_DIALOGUE_PRIORITY:true}

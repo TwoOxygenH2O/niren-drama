@@ -134,12 +134,13 @@ public class ComfyUiImageProvider implements ImageAiProvider {
     private ObjectNode buildWorkflow(String prompt, String size, String style, String negativePrompt) {
         String userExtra = null;
         String workflowFile = null;
+        ObjectNode inlineWorkflow = null;
         if (hasText(extra)) {
             try {
                 JsonNode extraJson = objectMapper.readTree(extra);
                 JsonNode workflowNode = extraJson.path("workflow");
                 if (workflowNode.isObject()) {
-                    return (ObjectNode) workflowNode.deepCopy();
+                    inlineWorkflow = (ObjectNode) workflowNode.deepCopy();
                 }
                 workflowFile = extraJson.path("workflowFile").asText(null);
                 userExtra = extraJson.path("extraPrompt").asText(null);
@@ -172,6 +173,12 @@ public class ComfyUiImageProvider implements ImageAiProvider {
                 ? negativePrompt
                 : "low quality, blurry, distorted, deformed, ugly, watermark, text";
 
+        if (inlineWorkflow != null) {
+            ComfyUiWorkflowLoader.injectPrompt(inlineWorkflow, fullPrompt);
+            injectImageWorkflowParams(inlineWorkflow, width, height, negPrompt);
+            return inlineWorkflow;
+        }
+
         // Try loading workflow template: explicit name → loadWorkflow; no name → loadDefaultWorkflow (user's ComfyUI first)
         ObjectNode template;
         if (hasText(workflowFile)) {
@@ -181,12 +188,49 @@ public class ComfyUiImageProvider implements ImageAiProvider {
         }
         if (template != null) {
             ComfyUiWorkflowLoader.injectPrompt(template, fullPrompt);
+            injectImageWorkflowParams(template, width, height, negPrompt);
             return template;
         }
 
         // Fallback to programmatic SDXL workflow
         String checkpointModel = resolveCheckpointModel();
         return buildSdxlWorkflow(fullPrompt, negPrompt, checkpointModel, width, height);
+    }
+
+    private void injectImageWorkflowParams(ObjectNode workflow, int width, int height, String negativePrompt) {
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            JsonNode node = it.next().getValue();
+            if (!node.isObject()) {
+                continue;
+            }
+            String classType = node.path("class_type").asText("");
+            if (!node.path("inputs").isObject()) {
+                continue;
+            }
+            ObjectNode inputs = (ObjectNode) node.path("inputs");
+            if ("EmptyLatentImage".equals(classType)
+                    || "EmptySD3LatentImage".equals(classType)
+                    || "EmptyLatentVideo".equals(classType)) {
+                inputs.put("width", width);
+                inputs.put("height", height);
+                if (inputs.has("batch_size")) {
+                    inputs.put("batch_size", 1);
+                }
+            } else if ("ImageScale".equals(classType)
+                    || "ImageResize".equals(classType)
+                    || "ImageResizeKJ".equals(classType)
+                    || "LatentUpscale".equals(classType)) {
+                if (inputs.has("width")) {
+                    inputs.put("width", width);
+                }
+                if (inputs.has("height")) {
+                    inputs.put("height", height);
+                }
+            }
+            if (inputs.has("negative_prompt") && inputs.path("negative_prompt").isTextual()) {
+                inputs.put("negative_prompt", negativePrompt);
+            }
+        }
     }
 
     private ObjectNode buildSdxlWorkflow(String prompt, String negativePrompt,

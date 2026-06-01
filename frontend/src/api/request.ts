@@ -21,10 +21,13 @@ const request = axios.create({
   baseURL: '/api',
   timeout: 120000,
   transformResponse: [(data) => {
+    if (data == null) return null
+    if (typeof data !== 'string') return data
+    if (!data.trim()) return null
     try {
       return safeJsonParse(data)
     } catch {
-      return JSON.parse(data)
+      return data
     }
   }],
 })
@@ -57,18 +60,23 @@ request.interceptors.response.use(
     const requestUrl = error.config?.url || ''
     if (error.response?.status === 401 && !requestUrl.includes('/auth/login')) {
       const userStore = useUserStore()
+      const payload = error.response?.data
+      const message = normalizeApiErrorMessage(payload?.message || '登录已过期，请重新登录', requestUrl)
+      ElMessage.error(message || '登录已过期，请重新登录')
       userStore.logout()
       window.location.href = '/login'
+      return Promise.reject(createBusinessError({ code: 401, message }, requestUrl))
     } else if (error.response?.status === 403) {
       const userStore = useUserStore()
       const payload = error.response?.data
-      const message = normalizeApiErrorMessage(payload?.message || error.message, requestUrl)
-      ElMessage.error(message || '无权限访问')
+      const message = normalizeApiErrorMessage(payload?.message || '登录已过期，请重新登录', requestUrl)
+      ElMessage.error(message || '登录已过期，请重新登录')
       userStore.logout()
       window.location.href = '/login'
       if (payload?.message) {
         return Promise.reject(createBusinessError({ ...payload, message }, requestUrl))
       }
+      return Promise.reject(createBusinessError({ code: 403, message }, requestUrl))
     } else {
       const payload = error.response?.data
       const message = normalizeApiErrorMessage(payload?.message || error.message, requestUrl)

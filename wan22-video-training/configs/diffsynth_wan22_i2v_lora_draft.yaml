@@ -1,0 +1,74 @@
+# Draft config for Wan2.2 I2V LoRA training with DiffSynth-Studio.
+# Convert this into the exact CLI/config syntax after installing the chosen
+# DiffSynth-Studio version and checking its examples/wanvideo scripts.
+
+run:
+  name: niren_wan22_i2v_short_drama_v001
+  base_workflow: backend/src/main/resources/comfyui/workflows/video_wan2_2_14B_i2v.json
+  output_dir: wan22-video-training/runs/niren_wan22_i2v_short_drama_v001
+
+dataset:
+  base_path: wan22-video-training/processed/wan_dataset
+  metadata_path: wan22-video-training/data/manifests/wan22_shot_manifest.v001.csv
+  data_file_keys: video,input_image
+  repeat: 20
+  num_workers: 2
+  train_split: train
+  val_split: val
+
+model:
+  trainer: DiffSynth-Studio
+  training_script: examples/wanvideo/model_training/train.py
+  family: Wan2.2-I2V-A14B
+  model_paths_json:
+    - ["D:/models/Wan2.2/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors"]
+    - ["D:/models/Wan2.2/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors"]
+    - "D:/models/Wan2.2/wan_2.1_vae.safetensors"
+    - "D:/models/Wan2.2/umt5-xxl-enc-bf16.safetensors"
+  tokenizer_path: ""
+
+training:
+  trainable_models: ""
+  lora_base_model: dit
+  lora_target_modules: to_q,to_k,to_v
+  lora_rank: 16
+  batch_size: 1
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0001
+  num_epochs: 20
+  height: 1280
+  width: 720
+  num_frames: 121
+  save_steps: 200
+  use_gradient_checkpointing: true
+  use_gradient_checkpointing_offload: false
+  enable_model_cpu_offload: false
+  enable_optimizer_cpu_offload: false
+  find_unused_parameters: true
+  fp8_models: ""
+
+low_vram_fallback:
+  height: 832
+  width: 480
+  num_frames: 81
+  lora_rank: 8
+  batch_size: 1
+  gradient_accumulation_steps: 1
+  use_gradient_checkpointing_offload: true
+  enable_model_cpu_offload: true
+  fp8_models: text_encoder,vae
+
+validation:
+  prompts: wan22-video-training/data/manifests/wan22_validation_prompts.v001.jsonl
+  lora_strengths:
+    - 0.35
+    - 0.55
+    - 0.75
+  acceptance:
+    aspect_ratio_pass_rate: 0.98
+    black_frame_rate_max: 0.02
+    frozen_frame_rate_max: 0.05
+    identity_pass_rate: 0.85
+    costume_pass_rate: 0.85
+    no_extra_person_pass_rate: 0.90
+    manual_accept_rate: 0.75

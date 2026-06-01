@@ -2,11 +2,11 @@
 # Niren Drama - Quick start/restart from project root
 set -e
 
+export PATH="/usr/bin:/bin:/mingw64/bin:/d/apache-maven-3.9.16/bin:/d/software/nodejs:$PATH"
+
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_PORT=8080
 FRONTEND_PORT=5173
-
-export PATH="/d/apache-maven-3.9.16/bin:/d/software/nodejs:$PATH"
 
 echo "============================================"
 echo "  Niren Drama - Start / Restart"
@@ -51,7 +51,7 @@ echo "       PID: $BACKEND_PID, log: /tmp/niren-backend.log"
 # ---- start frontend ----
 echo "[START] Frontend (Vite :$FRONTEND_PORT)"
 cd "$PROJECT_DIR/frontend"
-npm run dev > /tmp/niren-frontend.log 2>&1 &
+npm run dev -- --host 0.0.0.0 > /tmp/niren-frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo "       PID: $FRONTEND_PID, log: /tmp/niren-frontend.log"
 

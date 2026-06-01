@@ -23,7 +23,7 @@
               tabindex="-1"
               @keydown.enter.prevent="goFromInspiration"
             />
-            <button type="button" class="inspire-submit" title="开始创作" @click.stop="goFromInspiration">
+            <button type="button" class="inspire-submit" title="开始创作" aria-label="开始创作" @click.stop="goFromInspiration">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="12" y1="19" x2="12" y2="5" />
                 <polyline points="5 12 12 5 19 12" />
@@ -53,34 +53,76 @@
               />
             </div>
 
+            <div class="creation-controls" aria-label="创作设置">
+              <label class="creation-field">
+                <span>题材</span>
+                <el-select v-model="selectedGenre" size="small" popper-class="dashboard-genre-dropdown">
+                  <el-option
+                    v-for="item in GENRE_OPTIONS"
+                    :key="item.value"
+                    :value="item.value"
+                    :label="item.label"
+                  />
+                </el-select>
+              </label>
+              <div class="creation-field">
+                <span>平台</span>
+                <div class="creation-segment" aria-label="目标平台">
+                  <button
+                    v-for="item in PLATFORM_PROFILE_OPTIONS"
+                    :key="item.value"
+                    type="button"
+                    :class="{ active: platformProfile === item.value }"
+                    @click="setPlatformProfile(item.value)"
+                  >
+                    {{ item.label }}
+                  </button>
+                </div>
+              </div>
+              <div class="creation-field">
+                <span>质量</span>
+                <div class="creation-segment" aria-label="生成意图">
+                  <button
+                    v-for="item in PRODUCTION_MODE_OPTIONS"
+                    :key="item.value"
+                    type="button"
+                    :class="{ active: productionMode === item.value }"
+                    @click="setProductionMode(item.value)"
+                  >
+                    {{ item.label }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div class="composer-toolbar">
-              <div class="toolbar-icons" aria-hidden="true">
-                <button type="button" class="tool-ico" title="附件">
+              <div class="toolbar-icons">
+                <button type="button" class="tool-ico" title="附件" aria-label="附件">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
                   </svg>
                 </button>
-                <button type="button" class="tool-ico" title="素材">
+                <button type="button" class="tool-ico" title="素材" aria-label="素材">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                     <path d="M12 2l9 5v10l-9 5-9-5V7l9-5z" />
                     <path d="M12 22V12M12 12L3 7M12 12l9-5" />
                   </svg>
                 </button>
-                <button type="button" class="tool-ico" title="提及">
+                <button type="button" class="tool-ico" title="提及" aria-label="提及">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                     <circle cx="12" cy="12" r="4" />
                     <path d="M16 8v5a4 4 0 01-8 0v-1" />
                     <path d="M16 12h1.5a2.5 2.5 0 010 5H17" />
                   </svg>
                 </button>
-                <button type="button" class="tool-ico" title="对话">
+                <button type="button" class="tool-ico" title="对话" aria-label="对话">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                     <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 018.5-8.5h.5a8.48 8.48 0 018 8.5z" />
                   </svg>
                 </button>
               </div>
               <div class="toolbar-center">
-                <button type="button" class="mode-pill" title="当前默认文生视频模型（来自 AI 配置）">
+                <button type="button" class="mode-pill" title="当前默认文生视频模型（来自 AI 配置）" aria-label="当前默认文生视频模型">
                   <span class="mode-pill-text">{{ videoModelLabel }}</span>
                   <span class="mode-pill-new">NEW</span>
                 </button>
@@ -90,7 +132,7 @@
                 <el-select v-model="episodeCount" size="small" style="width: 68px" popper-class="episode-count-dropdown">
                   <el-option v-for="n in 40" :key="n" :value="n" :label="`${n}集`" />
                 </el-select>
-                <button type="button" class="send-pill" title="生成 / 前往项目" @click="goFromInspiration">
+                <button type="button" class="send-pill" title="生成 / 前往项目" aria-label="生成并进入项目" @click="goFromInspiration">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="12" y1="19" x2="12" y2="5" />
                     <polyline points="5 12 12 5 19 12" />
@@ -148,19 +190,36 @@ import { useUserStore } from '@/stores/user'
 import { aiConfigApi } from '@/api/aiConfig'
 import { projectApi } from '@/api/project'
 import { DASHBOARD_COLLAPSE_COMPOSER } from '@/constants/dashboard'
-import { DEFAULT_PROJECT_TYPE } from '@/constants/project'
+import {
+  DEFAULT_GENRE,
+  DEFAULT_PLATFORM_PROFILE,
+  DEFAULT_PRODUCTION_MODE,
+  DEFAULT_PROJECT_TYPE,
+  GENRE_OPTIONS,
+  PLATFORM_PROFILE_OPTIONS,
+  PRODUCTION_MODE_OPTIONS,
+} from '@/constants/project'
+
+type PlatformProfile = 'douyin' | 'hongguo'
+type ProductionMode = 'preview' | 'publish'
 
 const router = useRouter()
 const userStore = useUserStore()
 const inspiration = ref('')
 const expanded = ref(false)
 const episodeCount = ref(20)
+const selectedGenre = ref(DEFAULT_GENRE)
+const platformProfile = ref<PlatformProfile>(DEFAULT_PLATFORM_PROFILE as PlatformProfile)
+const productionMode = ref<ProductionMode>(DEFAULT_PRODUCTION_MODE as ProductionMode)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const videoModelName = ref('')
 const creatingProject = ref(false)
 
 const INSPIRATION_KEY = 'niren.dashboard.inspiration'
 const EPISODE_COUNT_KEY = 'niren.dashboard.episodeCount'
+const GENRE_KEY = 'niren.dashboard.genre'
+const PLATFORM_PROFILE_KEY = 'niren.dashboard.platformProfile'
+const PRODUCTION_MODE_KEY = 'niren.dashboard.productionMode'
 
 /** 与 AI 配置中心「文生视频」默认项的模型名称一致 */
 const videoModelLabel = computed(() => {
@@ -224,6 +283,18 @@ onMounted(() => {
       const n = parseInt(saved, 10)
       if (n >= 1 && n <= 40) episodeCount.value = n
     }
+    const savedGenre = sessionStorage.getItem(GENRE_KEY)
+    if (savedGenre && GENRE_OPTIONS.some((item) => item.value === savedGenre)) {
+      selectedGenre.value = savedGenre
+    }
+    const savedPlatform = sessionStorage.getItem(PLATFORM_PROFILE_KEY)
+    if (savedPlatform === 'douyin' || savedPlatform === 'hongguo') {
+      platformProfile.value = savedPlatform
+    }
+    const savedMode = sessionStorage.getItem(PRODUCTION_MODE_KEY)
+    if (savedMode === 'preview' || savedMode === 'publish') {
+      productionMode.value = savedMode
+    }
   } catch { /* ignore */ }
   window.addEventListener(DASHBOARD_COLLAPSE_COMPOSER, onExternalCollapse)
   window.addEventListener('wheel', onWindowWheel, { passive: true })
@@ -238,6 +309,14 @@ function onWrapClick() {
   if (!expanded.value) expandComposer()
 }
 
+function setPlatformProfile(value: PlatformProfile) {
+  platformProfile.value = value
+}
+
+function setProductionMode(value: ProductionMode) {
+  productionMode.value = value
+}
+
 async function goFromInspiration() {
   const text = inspiration.value.trim()
   if (!text) {
@@ -247,6 +326,9 @@ async function goFromInspiration() {
   try {
     sessionStorage.setItem(EPISODE_COUNT_KEY, String(episodeCount.value))
     sessionStorage.setItem(INSPIRATION_KEY, text)
+    sessionStorage.setItem(GENRE_KEY, selectedGenre.value)
+    sessionStorage.setItem(PLATFORM_PROFILE_KEY, platformProfile.value)
+    sessionStorage.setItem(PRODUCTION_MODE_KEY, productionMode.value)
   } catch {
     /* ignore */
   }
@@ -259,7 +341,7 @@ async function goFromInspiration() {
       name: text.length > 40 ? `${text.slice(0, 37)}…` : text,
       description: text,
       projectType: DEFAULT_PROJECT_TYPE,
-      genre: '',
+      genre: selectedGenre.value || DEFAULT_GENRE,
       episodes,
       episodeDuration: 60,
     })
@@ -476,6 +558,72 @@ async function goFromInspiration() {
   align-items: flex-start;
   gap: 8px;
   margin-bottom: 14px;
+}
+
+.creation-controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto auto;
+  align-items: end;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.creation-field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.creation-field > span {
+  color: rgba(203, 213, 225, 0.82);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.creation-segment {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.creation-segment button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.72);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.creation-segment button.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.creation-field :deep(.el-select) {
+  width: 100%;
+}
+
+.creation-field :deep(.el-input__wrapper) {
+  min-height: 34px;
+  background: rgba(0, 0, 0, 0.24);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+}
+
+.creation-field :deep(.el-input__inner) {
+  color: #f1f5f9;
+  font-weight: 700;
 }
 
 .composer-prefix {
@@ -733,6 +881,19 @@ async function goFromInspiration() {
 }
 
 @media (max-width: 640px) {
+  .creation-controls {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .creation-segment {
+    width: 100%;
+  }
+
+  .creation-segment button {
+    flex: 1;
+  }
+
   .feature-cards {
     grid-template-columns: 1fr;
   }

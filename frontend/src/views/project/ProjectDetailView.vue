@@ -15,8 +15,8 @@
         v-for="step in workflowSteps"
         :key="step.routeEnd"
         class="workflow-step"
-        :class="{ active: route.path.endsWith(step.routeEnd) }"
-        @click="$router.push(`/projects/${project.id}${step.routeEnd}`)"
+        :class="{ active: isStepActive(step) }"
+        @click="openWorkflowStep(step)"
       >
         <span class="wf-icon" v-html="step.icon"></span>
         <span class="wf-label">{{ step.label }}</span>
@@ -59,12 +59,13 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { projectApi } from '@/api/project'
 import { formatGenreLabel, formatProjectTypeLabel } from '@/constants/project'
 
 const route = useRoute()
+const router = useRouter()
 const project = ref<any>(null)
 
 const workflowSteps = [
@@ -73,10 +74,25 @@ const workflowSteps = [
   { icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>', label: '角色', routeEnd: '/characters' },
   { icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>', label: '场景', routeEnd: '/scenes' },
   { icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>', label: '素材库', routeEnd: '/assets' },
-  { icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>', label: '合成导出', routeEnd: '/synthesis' },
+  { icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>', label: '成片预览', routeEnd: '/immersive/workbench', query: { tab: 'video' } },
 ]
 
 const statusLabel = (s: string) => ({ draft: '草稿', generating: '生成中', completed: '已完成', failed: '失败' }[s] || s)
+
+function openWorkflowStep(step: any) {
+  if (!project.value?.id) return
+  router.push({
+    path: `/projects/${project.value.id}${step.routeEnd}`,
+    query: step.query || {},
+  })
+}
+
+function isStepActive(step: any) {
+  if (step.query?.tab === 'video') {
+    return route.path.endsWith(step.routeEnd) && route.query.tab === 'video'
+  }
+  return route.path.endsWith(step.routeEnd)
+}
 
 onMounted(async () => {
   try {
