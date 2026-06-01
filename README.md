@@ -38,7 +38,17 @@ reward = scoreGain - costPenalty - timePenalty - riskPenalty
 
 ### casr-core 独立算法仓库
 
-CASR 的核心领域模型、诊断器、奖励模型和策略搜索器已经抽取到独立算法仓库 `TwoOxygenH2O/casr-core`。当前项目通过 Maven 依赖 `com.twooxygen.casr:casr-engine:0.1.0-SNAPSHOT` 引用算法核心，`NirenCasrInputAdapter` 只负责把生产线实体转换为算法输入。这样可以同时满足两个目标：`casr-core` 作为可投稿、可压缩交付的算法 Demo；本项目作为真实短剧生产系统中的落地集成案例。
+CASR 的核心领域模型、诊断器、奖励模型和策略搜索器已经抽取到独立算法仓库 `TwoOxygenH2O/casr-core`。当前项目通过 Maven 依赖 `com.twooxygen.casr:casr-engine:0.1.0-SNAPSHOT` 引用算法核心，`NirenCasrInputAdapter` 只负责把生产线实体转换为算法输入。推荐的仓库边界是：`casr-core` 负责可复用算法库与轻量独立 Demo，本项目负责真实短剧生产系统中的落地集成。
+
+Maven 引用方式：
+
+```xml
+<dependency>
+    <groupId>com.twooxygen.casr</groupId>
+    <artifactId>casr-engine</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+</dependency>
+```
 
 本地开发时需要先在同级目录 `../casr-core` 执行：
 
@@ -48,25 +58,86 @@ mvn clean install
 
 安装完成后，当前项目后端即可解析 `casr-engine` 依赖。
 
-## CASR Demo 与论文
+Java 调用示例：
+
+```java
+import com.twooxygen.casr.domain.CasrInput;
+import com.twooxygen.casr.domain.CasrRunResult;
+import com.twooxygen.casr.engine.CasrDemoFixtures;
+import com.twooxygen.casr.engine.CasrEngine;
+
+CasrEngine engine = new CasrEngine();
+CasrInput input = CasrDemoFixtures.shortDramaCase();
+CasrRunResult result = engine.run(input);
+
+System.out.println(result.getPlan().getRecommendedOption().getId());
+```
+
+Python 和 Go 等非 JVM 语言建议通过 `casr-core` 的轻量 HTTP Demo 服务调用算法：
+
+```bash
+cd ../casr-core
+mvn -pl casr-demo-server -am spring-boot:run
+```
+
+Python 示例：
+
+```python
+import requests
+
+base_url = "http://localhost:8090/api"
+case = requests.get(f"{base_url}/demo-case", timeout=10).json()
+plan = requests.post(f"{base_url}/plan", json=case, timeout=10).json()
+
+print(plan["recommendedOption"]["id"])
+```
+
+Go 示例：
+
+```go
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
+)
+
+func main() {
+	baseURL := "http://localhost:8090/api"
+	resp, err := http.Get(baseURL + "/demo-case")
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+
+	var input map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&input); err != nil {
+		panic(err)
+	}
+
+	payload, _ := json.Marshal(input)
+	planResp, err := http.Post(baseURL+"/plan", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		panic(err)
+	}
+	defer planResp.Body.Close()
+
+	var plan map[string]any
+	if err := json.NewDecoder(planResp.Body).Decode(&plan); err != nil {
+		panic(err)
+	}
+
+	fmt.Println(plan["recommendedOption"])
+}
+```
+
+## CASR Demo 与研究材料
 
 项目提供一键创建 CASR 研究 Demo 的入口。登录后进入 Dashboard，点击“创建 CASR 研究 Demo”，系统会生成一个内置 7 个镜头、典型失败样例和一致性锚点的演示项目。进入生产线工作台后，可以查看 CASR 如何发现问题、生成策略树，并解释推荐修复路径。
 
-论文初稿位于：
-
-```text
-docs/papers/casr-short-drama-self-repair.md
-```
-
-论文包含英文标题和英文摘要，正文使用中文，覆盖摘要、引言、相关工作、方法、系统实现、实验设计、案例展示、局限性和结论。
-
-远程优先的投稿与研究材料位于：
-
-```text
-docs/submissions/remote-first/
-```
-
-该目录用于准备 arXiv 预印本、远程演示视频、技术报告说明和研究展示材料。当前路线不依赖现场参会、线下展位或必须到场的 Demo 环节。
+论文草稿、DOCX、预印本打包脚本和投稿辅助材料默认只在本地忽略目录维护，不进入公开仓库。公开 README 只保留算法说明、可运行 Demo、接口与复现实验入口；正式预印本发布后可在本节补充 arXiv 或会议页面链接。
 
 ## 技术架构
 
@@ -123,9 +194,7 @@ niren-drama/
 │       ├── router/
 │       ├── stores/
 │       └── views/
-├── docs/
-│   └── papers/
-│       └── casr-short-drama-self-repair.md
+├── docs/                       # 项目说明与工程记录
 ├── docker-compose.yml
 └── README.md
 ```
@@ -263,7 +332,7 @@ CASR 相关测试覆盖：
 - 后端工程能力：Spring Boot 分层架构、MyBatis-Plus、JWT、异步任务、FFmpeg 集成。
 - 前端工程能力：Vue 3、TypeScript、Element Plus、状态管理和复杂工作台 UI。
 - 算法工程能力：CASR 的质量评估、失败归因、成本敏感策略搜索和可解释展示。
-- 文档表达能力：README、论文初稿、Demo 流程和工程验证记录。
+- 文档表达能力：README、研究说明、Demo 流程和工程验证记录。
 
 ## 许可
 

@@ -65,6 +65,8 @@ settings-dialog.png
 test-regenerate-char.png
 wan22-workflow-loaded.png
 docs/superpowers/
+docs/papers/
+docs/submissions/
 docs/papers/*.docx
 docs/DEPLOYMENT.md
 docs/COST_OPTIMIZATION.md
