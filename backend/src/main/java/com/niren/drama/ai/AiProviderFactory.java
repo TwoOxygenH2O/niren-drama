@@ -12,6 +12,7 @@ import com.niren.drama.ai.impl.OpenAiTextProvider;
 import com.niren.drama.ai.impl.OpenAiTtsProvider;
 import com.niren.drama.entity.AiConfig;
 import com.niren.drama.mapper.AiConfigMapper;
+import com.niren.drama.service.AiConfigSecretCodec;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,7 @@ import org.springframework.stereotype.Component;
 public class AiProviderFactory {
 
     private final AiConfigMapper aiConfigMapper;
+    private final AiConfigSecretCodec secretCodec;
 
     @Value("${niren.ai.text.provider:openai}")
     private String defaultTextProvider;
@@ -139,7 +141,7 @@ public class AiProviderFactory {
         AiConfig config = getDefaultConfig(userId, configType);
         String provider = firstNonBlank(config != null ? config.getProvider() : null, getDefaultProvider(configType));
         String baseUrl = firstNonBlank(config != null ? config.getBaseUrl() : null, getConfiguredDefaultBaseUrl(configType));
-        String apiKey = firstNonBlank(config != null ? config.getApiKey() : null, getConfiguredDefaultApiKey(configType));
+        String apiKey = firstNonBlank(config != null ? secretCodec.decrypt(config.getApiKey()) : null, getConfiguredDefaultApiKey(configType));
         String model = firstNonBlank(config != null ? config.getModel() : null, getConfiguredDefaultModel(configType));
 
         if (!hasText(baseUrl)) {
