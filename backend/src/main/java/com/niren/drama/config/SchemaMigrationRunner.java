@@ -85,6 +85,32 @@ public class SchemaMigrationRunner implements ApplicationRunner {
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
         );
+        ensureTableExists(
+                "drama_casr_run",
+                """
+                CREATE TABLE IF NOT EXISTS drama_casr_run (
+                  id BIGINT NOT NULL PRIMARY KEY,
+                  project_id BIGINT NOT NULL,
+                  user_id BIGINT NOT NULL,
+                  run_type VARCHAR(40) NOT NULL,
+                  quality_score INT NULL,
+                  continuity_score INT NULL,
+                  overall_score INT NULL,
+                  failure_types LONGTEXT NULL,
+                  analysis_json LONGTEXT NULL,
+                  plan_json LONGTEXT NULL,
+                  recommended_action VARCHAR(120) NULL,
+                  estimated_cost DECIMAL(10, 4) NULL,
+                  estimated_savings DECIMAL(10, 4) NULL,
+                  status VARCHAR(30) NOT NULL DEFAULT 'ready',
+                  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                  update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  deleted INT NOT NULL DEFAULT 0,
+                  INDEX idx_casr_run_project (project_id, user_id, create_time),
+                  INDEX idx_casr_run_status (project_id, status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+        );
         ensureColumnExists(
                 "drama_project",
                 "common_info",

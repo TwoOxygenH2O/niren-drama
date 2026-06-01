@@ -153,6 +153,18 @@
             </span>
             短剧原创
           </button>
+          <button type="button" class="quick-chip quick-chip--casr" :disabled="creatingProject" @click="createCasrDemo">
+            <span class="quick-chip-ico quick-chip-ico--blue" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7h16" />
+                <path d="M6 17h12" />
+                <path d="M8 7a4 4 0 018 0" />
+                <path d="M10 17a2 2 0 014 0" />
+                <path d="M12 11v2" />
+              </svg>
+            </span>
+            创建 CASR 研究 Demo
+          </button>
         </div>
 
         <div class="feature-cards">
@@ -189,6 +201,7 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { aiConfigApi } from '@/api/aiConfig'
 import { projectApi } from '@/api/project'
+import { productionApi } from '@/api/production'
 import { DASHBOARD_COLLAPSE_COMPOSER } from '@/constants/dashboard'
 import {
   DEFAULT_GENRE,
@@ -354,6 +367,26 @@ async function goFromInspiration() {
     await router.push(`/projects/${pid}/immersive`)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : '创建项目失败'
+    ElMessage.error(msg)
+  } finally {
+    creatingProject.value = false
+  }
+}
+
+async function createCasrDemo() {
+  if (creatingProject.value) return
+  creatingProject.value = true
+  try {
+    const res = await productionApi.createCasrDemo()
+    const data = (res as any).data?.data || {}
+    if (!data.projectId) {
+      ElMessage.error('CASR Demo 创建失败')
+      return
+    }
+    ElMessage.success('CASR 研究 Demo 已创建')
+    await router.push(data.route || `/projects/${data.projectId}/immersive/workbench`)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'CASR Demo 创建失败'
     ElMessage.error(msg)
   } finally {
     creatingProject.value = false
@@ -823,6 +856,11 @@ async function goFromInspiration() {
 }
 .quick-chip-ico--pink {
   background: linear-gradient(145deg, #f472b6, #db2777);
+  color: #fff;
+}
+
+.quick-chip-ico--blue {
+  background: linear-gradient(145deg, #38bdf8, #2563eb);
   color: #fff;
 }
 

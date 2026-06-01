@@ -2,6 +2,8 @@ package com.niren.drama.controller;
 
 import com.niren.drama.common.CurrentUserHelper;
 import com.niren.drama.common.Result;
+import com.niren.drama.service.CasrDemoService;
+import com.niren.drama.service.CasrWorkflowService;
 import com.niren.drama.service.ProductionWorkspaceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -19,6 +21,8 @@ import java.util.Map;
 public class ProductionController {
 
     private final ProductionWorkspaceService productionWorkspaceService;
+    private final CasrWorkflowService casrWorkflowService;
+    private final CasrDemoService casrDemoService;
     private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "获取短剧生产线工作台")
@@ -81,5 +85,37 @@ public class ProductionController {
                                                    @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = currentUserHelper.getUserId(userDetails);
         return Result.success(productionWorkspaceService.upsertBible(userId, projectId, body == null ? Map.of() : body));
+    }
+
+    @Operation(summary = "运行 CASR 连续性感知诊断")
+    @PostMapping("/{projectId}/casr/analyze")
+    public Result<Map<String, Object>> analyzeCasr(@PathVariable Long projectId,
+                                                   @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = currentUserHelper.getUserId(userDetails);
+        return Result.success(casrWorkflowService.analyze(userId, projectId));
+    }
+
+    @Operation(summary = "生成 CASR 自修复策略树")
+    @PostMapping("/{projectId}/casr/plan")
+    public Result<Map<String, Object>> planCasr(@PathVariable Long projectId,
+                                                @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = currentUserHelper.getUserId(userDetails);
+        return Result.success(casrWorkflowService.plan(userId, projectId));
+    }
+
+    @Operation(summary = "执行用户确认的 CASR 修复动作")
+    @PostMapping("/{projectId}/casr/execute")
+    public Result<Map<String, Object>> executeCasr(@PathVariable Long projectId,
+                                                   @RequestBody(required = false) Map<String, Object> body,
+                                                   @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = currentUserHelper.getUserId(userDetails);
+        return Result.success(casrWorkflowService.execute(userId, projectId, body == null ? Map.of() : body));
+    }
+
+    @Operation(summary = "创建 CASR 研究演示项目")
+    @PostMapping("/demo/casr")
+    public Result<Map<String, Object>> createCasrDemo(@AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = currentUserHelper.getUserId(userDetails);
+        return Result.success(casrDemoService.createDemo(userId));
     }
 }

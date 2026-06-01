@@ -224,6 +224,108 @@
             </div>
           </section>
 
+          <section class="work-panel casr-panel">
+            <div class="section-head compact">
+              <div>
+                <h2>CASR 自修复实验室</h2>
+                <p>连续性感知诊断、失败归因、成本敏感策略搜索</p>
+              </div>
+              <div class="casr-actions">
+                <button type="button" class="secondary-button" :disabled="!!casrLoading" @click="runCasrAnalyze">
+                  <el-icon><DocumentChecked /></el-icon>
+                  运行诊断
+                </button>
+                <button type="button" class="primary-button" :disabled="!!casrLoading" @click="runCasrPlan">
+                  <el-icon><Finished /></el-icon>
+                  策略搜索
+                </button>
+              </div>
+            </div>
+
+            <div v-if="!casrAnalysis" class="panel-empty">CASR 尚未运行</div>
+            <template v-else>
+              <div class="casr-score-grid">
+                <div>
+                  <span>结构质量</span>
+                  <b>{{ casrAnalysis.qualityScore }}</b>
+                </div>
+                <div>
+                  <span>连续性</span>
+                  <b>{{ casrAnalysis.continuityScore }}</b>
+                </div>
+                <div>
+                  <span>综合分</span>
+                  <b>{{ casrAnalysis.overallScore }}</b>
+                </div>
+                <div>
+                  <span>风险类型</span>
+                  <b>{{ casrFailureTypes.length }}</b>
+                </div>
+              </div>
+
+              <div v-if="casrFailureTypes.length" class="casr-chip-row">
+                <span v-for="item in casrFailureTypes" :key="item">{{ failureTypeLabel(item) }}</span>
+              </div>
+
+              <div class="casr-shot-graph">
+                <button
+                  v-for="shot in casrShotDiagnoses"
+                  :key="shot.shotId || shot.shotNo"
+                  type="button"
+                  :class="[`is-${shot.severity}`]"
+                  @click="shot.shotId && (selectedShotId = shot.shotId)"
+                >
+                  <span>镜头 {{ shot.shotNo || '-' }}</span>
+                  <b>{{ shot.overallScore || Math.round(((shot.qualityScore || 0) + (shot.continuityScore || 0)) / 2) }}</b>
+                  <small>{{ failureTypeLabel(shot.failureTypes?.[0]) || '通过' }}</small>
+                </button>
+              </div>
+
+              <div v-if="casrPlan" class="casr-policy">
+                <div class="casr-plan-head">
+                  <div>
+                    <span>推荐路径</span>
+                    <b>{{ casrRecommendedOption?.label || '未生成' }}</b>
+                  </div>
+                  <div>
+                    <span>预计节省</span>
+                    <b>{{ casrPlan.estimatedSavings || 0 }}</b>
+                  </div>
+                </div>
+                <div
+                  v-for="option in casrPlan.options || []"
+                  :key="option.id"
+                  class="casr-option"
+                  :class="{ active: casrSelectedOptionId === option.id }"
+                  @click="casrSelectedOptionId = option.id"
+                >
+                  <div class="casr-option-title">
+                    <span>{{ option.label }}</span>
+                    <b>reward {{ option.reward }}</b>
+                  </div>
+                  <p>{{ option.explanation }}</p>
+                  <div class="casr-option-metrics">
+                    <span>增益 {{ option.scoreGain }}</span>
+                    <span>成本 {{ option.costPenalty }}</span>
+                    <span>风险 {{ option.riskPenalty }}</span>
+                    <span>成功率 {{ Math.round((option.successProbability || 0) * 100) }}%</span>
+                  </div>
+                  <div class="casr-option-actions">
+                    <button
+                      v-for="action in option.actions || []"
+                      :key="`${option.id}-${action.action}`"
+                      type="button"
+                      :disabled="!!casrLoading"
+                      @click.stop="executeCasrAction(option.id, action.action)"
+                    >
+                      {{ action.label }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </section>
+
           <section class="work-panel release-panel">
             <div class="section-head compact">
               <h2>发布包</h2>
@@ -396,6 +498,10 @@ const mode = ref<Mode>(DEFAULT_PRODUCTION_MODE as Mode)
 const platformProfile = ref<PlatformProfile>(DEFAULT_PLATFORM_PROFILE as PlatformProfile)
 const issueSeverityFilter = ref<'all' | 'blocking' | 'warning' | 'info'>('all')
 const exportManifest = ref<any | null>(null)
+const casrAnalysis = ref<any | null>(null)
+const casrPlan = ref<any | null>(null)
+const casrLoading = ref('')
+const casrSelectedOptionId = ref('')
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 const PLATFORM_PROFILE_KEY = 'niren.dashboard.platformProfile'
@@ -418,6 +524,9 @@ const currentProfile = computed(() => (workspace.value?.exportProfiles || []).fi
 const healthVideoWorkflow = computed(() => workspace.value?.health?.videoConfig?.workflowFile || '')
 const videoRepairAction = computed(() => (mode.value === 'publish' ? 'switchWan' : 'switchLtx'))
 const noVideosReady = computed(() => shots.value.length > 0 && Number(summary.value.videoReady || 0) <= 0)
+const casrFailureTypes = computed<string[]>(() => Array.isArray(casrAnalysis.value?.failureTypes) ? casrAnalysis.value.failureTypes : [])
+const casrShotDiagnoses = computed<any[]>(() => Array.isArray(casrAnalysis.value?.shotDiagnoses) ? casrAnalysis.value.shotDiagnoses : [])
+const casrRecommendedOption = computed(() => casrPlan.value?.recommendedOption || null)
 const issueFilterOptions = [
   { label: '全部', value: 'all' as const },
   { label: '阻塞', value: 'blocking' as const },
@@ -588,6 +697,61 @@ async function runQualityCheck() {
   }
 }
 
+async function runCasrAnalyze() {
+  if (!projectId.value || casrLoading.value) return
+  casrLoading.value = 'analyze'
+  try {
+    const res = await productionApi.analyzeCasr(projectId.value)
+    const data = (res as any).data?.data || {}
+    casrAnalysis.value = data.analysis || null
+    casrPlan.value = null
+    casrSelectedOptionId.value = ''
+    ElMessage.success('CASR 诊断完成')
+  } catch (error: any) {
+    ElMessage.error(error?.message || 'CASR 诊断失败')
+  } finally {
+    casrLoading.value = ''
+  }
+}
+
+async function runCasrPlan() {
+  if (!projectId.value || casrLoading.value) return
+  casrLoading.value = 'plan'
+  try {
+    const res = await productionApi.planCasr(projectId.value)
+    const data = (res as any).data?.data || {}
+    casrAnalysis.value = data.analysis || null
+    casrPlan.value = data.plan || null
+    casrSelectedOptionId.value = data.plan?.recommendedOption?.id || data.plan?.options?.[0]?.id || ''
+    ElMessage.success('CASR 策略搜索完成')
+  } catch (error: any) {
+    ElMessage.error(error?.message || 'CASR 策略搜索失败')
+  } finally {
+    casrLoading.value = ''
+  }
+}
+
+async function executeCasrAction(optionId: string, actionId: string) {
+  if (!projectId.value || casrLoading.value) return
+  casrLoading.value = actionId
+  try {
+    const res = await productionApi.executeCasr(projectId.value, {
+      optionId,
+      actionIds: [actionId],
+    })
+    const data = (res as any).data?.data || {}
+    casrAnalysis.value = data.analysis || casrAnalysis.value
+    casrPlan.value = data.plan || casrPlan.value
+    casrSelectedOptionId.value = optionId
+    await loadWorkspace(true)
+    ElMessage.success('CASR 修复动作已提交')
+  } catch (error: any) {
+    ElMessage.error(error?.message || 'CASR 修复动作失败')
+  } finally {
+    casrLoading.value = ''
+  }
+}
+
 async function createSnapshot(shotIds: Array<string | number>) {
   if (!projectId.value || loadingAction.value) return
   loadingAction.value = 'snapshot'
@@ -658,6 +822,24 @@ function severityLabel(severity: string) {
     warning: '建议优化',
     info: '可忽略',
   } as Record<string, string>)[severity] || '待确认'
+}
+
+function failureTypeLabel(type?: string) {
+  if (!type) return ''
+  return ({
+    missing_first_frame: '缺首帧',
+    missing_media: '素材缺失',
+    identity_drift_risk: '身份漂移',
+    wardrobe_drift_risk: '服装漂移',
+    scene_drift_risk: '场景漂移',
+    motion_failure: '运动失败',
+    black_frame: '黑屏',
+    frozen_frame: '冻结',
+    duration_out_of_range: '时长异常',
+    wrong_aspect_ratio: '比例异常',
+    video_task_failed: '视频失败',
+    stale_task: '陈旧任务',
+  } as Record<string, string>)[type] || type
 }
 
 function assetTypeLabel(type: string) {
@@ -1139,6 +1321,180 @@ button:disabled {
   gap: 12px;
 }
 
+.casr-panel {
+  grid-column: span 2;
+}
+
+.casr-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.casr-score-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.casr-score-grid div,
+.casr-plan-head div {
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--bg-muted);
+}
+
+.casr-score-grid span,
+.casr-plan-head span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.casr-score-grid b,
+.casr-plan-head b {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.casr-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.casr-chip-row span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.casr-shot-graph {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.casr-shot-graph button {
+  min-height: 82px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  padding: 9px;
+}
+
+.casr-shot-graph button.is-blocking {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.casr-shot-graph button.is-warning {
+  border-color: rgba(245, 158, 11, 0.55);
+}
+
+.casr-shot-graph span,
+.casr-shot-graph small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.casr-shot-graph b {
+  display: block;
+  margin: 6px 0 4px;
+  font-size: 20px;
+}
+
+.casr-policy {
+  margin-top: 12px;
+}
+
+.casr-plan-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.casr-plan-head b {
+  font-size: 13px;
+}
+
+.casr-option {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--bg-muted);
+  cursor: pointer;
+}
+
+.casr-option + .casr-option {
+  margin-top: 8px;
+}
+
+.casr-option.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.casr-option-title,
+.casr-option-metrics,
+.casr-option-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.casr-option-title {
+  justify-content: space-between;
+}
+
+.casr-option-title span {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.casr-option-title b,
+.casr-option-metrics span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.casr-option p {
+  margin: 6px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.casr-option-actions {
+  margin-top: 8px;
+}
+
+.casr-option-actions button {
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .panel-empty,
 .empty-state {
   min-height: 72px;
@@ -1472,6 +1828,10 @@ button:disabled {
   .lower-grid {
     grid-template-columns: 1fr;
   }
+
+  .casr-panel {
+    grid-column: auto;
+  }
 }
 
 @media (max-width: 860px) {
@@ -1514,6 +1874,11 @@ button:disabled {
 
   .shot-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .casr-score-grid,
+  .casr-plan-head {
+    grid-template-columns: 1fr 1fr;
   }
 }
 </style>

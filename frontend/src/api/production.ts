@@ -9,6 +9,11 @@ export type ProductionRepairPayload = {
   platformProfile?: 'douyin' | 'hongguo'
 }
 
+export type CasrExecutePayload = {
+  optionId: string
+  actionIds: string[]
+}
+
 export const productionApi = {
   getWorkspace: (projectId: number | string) =>
     request.get(`/production/${projectId}/workspace`),
@@ -30,4 +35,16 @@ export const productionApi = {
 
   upsertBible: (projectId: number | string, data: Record<string, any>) =>
     request.put(`/production/${projectId}/bible`, data),
+
+  analyzeCasr: (projectId: number | string) =>
+    request.post(`/production/${projectId}/casr/analyze`),
+
+  planCasr: (projectId: number | string) =>
+    request.post(`/production/${projectId}/casr/plan`),
+
+  executeCasr: (projectId: number | string, data: CasrExecutePayload) =>
+    request.post(`/production/${projectId}/casr/execute`, data),
+
+  createCasrDemo: () =>
+    request.post('/production/demo/casr'),
 }
