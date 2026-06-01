@@ -74,8 +74,12 @@
         <el-button size="small" @click="clearTextOverrides" :loading="selectionLoading" :disabled="!storyboards.length">
           一键清空覆盖恢复自动派生
         </el-button>
-        <el-button size="small" type="primary" @click="$router.push(`/projects/${route.params.id}/synthesis`)">
-          前往合成导出 <el-icon class="ml-1"><ArrowRight /></el-icon>
+        <el-button
+          size="small"
+          type="primary"
+          @click="$router.push({ path: `/projects/${route.params.id}/immersive/workbench`, query: { tab: 'video' } })"
+        >
+          前往成片预览 <el-icon class="ml-1"><ArrowRight /></el-icon>
         </el-button>
       </div>
     </el-card>

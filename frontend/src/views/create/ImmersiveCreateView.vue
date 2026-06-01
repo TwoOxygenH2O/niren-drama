@@ -2,7 +2,7 @@
   <div class="immersive-root">
     <header class="immersive-top">
       <div class="immersive-top-left">
-      <button type="button" class="top-logo" title="返回剧集列表" @click="goProjectEpisodes">
+      <button type="button" class="top-logo" title="返回剧集列表" aria-label="返回剧集列表" @click="goProjectEpisodes">
         <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true">
           <path
             d="M8 6c0-1.1.9-2 2-2h6a6 6 0 016 6v4a4 4 0 01-4 4h-4a2 2 0 00-2 2v6a2 2 0 01-2 2H6a2 2 0 01-2-2V18c0-2.2 1.8-4 4-4h4a2 2 0 002-2V8a2 2 0 00-2-2H8z"
@@ -27,12 +27,12 @@
           v-if="hasAnyShotVideo"
           type="button"
           class="top-compose-btn"
-          @click="goSynthesis"
+          @click="goPreview"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="5,3 19,12 5,21" />
           </svg>
-          视频合成
+          成片预览
         </button>
         <button type="button" class="vip-link" @click="noopVip">开通会员</button>
         <button type="button" class="icon-btn" title="通知" aria-label="通知" @click="noopBell">
@@ -54,13 +54,14 @@
               type="button"
               class="episode-dot"
               :class="{ active: ep === activeEpisode }"
+              :aria-label="`切换到第 ${ep} 集`"
               @click="activeEpisode = ep"
             >
               {{ String(ep).padStart(2, '0') }}
             </button>
           </div>
         </div>
-        <button type="button" class="episode-add" title="新增剧集" @click="openAddEpisodeDialog">
+        <button type="button" class="episode-add" title="新增剧集" aria-label="新增剧集" @click="openAddEpisodeDialog">
           +
         </button>
       </aside>
@@ -99,10 +100,10 @@
           <div v-if="outlineContent" class="outline-card">
             <pre v-if="generating" class="outline-plain">{{ outlinePlainDisplay }}</pre>
             <div v-else class="outline-md" v-html="outlineHtml" />
-            <div v-if="showOutlineConfirmActions" class="outline-card-actions">
+            <div v-if="showOutlineConfirmActions" class="outline-card-actions step-confirm-actions">
               <button
                 type="button"
-                class="btn-confirm-outline"
+                class="btn-confirm-step"
                 :disabled="outlineSaving || scriptWorkflowLoading"
                 @click="confirmOutline"
               >
@@ -124,14 +125,14 @@
           </div>
 
           <!-- 角色确认按钮 -->
-          <div v-if="charactersReady && !charactersConfirmed" class="chat-action-row">
+          <div v-if="charactersReady && !charactersConfirmed" class="chat-action-row step-confirm-actions">
             <button type="button" class="btn-confirm-step" @click="() => confirmCharacters()">
               确认角色，生成剧本
             </button>
           </div>
 
           <!-- 剧本确认按钮 -->
-          <div v-if="scriptReady && !scriptConfirmed" class="chat-action-row">
+          <div v-if="scriptReady && !scriptConfirmed" class="chat-action-row step-confirm-actions">
             <button type="button" class="btn-confirm-step" @click="confirmScript">
               确认剧本
             </button>
@@ -142,7 +143,7 @@
 
         <div class="composer-bottom">
           <div class="composer-inner">
-            <button type="button" class="attach-btn" title="附件" @click="noopAttach">
+            <button type="button" class="attach-btn" title="附件" aria-label="附件" @click="noopAttach">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
               </svg>
@@ -164,6 +165,7 @@
                 (workflowPhase === 'outline' && !outlineContent.trim())
               "
               title="发送（Cmd/Ctrl + Enter）"
+              aria-label="发送"
               @click="sendFollowUp"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -181,7 +183,7 @@
             <span class="plan-ep-badge">第 {{ String(activeEpisode).padStart(2, '0') }} 集</span>
             <h2 class="plan-title">{{ activePlanScript?.title || '—' }}</h2>
             <p class="plan-ai-note">内容由 AI 生成</p>
-            <button type="button" class="plan-close-btn" title="收起策划栏" @click="workflowPhase = 'outline'">✕</button>
+            <button type="button" class="plan-close-btn" title="收起策划栏" aria-label="收起策划栏" @click="workflowPhase = 'outline'">✕</button>
           </header>
 
           <div v-if="scriptWorkflowLoading" class="plan-loading">
@@ -275,7 +277,7 @@
             popper-class="shot-select-popover"
           >
             <template #reference>
-              <button type="button" class="btn-shot-select" :class="{ 'has-selection': selectedShotIds.length > 0 && !allSelected }">
+              <button type="button" class="btn-shot-select" aria-label="选择生成镜头" :class="{ 'has-selection': selectedShotIds.length > 0 && !allSelected }">
                 {{ shotSelectLabel }}
                 <span class="btn-shot-select-arrow">▾</span>
               </button>
@@ -296,7 +298,7 @@
                 >
                   <span class="shot-select-item-no">镜头 {{ shot.shotNo }}</span>
                   <span v-if="shot.videoUrl" class="shot-select-item-status shot-select-item-status--done">已有视频</span>
-                  <span v-else-if="shot.dynamicSelected" class="shot-select-item-status">动态</span>
+                  <span v-else class="shot-select-item-status">动态</span>
                 </el-checkbox>
               </el-checkbox-group>
             </div>
@@ -372,7 +374,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { characterApi } from '@/api/character'
@@ -483,6 +485,9 @@ const hasProjectVideo = ref(false)
 const mediaSubmitLoading = ref(false)
 const mediaTaskProgress = ref(0)
 const mediaTaskMessage = ref('')
+const activeMediaTaskId = ref('')
+let mediaPollTimer: ReturnType<typeof setTimeout> | null = null
+const VIDEO_TASK_POLL_TIMEOUT_MS = 12 * 60 * 60 * 1000
 /** 剧集切换或重复调度时递增，用于取消过期的分镜拉取/生成流程 */
 let sbEnsureGeneration = 0
 
@@ -491,20 +496,68 @@ const videoPromptsOpen = ref(false)
 /** 只要有任意分镜已生成视频，就展示合成入口 */
 const hasAnyShotVideo = computed(() => episodeShots.value.some((s: any) => s.videoUrl))
 
-function goSynthesis() {
-  router.push({ path: `/projects/${projectId.value}/synthesis` })
+function goPreview() {
+  router.push({
+    path: `/projects/${projectId.value}/immersive/workbench`,
+    query: { episode: String(activeEpisode.value), tab: 'video' },
+  })
+}
+
+function clearMediaTaskState() {
+  if (mediaPollTimer) {
+    clearTimeout(mediaPollTimer)
+    mediaPollTimer = null
+  }
+  activeMediaTaskId.value = ''
+  mediaSubmitLoading.value = false
+  mediaTaskProgress.value = 0
+  mediaTaskMessage.value = ''
 }
 
 /** 分镜视频生成 - 镜头多选 */
 const episodeShots = ref<any[]>([])
 const selectedShotIds = ref<string[]>([])
 const allShotIds = computed(() => episodeShots.value.map((s: any) => String(s.id)))
+const pendingVideoShotIds = computed(() => episodeShots.value.filter((s: any) => !s.videoUrl).map((s: any) => String(s.id)))
+const defaultVideoShotIds = computed(() => pendingVideoShotIds.value.length > 0 ? pendingVideoShotIds.value : allShotIds.value)
 const allSelected = computed(() => episodeShots.value.length > 0 && selectedShotIds.value.length === episodeShots.value.length)
 const shotSelectLabel = computed(() => {
   if (!selectedShotIds.value.length) return '选择镜头'
   if (allSelected.value) return `全部 ${episodeShots.value.length} 镜`
   return `已选 ${selectedShotIds.value.length} / ${episodeShots.value.length} 镜`
 })
+
+function dedupeAndSortShots(shots: any[]) {
+  const byShotNo = new Map<string, any>()
+  for (const shot of shots) {
+    const key = shot?.shotNo != null ? String(shot.shotNo) : String(shot?.id ?? byShotNo.size)
+    const prev = byShotNo.get(key)
+    const prevId = Number(prev?.id || 0)
+    const nextId = Number(shot?.id || 0)
+    if (!prev || nextId >= prevId) {
+      byShotNo.set(key, shot)
+    }
+  }
+  return Array.from(byShotNo.values()).sort((a: any, b: any) => {
+    const shotDiff = (Number(a.shotNo) || 0) - (Number(b.shotNo) || 0)
+    if (shotDiff !== 0) return shotDiff
+    return (Number(a.id) || 0) - (Number(b.id) || 0)
+  })
+}
+
+function pickCurrentEpisodeShots(allShots: any[], scriptId: string) {
+  const exactScriptShots = allShots.filter((shot: any) => shot?.scriptId != null && String(shot.scriptId) === scriptId)
+  const source = exactScriptShots.length > 0
+    ? exactScriptShots
+    : allShots.filter((shot: any) => Number(shot?.episodeNo) === Number(activeEpisode.value))
+  return dedupeAndSortShots(source)
+}
+
+function isAuthFlowError(error: unknown) {
+  const err = error as { code?: unknown; message?: unknown }
+  const message = String(err?.message || '')
+  return err?.code === 401 || err?.code === 403 || message.includes('登录') || message.includes('无权限')
+}
 
 function toggleSelectAll() {
   if (allSelected.value) {
@@ -620,7 +673,7 @@ async function startOutlineStream() {
   }
 }
 
-async function pollTaskUntilDone(taskId: string, timeoutMs = 45 * 60 * 1000) {
+async function pollTaskUntilDone(taskId: string, timeoutMs = VIDEO_TASK_POLL_TIMEOUT_MS) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const ax = await taskApi.get(taskId)
@@ -657,11 +710,9 @@ async function loadEpisodeShots() {
   try {
     const res = await storyboardApi.listByProject(projectId.value)
     const all = (res as any).data?.data ?? []
-    episodeShots.value = all
-      .filter((s: any) => String(s.scriptId) === String(sid))
-      .sort((a: any, b: any) => (Number(a.shotNo) || 0) - (Number(b.shotNo) || 0))
-    // 默认选择第一个镜头
-    selectedShotIds.value = episodeShots.value.length > 0 ? [String(episodeShots.value[0].id)] : []
+    episodeShots.value = pickCurrentEpisodeShots(all, String(sid))
+    // 默认只选择未生成视频的镜头，避免误覆盖已经可用的分镜视频。
+    selectedShotIds.value = [...defaultVideoShotIds.value]
   } catch { episodeShots.value = []; selectedShotIds.value = [] }
 }
 
@@ -682,7 +733,7 @@ async function ensureEpisodeStoryboard() {
     const allRes = await storyboardApi.listByProject(projectId.value)
     if (gen !== sbEnsureGeneration) return
     const allStoryboards = (allRes as any).data?.data ?? []
-    const existing = allStoryboards.filter((s: any) => String(s.scriptId) === scriptId)
+    const existing = pickCurrentEpisodeShots(allStoryboards, scriptId)
     if (existing.length > 0) {
       episodeStoryboardReady.value = true
       await loadEpisodeShots()
@@ -698,7 +749,7 @@ async function ensureEpisodeStoryboard() {
 
     const verifyRes = await storyboardApi.listByProject(projectId.value)
     const allRows = (verifyRes as any).data?.data ?? []
-    const rows = allRows.filter((s: any) => String(s.scriptId) === scriptId)
+    const rows = pickCurrentEpisodeShots(allRows, scriptId)
     if (rows.length === 0) {
       throw new Error('分镜生成完成但未查到镜头，请稍后重试')
     }
@@ -771,23 +822,28 @@ async function onPrimaryVideoAction() {
   mediaSubmitLoading.value = true
   mediaTaskProgress.value = 0
   mediaTaskMessage.value = `正在提交 ${shotIds.length} 个镜头的视频生成任务…`
+  activeMediaTaskId.value = ''
+  if (mediaPollTimer) {
+    clearTimeout(mediaPollTimer)
+    mediaPollTimer = null
+  }
   try {
 
     const dynRes = await videoApi.generateStoryboardVideos(projectId.value, shotIds)
     const tid = extractTaskId(dynRes)
     if (!tid) throw new Error('未返回任务 ID')
+    activeMediaTaskId.value = tid
 
-    ElMessage.success('视频生成任务已提交，可在合成页查看进度')
+    ElMessage.success('视频生成任务已提交，可在成片预览查看进度')
     mediaTaskMessage.value = '视频生成中，请稍候…'
 
     // 非阻塞轮询：更新进度但不阻塞 UI
-    const deadline = Date.now() + 45 * 60 * 1000
+    const deadline = Date.now() + VIDEO_TASK_POLL_TIMEOUT_MS
     const poll = async () => {
-      if (!mediaSubmitLoading.value) return
+      if (!mediaSubmitLoading.value || activeMediaTaskId.value !== tid) return
       if (Date.now() > deadline) {
-        mediaSubmitLoading.value = false
-        mediaTaskMessage.value = ''
-        ElMessage.warning('视频生成超时，请到合成页查看进度')
+        clearMediaTaskState()
+        ElMessage.warning('视频生成轮询已达到 12 小时，请到成片预览查看进度')
         return
       }
       try {
@@ -795,29 +851,36 @@ async function onPrimaryVideoAction() {
         const task = ax.data?.data ?? ax.data
         mediaTaskProgress.value = Number(task?.progress ?? 0)
         mediaTaskMessage.value = task?.message || '视频生成中…'
-        if (task?.status === 'SUCCESS') {
-          mediaSubmitLoading.value = false
-          mediaTaskMessage.value = ''
-          await refreshVideoOverview()
+        const status = String(task?.status || '').toUpperCase()
+        if (status === 'SUCCESS') {
+          mediaTaskProgress.value = 100
+          mediaTaskMessage.value = task?.message || '视频生成完成'
+          await Promise.all([loadEpisodeShots(), refreshVideoOverview()])
+          clearMediaTaskState()
           router.push({
             path: `/projects/${projectId.value}/immersive/workbench`,
-            query: { episode: String(activeEpisode.value) },
+            query: { episode: String(activeEpisode.value), tab: 'video' },
           })
           return
         }
-        if (task?.status === 'FAILED') {
-          mediaSubmitLoading.value = false
-          mediaTaskMessage.value = ''
+        if (status === 'FAILED') {
+          clearMediaTaskState()
           ElMessage.error(task?.message || '视频生成失败')
           return
         }
-      } catch { /* ignore poll errors */ }
-      setTimeout(poll, 3000)
+      } catch (error) {
+        if (isAuthFlowError(error)) {
+          clearMediaTaskState()
+          ElMessage.error(error instanceof Error ? error.message : '登录已过期，请重新登录')
+          return
+        }
+        mediaTaskMessage.value = '正在同步视频生成进度…'
+      }
+      mediaPollTimer = setTimeout(poll, 3000)
     }
-    setTimeout(poll, 3000)
+    mediaPollTimer = setTimeout(poll, 3000)
   } catch (e: unknown) {
-    mediaSubmitLoading.value = false
-    mediaTaskMessage.value = ''
+    clearMediaTaskState()
     ElMessage.error(e instanceof Error ? e.message : '分镜视频生成失败')
   }
 }
@@ -1299,6 +1362,10 @@ onMounted(async () => {
   if (!outlineContent.value.trim() && workflowPhase.value === 'outline') {
     // 静默：新项目或从剧集入口进入时无大纲属正常状态，不弹 warning
   }
+})
+
+onUnmounted(() => {
+  clearMediaTaskState()
 })
 </script>
 
@@ -2041,30 +2108,9 @@ onMounted(async () => {
   box-shadow: var(--shadow-md);
 }
 .outline-card-actions {
-  display: flex;
-  justify-content: flex-end;
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
-}
-.btn-confirm-outline {
-  padding: 10px 22px;
-  border-radius: var(--radius-full);
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 700;
-  background: var(--primary);
-  color: #fff;
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-.btn-confirm-outline:hover:not(:disabled) {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-primary);
-}
-.btn-confirm-outline:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 /* 流式阶段：纯文本，避免 Markdown 每帧全量解析阻塞渲染 */
 .outline-plain {
@@ -2499,27 +2545,32 @@ onMounted(async () => {
   cursor: not-allowed;
 }
 
-/* 聊天区确认按钮行 */
-.chat-action-row {
+.step-confirm-actions {
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
   padding: 12px 0;
 }
 .btn-confirm-step {
-  padding: 10px 28px;
-  border-radius: 24px;
+  min-width: 132px;
+  min-height: 52px;
+  padding: 0 24px;
+  border-radius: 18px;
   border: none;
-  background: linear-gradient(135deg, var(--primary), #ec4899);
+  background: linear-gradient(135deg, #7c86ff, #6672f4);
   color: #fff;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
-  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 10px 24px rgba(99, 102, 241, 0.28);
 }
-.btn-confirm-step:hover {
+.btn-confirm-step:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 14px 30px rgba(99, 102, 241, 0.38);
+}
+.btn-confirm-step:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* 角色图片画廊 */

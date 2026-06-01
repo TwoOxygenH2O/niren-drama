@@ -1,5 +1,7 @@
 import request from './request'
 
+const VIDEO_DEBUG_TIMEOUT = 12 * 60 * 60 * 1000
+
 export const aiConfigApi = {
   list: () =>
     request.get('/ai-configs'),
@@ -21,8 +23,8 @@ export const aiConfigApi = {
     request.post('/ai-configs/debug/generate-image', data, { timeout: 240000 }),
 
   /** 图生视频调试：按当前账号解析的视频配置生成视频 */
-  debugGenerateImageToVideo: (data: { imageUrl: string; prompt?: string; duration?: number; resolution?: string; quality?: string; withSound?: boolean }) =>
-    request.post('/ai-configs/debug/generate-image-to-video', data, { timeout: 600000 }),
+  debugGenerateImageToVideo: (data: { imageUrl: string; referenceImageUrls?: string[]; prompt?: string; duration?: number; resolution?: string; quality?: string; withSound?: boolean }) =>
+    request.post('/ai-configs/debug/generate-image-to-video', data, { timeout: VIDEO_DEBUG_TIMEOUT }),
 
   /** 获取 ComfyUI 可用工作流模板列表 */
   listComfyUiWorkflows: () =>
@@ -31,4 +33,8 @@ export const aiConfigApi = {
   /** 获取指定 ComfyUI 工作流模板详情 */
   getComfyUiWorkflow: (name: string) =>
     request.get('/ai-configs/comfyui/workflow', { params: { name } }),
+
+  /** 提交 Wan2.2 LoRA 训练任务 */
+  trainWan22Lora: (id: number | string, data: FormData) =>
+    request.post(`/ai-configs/${id}/wan22-lora/train`, data, { timeout: VIDEO_DEBUG_TIMEOUT }),
 }

@@ -1,5 +1,5 @@
 <template>
-  <AuthShell title="注册">
+  <AuthShell title="创建账号">
     <el-form ref="formRef" :model="form" :rules="rules" size="large" class="auth-form" @submit.prevent="handleRegister">
       <el-form-item prop="username">
         <el-input
@@ -20,6 +20,16 @@
         />
       </el-form-item>
 
+      <el-form-item prop="email">
+        <el-input
+          v-model="form.email"
+          placeholder="邮箱（选填）"
+          :prefix-icon="Message"
+          autocomplete="email"
+          clearable
+        />
+      </el-form-item>
+
       <el-form-item prop="password">
         <el-input
           v-model="form.password"
@@ -32,13 +42,13 @@
       </el-form-item>
 
       <el-button native-type="submit" type="primary" :loading="loading" class="primary-btn">
-        创建账号
+        创建并登录
       </el-button>
     </el-form>
 
     <div class="auth-footer">
       <span>已经有账号？</span>
-      <button type="button" class="text-link" @click="goToLogin">登录</button>
+      <button type="button" class="text-link" @click="goToLogin">返回登录</button>
     </div>
   </AuthShell>
 </template>
@@ -49,17 +59,27 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { User, Lock, Star } from '@element-plus/icons-vue'
+import { Lock, Message, Star, User } from '@element-plus/icons-vue'
 import { authApi } from '@/api/auth'
 
 const router = useRouter()
 const formRef = ref<FormInstance>()
 const loading = ref(false)
-const form = ref({ username: '', nickname: '', password: '' })
+
+const form = ref({
+  username: '',
+  nickname: '',
+  email: '',
+  password: '',
+})
+
 const rules: FormRules = {
   username: [
     { required: true, message: '请输入用户名', trigger: ['blur', 'change'] },
     { min: 3, max: 30, message: '用户名长度需为 3-30 位', trigger: ['blur', 'change'] },
+  ],
+  email: [
+    { type: 'email', message: '请输入有效邮箱', trigger: ['blur', 'change'] },
   ],
   password: [
     { required: true, message: '请输入密码', trigger: ['blur', 'change'] },
@@ -104,23 +124,23 @@ function goToLogin() {
 }
 
 :deep(.el-input__wrapper) {
-  min-height: 52px;
-  border-radius: 12px;
+  min-height: 50px;
+  border-radius: 8px;
   padding: 0 14px;
-  background: var(--bg-card);
-  box-shadow: 0 0 0 1px var(--border) inset;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px #d9e1ee inset;
 }
 
 :deep(.el-input__wrapper:hover) {
-  box-shadow: 0 0 0 1px var(--border-strong) inset;
+  box-shadow: 0 0 0 1px #b8c4d8 inset;
 }
 
 :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 2px var(--primary-glow);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18), 0 0 0 1px #2563eb inset;
 }
 
 :deep(.el-form-item.is-error .el-input__wrapper) {
-  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.44) inset, 0 0 0 2px rgba(239, 68, 68, 0.12);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.72) inset, 0 0 0 2px rgba(239, 68, 68, 0.12);
 }
 
 :deep(.el-form-item__error) {
@@ -133,17 +153,17 @@ function goToLogin() {
   height: 50px;
   margin-top: 4px;
   border: none;
-  border-radius: 9999px;
-  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  border-radius: 8px;
+  background: linear-gradient(135deg, #2563eb, #0891b2);
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   color: #fff;
-  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.28);
+  box-shadow: 0 14px 32px rgba(37, 99, 235, 0.24);
 }
 
 .primary-btn:hover {
-  box-shadow: 0 8px 28px rgba(99, 102, 241, 0.45);
-  transform: translateY(-4px);
+  box-shadow: 0 18px 38px rgba(8, 145, 178, 0.3);
+  transform: translateY(-1px);
 }
 
 .auth-footer {
@@ -153,7 +173,7 @@ function goToLogin() {
   justify-content: center;
   gap: 6px;
   font-size: 14px;
-  color: var(--text-muted);
+  color: #64748b;
 }
 
 .text-link {
@@ -162,11 +182,11 @@ function goToLogin() {
   background: transparent;
   cursor: pointer;
   font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .text-link:hover {
-  color: var(--primary);
+  color: #2563eb;
 }
 </style>

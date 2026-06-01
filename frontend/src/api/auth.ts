@@ -3,6 +3,8 @@ import request from './request'
 export interface LoginParams {
   username: string
   password: string
+  captchaId: string
+  captchaCode: string
 }
 
 export interface RegisterParams {
@@ -12,7 +14,16 @@ export interface RegisterParams {
   email?: string
 }
 
+export interface CaptchaData {
+  captchaId: string
+  image: string
+  expiresIn: number
+}
+
 export const authApi = {
+  getCaptcha: () =>
+    request.get<{ data: CaptchaData }>('/auth/captcha'),
+
   login: (data: LoginParams) =>
     request.post('/auth/login', data),
 

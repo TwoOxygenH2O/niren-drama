@@ -216,6 +216,10 @@ public final class ComfyUiWorkflowLoader {
         return workflows.get(0);
     }
 
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
     /**
      * 确保工作流为 API 格式，如需则自动转换。
      */
@@ -525,6 +529,7 @@ public final class ComfyUiWorkflowLoader {
                 Map.entry("LoraLoader", new String[]{"lora_name", "strength_model", "strength_clip"}),
                 Map.entry("CLIPTextEncode", new String[]{"text"}),
                 Map.entry("EmptyLatentImage", new String[]{"width", "height", "batch_size"}),
+                Map.entry("EmptySD3LatentImage", new String[]{"width", "height", "batch_size"}),
                 Map.entry("SaveImage", new String[]{"filename_prefix"}),
                 Map.entry("PreviewImage", new String[]{}),
                 Map.entry("LoadImage", new String[]{"image", "upload"}),
@@ -736,13 +741,14 @@ public final class ComfyUiWorkflowLoader {
     private static String[] detectComfyUiPaths(String apiBaseUrl) {
         // 从系统信息推断 ComfyUI 路径，或扫描常见位置
         List<String> paths = new ArrayList<>();
+        String configuredRoot = System.getenv("COMFYUI_ROOT");
+        if (hasText(configuredRoot) && Files.isDirectory(Path.of(configuredRoot, "custom_nodes"))) {
+            paths.add(configuredRoot);
+        }
 
         // 从 apiBaseUrl 推断（不太可靠，但作为 hint）
         // 扫描常见安装位置
         String[] candidates = {
-                "D:\\Projects\\ComfyUI-aki\\ComfyUI",
-                "D:\\ComfyUI",
-                "C:\\ComfyUI",
                 System.getProperty("user.home") + "\\ComfyUI",
                 System.getProperty("user.home") + "\\Desktop\\ComfyUI",
                 "/opt/ComfyUI",

@@ -110,8 +110,10 @@ const router = createRouter({
         {
           path: 'projects/:id/synthesis',
           name: 'Synthesis',
-          component: () => import('@/views/synthesis/SynthesisView.vue'),
-          meta: { title: '合成导出' },
+          redirect: (to) => ({
+            path: `/projects/${to.params.id}/immersive/workbench`,
+            query: { episode: String(to.query.episode || '1'), tab: 'video' },
+          }),
         },
         {
           path: 'settings',

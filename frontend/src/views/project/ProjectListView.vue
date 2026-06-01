@@ -119,6 +119,7 @@ import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { projectApi } from '@/api/project'
 import {
+  DEFAULT_GENRE,
   DEFAULT_PROJECT_TYPE,
   GENRE_OPTIONS,
   PROJECT_TYPE_OPTIONS,
@@ -153,7 +154,7 @@ let keywordDebounce: ReturnType<typeof setTimeout> | undefined
 const form = ref({
   name: '',
   projectType: DEFAULT_PROJECT_TYPE,
-  genre: '',
+  genre: DEFAULT_GENRE,
   episodes: 20,
   episodeDuration: 60,
   description: '',
@@ -218,7 +219,7 @@ function tabMatch(row: any, tab: TabKey): boolean {
   const g = String(row.genre || '')
   switch (tab) {
     case 'story':
-      return t.includes('真人') || t.includes('短剧') || /都市|古装|情感/.test(g)
+      return t.includes('真人') || t.includes('短剧') || /都市|古装|复仇|情感/.test(g)
     case 'digital':
       return t.includes('数字') || g.includes('数字人')
     case 'drama':
@@ -305,7 +306,7 @@ function resetForm() {
   form.value = {
     name: '',
     projectType: DEFAULT_PROJECT_TYPE,
-    genre: '',
+    genre: DEFAULT_GENRE,
     episodes: 20,
     episodeDuration: 60,
     description: '',

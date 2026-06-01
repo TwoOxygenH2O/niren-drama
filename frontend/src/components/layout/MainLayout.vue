@@ -1,7 +1,7 @@
 <template>
   <div class="layout-root">
     <aside v-if="!hideSidebar" class="sidebar-rail" aria-label="主导航">
-      <div class="rail-logo" @click="onRailLogoClick" title="泥人剧场">
+      <button type="button" class="rail-logo" title="泥人剧场" aria-label="泥人剧场首页" @click="onRailLogoClick">
         <svg class="rail-logo-svg" width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
           <path
             d="M8 6c0-1.1.9-2 2-2h6a6 6 0 016 6v4a4 4 0 01-4 4h-4a2 2 0 00-2 2v6a2 2 0 01-2 2H6a2 2 0 01-2-2V18c0-2.2 1.8-4 4-4h4a2 2 0 002-2V8a2 2 0 00-2-2H8z"
@@ -18,7 +18,7 @@
             stroke-linejoin="round"
           />
         </svg>
-      </div>
+      </button>
 
       <div class="rail-center">
         <nav class="rail-floating-nav" aria-label="功能入口">
@@ -27,6 +27,7 @@
             class="rail-icon"
             :class="{ 'rail-icon--active': isNavHome }"
             title="首页"
+            aria-label="首页"
             @click="onRailHomeClick"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -39,6 +40,7 @@
             class="rail-icon"
             :class="{ 'rail-icon--active': isNavSpace }"
             title="我的空间"
+            aria-label="我的空间"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
@@ -49,6 +51,7 @@
             class="rail-icon"
             :class="{ 'rail-icon--active': isNavLibrary }"
             title="主体库"
+            aria-label="主体库"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="12" cy="9" r="3.5" stroke="currentColor" stroke-width="1.8" />
@@ -61,6 +64,7 @@
             class="rail-icon"
             :class="{ 'rail-icon--active': isNavSettings }"
             title="AI配置"
+            aria-label="AI配置"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="12" cy="8" r="3" stroke="currentColor" stroke-width="1.8" />
@@ -73,7 +77,7 @@
 
       <div class="rail-bottom">
         <el-dropdown trigger="click" placement="right-start" @command="onUserCommand">
-          <div class="rail-user" title="人员信息" role="button" tabindex="0">
+          <div class="rail-user" title="人员信息" aria-label="人员信息" role="button" tabindex="0">
             <div class="rail-avatar">{{ userInitial }}</div>
           </div>
           <template #dropdown>
@@ -281,6 +285,9 @@ function onRailHomeClick(e: MouseEvent) {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
 }
 .rail-logo-svg {
   opacity: 0.95;

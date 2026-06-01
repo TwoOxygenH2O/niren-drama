@@ -32,9 +32,18 @@ log/
 node_modules/
 
 # Local automation / browser inspection artifacts
+.local-only/
+.agents/
+.claude/
 .ccto/
 .codex/
 .playwright-mcp/
+.playwright-cli/
+CLAUDE.md
+CODE_REVIEW.md
+backend/classpath.txt
+backend/VerifyBCrypt.java
+QA/
 page-*.yml
 dashboard-*.yml
 settings-*.yml
@@ -44,6 +53,9 @@ app-page
 login-page
 project-list
 current-view.png
+audit-*.png
+fix-*.png
+dark-*.png
 immersive*.png
 synthesis-*.png
 synthesis-errors
@@ -53,3 +65,23 @@ settings-dialog.png
 test-regenerate-char.png
 wan22-workflow-loaded.png
 docs/superpowers/
+docs/papers/*.docx
+docs/DEPLOYMENT.md
+docs/COST_OPTIMIZATION.md
+
+# Model training assets and outputs
+training/
+wan22-video-training/
+training/short-drama-video-training/raw/
+training/short-drama-video-training/processed/
+training/short-drama-video-training/runs/
+training/short-drama-video-training/checkpoints/
+training/short-drama-video-training/models/
+training/short-drama-video-training/.env
+wan22-video-training/raw/
+wan22-video-training/processed/
+wan22-video-training/runs/
+wan22-video-training/checkpoints/
+wan22-video-training/models/
+wan22-video-training/external/
+wan22-video-training/.env

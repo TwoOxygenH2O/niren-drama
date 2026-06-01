@@ -1,6 +1,6 @@
 import request from './request'
 
-const TASK_POLL_TIMEOUT = 60 * 60 * 1000
+const TASK_POLL_TIMEOUT = 12 * 60 * 60 * 1000
 
 export const taskApi = {
   get: (id: number | string) =>

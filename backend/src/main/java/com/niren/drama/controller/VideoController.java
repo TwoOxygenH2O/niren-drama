@@ -80,6 +80,19 @@ public class VideoController {
         return shotIds;
     }
 
+    private VideoCompositionService.ComposeOptions parseComposeOptions(JsonNode body) {
+        if (body == null || !body.isObject()) {
+            return null;
+        }
+        return new VideoCompositionService.ComposeOptions(
+                body.has("narrationEnabled") ? body.path("narrationEnabled").asBoolean() : null,
+                body.has("narrationVolume") ? body.path("narrationVolume").asDouble() : null,
+                body.has("dialoguePriority") ? body.path("dialoguePriority").asBoolean() : null,
+                body.has("bgmEnabled") ? body.path("bgmEnabled").asBoolean() : null,
+                body.has("bgmVolume") ? body.path("bgmVolume").asDouble() : null
+        );
+    }
+
     @Operation(summary = "生成分镜图片（异步）")
     @PostMapping("/generate-images/{projectId}")
     public Result<TaskRecord> generateImages(@PathVariable Long projectId, @RequestBody(required = false) JsonNode body,
@@ -113,7 +126,7 @@ public class VideoController {
                                        @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = currentUserHelper.getUserId(userDetails);
         List<Long> shotIds = parseRequestedShotIds(body);
-        return Result.success(videoCompositionService.startCompose(userId, projectId, shotIds));
+        return Result.success(videoCompositionService.startCompose(userId, projectId, shotIds, parseComposeOptions(body)));
     }
 
     @Operation(summary = "参考图生成视频（先上传到 COS，再提交万相 2.7 i2v）")
