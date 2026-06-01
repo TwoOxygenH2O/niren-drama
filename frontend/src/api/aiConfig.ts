@@ -33,4 +33,8 @@ export const aiConfigApi = {
   /** 获取指定 ComfyUI 工作流模板详情 */
   getComfyUiWorkflow: (name: string) =>
     request.get('/ai-configs/comfyui/workflow', { params: { name } }),
+
+  /** 提交 Wan2.2 LoRA 训练任务 */
+  trainWan22Lora: (id: number | string, data: FormData) =>
+    request.post(`/ai-configs/${id}/wan22-lora/train`, data, { timeout: VIDEO_DEBUG_TIMEOUT }),
 }

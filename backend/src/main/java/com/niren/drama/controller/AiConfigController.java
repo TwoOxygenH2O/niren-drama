@@ -4,19 +4,24 @@ import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.impl.ComfyUiWorkflowLoader;
 import com.niren.drama.common.Result;
 import com.niren.drama.entity.AiConfig;
+import com.niren.drama.entity.TaskRecord;
 
 import com.niren.drama.service.AiConfigService;
 import com.niren.drama.service.AiImageDebugService;
 import com.niren.drama.service.AiVideoDebugService;
+import com.niren.drama.service.WanLoraTrainingService;
 import com.niren.drama.common.CurrentUserHelper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.List;
@@ -31,6 +36,7 @@ public class AiConfigController {
     private final AiConfigService aiConfigService;
     private final AiImageDebugService aiImageDebugService;
     private final AiVideoDebugService aiVideoDebugService;
+    private final WanLoraTrainingService wanLoraTrainingService;
     private final CurrentUserHelper currentUserHelper;
 
     @Operation(summary = "获取我的AI配置列表")
@@ -122,6 +128,30 @@ public class AiConfigController {
             return Result.fail(404, "未找到工作流: " + name);
         }
         return Result.success(workflow);
+    }
+
+    @Operation(summary = "提交 Wan2.2 LoRA 训练任务")
+    @PostMapping(value = "/{id}/wan22-lora/train", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<TaskRecord> trainWan22Lora(@PathVariable Long id,
+                                             @RequestParam("files") List<MultipartFile> files,
+                                             @RequestParam(required = false) String caption,
+                                             @RequestParam(defaultValue = "false") Boolean licenseConfirmed,
+                                             @RequestParam(required = false) String runName,
+                                             @RequestParam(required = false) Integer loraRank,
+                                             @RequestParam(required = false) Integer epochs,
+                                             @RequestParam(defaultValue = "true") Boolean lowVram,
+                                             @AuthenticationPrincipal UserDetails userDetails) throws IOException {
+        Long userId = getUserId(userDetails);
+        return Result.success(wanLoraTrainingService.submit(
+                userId,
+                id,
+                files,
+                caption,
+                licenseConfirmed,
+                runName,
+                loraRank,
+                epochs,
+                lowVram));
     }
 
     /**

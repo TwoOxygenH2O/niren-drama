@@ -225,6 +225,15 @@
             </div>
           </div>
           <div class="config-card-right">
+            <el-button
+              v-if="canTrainConfig(config)"
+              text
+              size="small"
+              type="success"
+              @click="openTrainingDialog(config)"
+            >
+              <el-icon><Upload /></el-icon> 训练
+            </el-button>
             <el-button text size="small" type="primary" @click="openDialog(config)">
               <el-icon><Edit /></el-icon> 编辑
             </el-button>
@@ -306,7 +315,7 @@
             <el-input
               v-model="form.apiKey"
               type="password"
-              placeholder="输入 API 密钥"
+              :placeholder="editing ? '留空则保持已保存密钥' : '输入 API 密钥'"
               show-password
             />
             <p class="form-hint">
@@ -365,15 +374,105 @@
           </el-button>
         </template>
       </el-dialog>
+
+      <!-- Wan2.2 LoRA Training Dialog -->
+      <el-dialog
+        v-model="showTrainingDialog"
+        title="训练 Wan2.2 LoRA"
+        width="720px"
+        :close-on-click-modal="false"
+        class="training-dialog"
+      >
+        <div v-if="trainingConfig" class="training-panel">
+          <div class="training-target">
+            <div>
+              <span class="training-eyebrow">训练目标</span>
+              <h3>{{ providerLabel(trainingConfig.provider, trainingConfig.configType) }}</h3>
+              <p>{{ trainingWorkflowLabel(trainingConfig) }}</p>
+            </div>
+            <span class="training-status" :class="{ warn: !isWanTrainingConfig(trainingConfig) }">
+              {{ isWanTrainingConfig(trainingConfig) ? 'Wan2.2 I2V' : '需切换 Wan2.2' }}
+            </span>
+          </div>
+
+          <el-form label-position="top" class="training-form">
+            <div class="training-grid">
+              <el-form-item label="训练名称">
+                <el-input v-model="trainingForm.runName" placeholder="例如：女主办公室连续性 v1" />
+              </el-form-item>
+              <el-form-item label="LoRA Rank">
+                <el-input-number v-model="trainingForm.loraRank" :min="4" :max="64" :step="4" controls-position="right" />
+              </el-form-item>
+              <el-form-item label="Epochs">
+                <el-input-number v-model="trainingForm.epochs" :min="1" :max="50" controls-position="right" />
+              </el-form-item>
+              <el-form-item label="低显存模式">
+                <el-switch v-model="trainingForm.lowVram" active-text="启用" inactive-text="关闭" />
+              </el-form-item>
+            </div>
+
+            <el-form-item label="统一训练描述">
+              <el-input
+                v-model="trainingForm.caption"
+                type="textarea"
+                :rows="3"
+                maxlength="1000"
+                show-word-limit
+                placeholder="描述这批素材共同强化的短剧能力，例如：同一演员身份、服装、办公室场景和灯光保持稳定，单镜头连续运动。"
+              />
+            </el-form-item>
+
+            <el-form-item label="训练视频素材">
+              <el-upload
+                v-model:file-list="trainingFiles"
+                class="training-upload"
+                drag
+                multiple
+                :auto-upload="false"
+                :limit="20"
+                accept="video/*"
+              >
+                <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+                <div class="el-upload__text">拖入视频素材，或点击选择文件</div>
+                <template #tip>
+                  <div class="training-upload-tip">系统会自动抽取首帧并生成 Wan2.2 I2V manifest；建议先用 10-20 条授权样本做小跑。</div>
+                </template>
+              </el-upload>
+            </el-form-item>
+
+            <el-checkbox v-model="trainingForm.licenseConfirmed" class="training-license">
+              我确认上传素材已获得训练授权，并且不会用于克隆未授权真人身份。
+            </el-checkbox>
+          </el-form>
+
+          <div v-if="trainingTask" class="training-task">
+            <div class="training-task-head">
+              <span>{{ trainingTask.message || '训练任务已提交' }}</span>
+              <b>{{ trainingTask.progress || 0 }}%</b>
+            </div>
+            <el-progress :percentage="trainingTask.progress || 0" :status="trainingProgressStatus" />
+            <p v-if="trainingTask.result" class="training-task-result">{{ trainingResultSummary }}</p>
+          </div>
+        </div>
+
+        <template #footer>
+          <el-button @click="closeTrainingDialog">关闭</el-button>
+          <el-button type="success" :loading="trainingSubmitting" :disabled="isTrainingActive" @click="submitTraining">
+            提交训练
+          </el-button>
+        </template>
+      </el-dialog>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Edit, Delete, RefreshRight, InfoFilled, Lock } from '@element-plus/icons-vue'
+import type { UploadUserFile } from 'element-plus'
+import { Plus, Edit, Delete, RefreshRight, InfoFilled, Lock, Upload, UploadFilled } from '@element-plus/icons-vue'
 import { aiConfigApi } from '../../api/aiConfig'
+import { taskApi } from '../../api/task'
 
 const configs = ref<any[]>([])
 const showDialog = ref(false)
@@ -381,6 +480,22 @@ const editing = ref(false)
 const submitting = ref(false)
 const activeTab = ref('text')
 const isDefault = ref(false)
+
+const showTrainingDialog = ref(false)
+const trainingConfig = ref<any | null>(null)
+const trainingFiles = ref<UploadUserFile[]>([])
+const trainingSubmitting = ref(false)
+const trainingTask = ref<any | null>(null)
+let trainingPollTimer: number | undefined
+
+const trainingForm = ref({
+  runName: '',
+  caption: 'Keep the same actor identity, face, hairstyle, outfit, scene layout and lighting from the first frame. One continuous vertical short-drama shot with natural motion and no cuts.',
+  loraRank: 8,
+  epochs: 1,
+  lowVram: true,
+  licenseConfirmed: false,
+})
 
 const imageDebugPrompt = ref('黄昏时分的江南水乡，青瓦白墙，电影感柔光，竖屏短剧分镜')
 const imageDebugSize = ref('1024x1792')
@@ -529,6 +644,28 @@ const commonModelOptions: Record<string, string[]> = {
 
 const currentTabLabel = computed(() => tabs.find(t => t.type === activeTab.value)?.label || '')
 
+const isTrainingActive = computed(() => trainingTask.value?.status === 'PENDING' || trainingTask.value?.status === 'RUNNING')
+
+const trainingProgressStatus = computed(() => {
+  if (trainingTask.value?.status === 'SUCCESS') return 'success'
+  if (trainingTask.value?.status === 'FAILED') return 'exception'
+  return undefined
+})
+
+const trainingResultSummary = computed(() => {
+  const raw = trainingTask.value?.result
+  if (!raw) return ''
+  try {
+    const result = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (result.errorMessage) return result.errorMessage
+    if (result.outputPath) return `LoRA: ${result.outputPath}`
+    if (result.manifestPath) return `Manifest: ${result.manifestPath}`
+  } catch {
+    return String(raw)
+  }
+  return ''
+})
+
 const modelOptions = computed(() => {
   const providerDefault = providerModels[form.value.provider]?.[form.value.configType]
   const currentValue = form.value.model
@@ -588,7 +725,7 @@ function openDialog(row?: any) {
   editing.value = !!row
   showAdvancedExtra.value = []
   if (row) {
-    form.value = { ...normalizeConfig(row), extra: row.extra || '' }
+    form.value = { ...normalizeConfig(row), apiKey: '', extra: row.extra || '' }
     isDefault.value = row.isDefault === 1
     selectedComfyUiWorkflow.value = parseWorkflowFromExtra(row.extra || '')
   } else {
@@ -665,7 +802,7 @@ async function load() {
 }
 
 async function handleSave() {
-  if (form.value.provider !== 'comfyui' && !form.value.apiKey) return ElMessage.warning('请输入 API Key')
+  if (form.value.provider !== 'comfyui' && !editing.value && !form.value.apiKey) return ElMessage.warning('请输入 API Key')
   if (!form.value.provider) return ElMessage.warning('请选择服务商')
   submitting.value = true
   try {
@@ -690,6 +827,97 @@ async function deleteConfig(id: number) {
   await aiConfigApi.delete(id)
   ElMessage.success('已删除')
   load()
+}
+
+function canTrainConfig(config: any): boolean {
+  return activeTab.value === 'video' && config?.configType === 'video' && config?.provider === 'comfyui'
+}
+
+function isWanTrainingConfig(config: any): boolean {
+  const text = `${config?.model || ''} ${parseWorkflowFromExtra(config?.extra || '')}`.toLowerCase()
+  return text.includes('wan2.2') || text.includes('wan2_2')
+}
+
+function trainingWorkflowLabel(config: any): string {
+  const workflow = parseWorkflowFromExtra(config?.extra || '')
+  return workflow || config?.model || '默认 ComfyUI 工作流'
+}
+
+function openTrainingDialog(config: any) {
+  trainingConfig.value = config
+  trainingFiles.value = []
+  trainingTask.value = null
+  trainingForm.value = {
+    runName: `${trainingWorkflowLabel(config).replace(/\.[^.]+$/, '')} LoRA`,
+    caption: 'Keep the same actor identity, face, hairstyle, outfit, scene layout and lighting from the first frame. One continuous vertical short-drama shot with natural motion and no cuts.',
+    loraRank: 8,
+    epochs: 1,
+    lowVram: true,
+    licenseConfirmed: false,
+  }
+  showTrainingDialog.value = true
+}
+
+function closeTrainingDialog() {
+  showTrainingDialog.value = false
+}
+
+async function submitTraining() {
+  const config = trainingConfig.value
+  if (!config?.id) return
+  if (!isWanTrainingConfig(config)) return ElMessage.warning('请先选择 Wan2.2 视频工作流后再训练')
+  if (!trainingForm.value.licenseConfirmed) return ElMessage.warning('请先确认素材训练授权')
+  const rawFiles = trainingFiles.value.map(file => file.raw).filter(Boolean) as File[]
+  if (!rawFiles.length) return ElMessage.warning('请上传至少一个视频素材')
+
+  const formData = new FormData()
+  rawFiles.forEach(file => formData.append('files', file))
+  formData.append('caption', trainingForm.value.caption.trim())
+  formData.append('licenseConfirmed', String(trainingForm.value.licenseConfirmed))
+  formData.append('runName', trainingForm.value.runName.trim())
+  formData.append('loraRank', String(trainingForm.value.loraRank))
+  formData.append('epochs', String(trainingForm.value.epochs))
+  formData.append('lowVram', String(trainingForm.value.lowVram))
+
+  trainingSubmitting.value = true
+  try {
+    const res = await aiConfigApi.trainWan22Lora(config.id, formData)
+    trainingTask.value = res.data?.data || null
+    ElMessage.success('训练任务已提交')
+    if (trainingTask.value?.id) startTrainingPolling(trainingTask.value.id)
+  } finally {
+    trainingSubmitting.value = false
+  }
+}
+
+function startTrainingPolling(taskId: number | string) {
+  stopTrainingPolling()
+  const poll = async () => {
+    try {
+      const res = await taskApi.get(taskId)
+      trainingTask.value = res.data?.data || trainingTask.value
+      if (trainingTask.value?.status === 'SUCCESS') {
+        ElMessage.success('Wan2.2 LoRA 训练完成')
+        stopTrainingPolling()
+        return
+      }
+      if (trainingTask.value?.status === 'FAILED') {
+        stopTrainingPolling()
+        return
+      }
+    } catch {
+      // Keep polling; transient backend reloads are common during local development.
+    }
+    trainingPollTimer = window.setTimeout(poll, 3000)
+  }
+  trainingPollTimer = window.setTimeout(poll, 1000)
+}
+
+function stopTrainingPolling() {
+  if (trainingPollTimer) {
+    window.clearTimeout(trainingPollTimer)
+    trainingPollTimer = undefined
+  }
 }
 
 async function fetchComfyUiWorkflows() {
@@ -776,6 +1004,7 @@ async function copyImageToVideoUrl() {
 }
 
 onMounted(load)
+onBeforeUnmount(stopTrainingPolling)
 </script>
 
 <style scoped>
@@ -1204,5 +1433,152 @@ onMounted(load)
 .extra-collapse :deep(.el-collapse-item__wrap) {
   background: transparent;
   border: none;
+}
+
+.training-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+:global(.el-dialog.training-dialog),
+:global(.training-dialog .el-dialog) {
+  margin: 32px auto !important;
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+}
+
+:global(.el-dialog.training-dialog .el-dialog__body),
+:global(.training-dialog .el-dialog__body) {
+  overflow-y: auto;
+}
+
+:global(.el-dialog.training-dialog .el-dialog__footer),
+:global(.training-dialog .el-dialog__footer) {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.training-target {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-muted);
+}
+
+.training-target h3 {
+  margin: 4px 0 4px;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.training-target p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.training-eyebrow {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.training-status {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.14);
+  color: #4ade80;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.training-status.warn {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fbbf24;
+}
+
+.training-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) 120px 120px 150px;
+  gap: 12px;
+  align-items: start;
+}
+
+.training-form :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+
+.training-upload {
+  width: 100%;
+}
+
+.training-upload :deep(.el-upload) {
+  width: 100%;
+}
+
+.training-upload :deep(.el-upload-dragger) {
+  width: 100%;
+  border-radius: 8px;
+  background: var(--bg-muted);
+  border-color: var(--border);
+}
+
+.training-upload-tip {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.training-license {
+  margin-top: 2px;
+  white-space: normal;
+}
+
+.training-task {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-muted);
+}
+
+.training-task-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.training-task-head b {
+  color: var(--text-primary);
+}
+
+.training-task-result {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  word-break: break-all;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+@media (max-width: 760px) {
+  .training-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .training-target {
+    flex-direction: column;
+  }
 }
 </style>

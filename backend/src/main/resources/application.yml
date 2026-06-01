@@ -11,13 +11,6 @@ spring:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:niren_drama}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${DB_USER:root}
     password: ${DB_PASSWORD:root}
-  # data:
-  #   redis:
-  #     host: ${REDIS_HOST:localhost}
-  #     port: ${REDIS_PORT:6379}
-  #     password: ${REDIS_PASSWORD:}
-  #     database: 0
-  #     timeout: 5000ms
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
@@ -42,10 +35,12 @@ mybatis-plus:
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
 
 jwt:
-  secret: ${JWT_SECRET:niren-drama-jwt-secret-key-2024-very-long-and-secure-string}
+  secret: ${JWT_SECRET:change-me-local-development-jwt-value-minimum-32-chars}
   expiration: 86400
 
 niren:
+  security:
+    config-encryption-key: ${NIREN_CONFIG_ENCRYPTION_KEY:${JWT_SECRET:change-me-local-development-jwt-value-minimum-32-chars}}
   drama:
     line-doctor:
       enabled: ${NIREN_DRAMA_LINE_DOCTOR_ENABLED:true}
@@ -106,6 +101,17 @@ niren:
     poll:
       base-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_BASE_SECONDS:5}
       max-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_MAX_SECONDS:30}
+  training:
+    wan22:
+      root-dir: ${NIREN_WAN22_TRAINING_ROOT:./wan22-video-training}
+      trainer-root: ${NIREN_WAN22_TRAINER_ROOT:}
+      accelerate-command: ${NIREN_WAN22_ACCELERATE_COMMAND:accelerate}
+      model-paths-json: '${NIREN_WAN22_MODEL_PATHS_JSON:}'
+      command-template: ${NIREN_WAN22_COMMAND_TEMPLATE:}
+      dataset-repeat: ${NIREN_WAN22_DATASET_REPEAT:5}
+      dataset-workers: ${NIREN_WAN22_DATASET_WORKERS:2}
+      learning-rate: ${NIREN_WAN22_LEARNING_RATE:0.0001}
+      output-dir: ${NIREN_WAN22_OUTPUT_DIR:wan22-video-training/checkpoints}
   dynamic-priority:
     # 目标动态镜头占比；默认走推荐器的 20/70 左右，A 档关键镜头优先动态化。
     target-dynamic-ratio: ${NIREN_TARGET_DYNAMIC_RATIO:0.29}
