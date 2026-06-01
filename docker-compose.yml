@@ -5,7 +5,7 @@ services:
     image: mysql:8.0
     container_name: niren-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-NirenDrama2024!}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       MYSQL_DATABASE: niren_drama
       MYSQL_CHARSET: utf8mb4
     ports:
@@ -15,22 +15,9 @@ services:
       - ./backend/src/main/resources/db/init.sql:/docker-entrypoint-initdb.d/init.sql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-NirenDrama2024!}"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7.2-alpine
-    container_name: niren-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
       retries: 5
 
   backend:
@@ -45,20 +32,28 @@ services:
       DB_PORT: 3306
       DB_NAME: niren_drama
       DB_USER: root
-      DB_PASSWORD: ${DB_PASSWORD:-NirenDrama2024!}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-niren-drama-jwt-secret-very-long-secure-key-2024}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      NIREN_CONFIG_ENCRYPTION_KEY: ${NIREN_CONFIG_ENCRYPTION_KEY:-}
       UPLOAD_PATH: /app/uploads
       BASE_URL: ${BASE_URL:-http://localhost:8080}
       AI_TEXT_PROVIDER: ${AI_TEXT_PROVIDER:-openai}
+      AI_TEXT_BASE_URL: ${AI_TEXT_BASE_URL:-https://api.openai.com/v1}
       AI_TEXT_API_KEY: ${AI_TEXT_API_KEY:-}
       AI_TEXT_MODEL: ${AI_TEXT_MODEL:-gpt-4o}
+      AI_IMAGE_PROVIDER: ${AI_IMAGE_PROVIDER:-openai}
+      AI_IMAGE_BASE_URL: ${AI_IMAGE_BASE_URL:-https://api.openai.com/v1}
       AI_IMAGE_API_KEY: ${AI_IMAGE_API_KEY:-}
+      AI_IMAGE_MODEL: ${AI_IMAGE_MODEL:-dall-e-3}
       AI_VIDEO_PROVIDER: ${AI_VIDEO_PROVIDER:-comfyui}
       AI_VIDEO_BASE_URL: ${AI_VIDEO_BASE_URL:-http://host.docker.internal:8188}
       AI_VIDEO_API_KEY: ${AI_VIDEO_API_KEY:-}
-      AI_VIDEO_MODEL: ${AI_VIDEO_MODEL:-ltx-2-19b-distilled.safetensors}
+      AI_VIDEO_MODEL: ${AI_VIDEO_MODEL:-wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors}
+      NIREN_WAN22_TRAINING_ROOT: ${NIREN_WAN22_TRAINING_ROOT:-/app/wan22-video-training}
+      NIREN_WAN22_TRAINER_ROOT: ${NIREN_WAN22_TRAINER_ROOT:-}
+      NIREN_WAN22_MODEL_PATHS_JSON: ${NIREN_WAN22_MODEL_PATHS_JSON:-}
+      NIREN_WAN22_COMMAND_TEMPLATE: ${NIREN_WAN22_COMMAND_TEMPLATE:-}
+      NIREN_WAN22_OUTPUT_DIR: ${NIREN_WAN22_OUTPUT_DIR:-/app/wan22-video-training/checkpoints}
       NIREN_COS_ENABLED: ${NIREN_COS_ENABLED:-false}
       NIREN_COS_SECRET_ID: ${NIREN_COS_SECRET_ID:-}
       NIREN_COS_SECRET_KEY: ${NIREN_COS_SECRET_KEY:-}
@@ -69,8 +64,6 @@ services:
       - uploads_data:/app/uploads
     depends_on:
       mysql:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     restart: unless-stopped
 
@@ -87,5 +80,4 @@ services:
 
 volumes:
   mysql_data:
-  redis_data:
   uploads_data:

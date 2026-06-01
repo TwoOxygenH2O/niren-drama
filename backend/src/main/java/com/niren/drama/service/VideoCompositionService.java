@@ -1620,10 +1620,14 @@ public class VideoCompositionService {
         if (!isWindows()) {
             return null;
         }
-        for (String baseDir : List.of(
-                "D:\\javaSoftware\\ffmpeg_full\\bin",
-                "D:\\JavaSoft\\ffmpeg-master-latest-win64-gpl-shared\\bin",
-                "C:\\ffmpeg\\bin")) {
+        String configuredDirs = System.getenv("NIREN_FFMPEG_SEARCH_DIRS");
+        if (!hasText(configuredDirs)) {
+            return null;
+        }
+        for (String baseDir : configuredDirs.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
+            if (!hasText(baseDir)) {
+                continue;
+            }
             try {
                 Path candidate = Paths.get(baseDir, binaryName);
                 if (Files.exists(candidate) && Files.isRegularFile(candidate)) {

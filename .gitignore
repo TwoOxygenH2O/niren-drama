@@ -32,11 +32,18 @@ log/
 node_modules/
 
 # Local automation / browser inspection artifacts
+.local-only/
+.agents/
+.claude/
 .ccto/
 .codex/
 .playwright-mcp/
 .playwright-cli/
+CLAUDE.md
 CODE_REVIEW.md
+backend/classpath.txt
+backend/VerifyBCrypt.java
+QA/
 page-*.yml
 dashboard-*.yml
 settings-*.yml
@@ -58,8 +65,13 @@ settings-dialog.png
 test-regenerate-char.png
 wan22-workflow-loaded.png
 docs/superpowers/
+docs/papers/*.docx
+docs/DEPLOYMENT.md
+docs/COST_OPTIMIZATION.md
 
 # Model training assets and outputs
+training/
+wan22-video-training/
 training/short-drama-video-training/raw/
 training/short-drama-video-training/processed/
 training/short-drama-video-training/runs/
