@@ -1,0 +1,33 @@
+{
+  "@context": "https://doi.org/10.5063/schema/codemeta-2.0",
+  "@type": "SoftwareSourceCode",
+  "name": "Niren Drama",
+  "codeRepository": "https://github.com/TwoOxygenH2O/niren-drama",
+  "programmingLanguage": ["Java", "TypeScript", "Vue"],
+  "runtimePlatform": ["Java 17", "Spring Boot 3.2", "Vue 3", "Vite", "MySQL 8"],
+  "license": "https://opensource.org/license/mit/",
+  "version": "1.0.0",
+  "description": "Full-stack AI short-drama production platform with CASR reliability integration for vertical 9:16 short-drama workflows.",
+  "keywords": [
+    "AI short-drama production",
+    "AI video generation",
+    "vertical short drama",
+    "ComfyUI",
+    "Wan2.2",
+    "LTX",
+    "image-to-video",
+    "character consistency",
+    "post-generation repair",
+    "CASR",
+    "Continuity-Aware Self-Repair",
+    "cost-aware policy search",
+    "explainable AI"
+  ],
+  "applicationCategory": "Artificial Intelligence",
+  "softwareRequirements": [
+    "Java 17",
+    "Maven 3.8+",
+    "Node.js 18+",
+    "MySQL 8.0+"
+  ]
+}

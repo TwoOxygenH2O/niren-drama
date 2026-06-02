@@ -6,26 +6,28 @@ import org.springframework.test.util.ReflectionTestUtils;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AiConfigSecretCodecTest {
+    private static final String SAMPLE_SECRET = "unit-test-private-provider-value";
+    private static final String SAMPLE_MASK = "unit********alue";
 
     @Test
     void encryptsAndDecryptsApiKey() {
         AiConfigSecretCodec codec = newCodec();
 
-        String encrypted = codec.encrypt("sk-test-private-value");
+        String encrypted = codec.encrypt(SAMPLE_SECRET);
 
         assertThat(encrypted).startsWith("enc:v1:");
-        assertThat(encrypted).doesNotContain("sk-test-private-value");
-        assertThat(codec.decrypt(encrypted)).isEqualTo("sk-test-private-value");
+        assertThat(encrypted).doesNotContain(SAMPLE_SECRET);
+        assertThat(codec.decrypt(encrypted)).isEqualTo(SAMPLE_SECRET);
     }
 
     @Test
     void masksPlainOrEncryptedValuesForClientViews() {
         AiConfigSecretCodec codec = newCodec();
 
-        String encrypted = codec.encrypt("sk-test-private-value");
+        String encrypted = codec.encrypt(SAMPLE_SECRET);
 
-        assertThat(codec.mask(encrypted)).isEqualTo("sk-t********alue");
-        assertThat(codec.isMaskedValue("sk-t********alue")).isTrue();
+        assertThat(codec.mask(encrypted)).isEqualTo(SAMPLE_MASK);
+        assertThat(codec.isMaskedValue(SAMPLE_MASK)).isTrue();
     }
 
     private AiConfigSecretCodec newCodec() {

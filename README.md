@@ -4,6 +4,10 @@
 
 本项目同时包含一个研究型算法 Demo：CASR（Continuity-Aware Self-Repair，连续性感知自修复）。CASR 用于对短剧生产线中的生成后失败进行诊断、归因、策略搜索和可解释展示，适合作为生成式视频生产可靠性研究的系统案例。
 
+检索关键词：AI 短剧生产、AI 视频生成、竖屏短剧、短剧生产线、ComfyUI、Wan2.2、LTX、图生视频、角色一致性、生成后修复、CASR、连续性感知自修复、成本敏感策略搜索、可解释 AI。
+
+Search keywords: AI short-drama production, AI video generation, vertical short drama, ComfyUI, Wan2.2, LTX, image-to-video, character consistency, post-generation repair, CASR, Continuity-Aware Self-Repair, cost-aware policy search, explainable AI.
+
 ## 核心能力
 
 - 用户认证：注册、登录、验证码、JWT 鉴权和前端路由守卫。
@@ -336,4 +340,6 @@ CASR 相关测试覆盖：
 
 ## 许可
 
-本项目遵循 MIT License。
+本项目遵循 [MIT License](LICENSE)。
+
+说明：本项目通过 Maven 引用的独立算法仓库 `TwoOxygenH2O/casr-core` 遵循 Apache License 2.0。应用层代码与算法核心保持仓库和许可证边界清晰，便于工程复用、研究引用和后续公开发布。
