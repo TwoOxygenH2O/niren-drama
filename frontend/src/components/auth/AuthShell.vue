@@ -6,9 +6,7 @@
       <section class="auth-story" aria-label="泥人剧场">
         <div class="auth-brand">
           <div class="brand-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-              <path d="M15 10l4.55-2.84A1 1 0 0121 8.12v7.76a1 1 0 01-1.45.9L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
+            <img src="/logo.svg" alt="" aria-hidden="true" />
           </div>
           <span>{{ brandName }}</span>
         </div>
@@ -101,6 +99,12 @@ withDefaults(
   background: linear-gradient(135deg, #2563eb, #0891b2);
   color: #fff;
   box-shadow: 0 16px 38px rgba(8, 145, 178, 0.28);
+}
+
+.brand-icon img {
+  height: 30px;
+  object-fit: contain;
+  width: 30px;
 }
 
 .auth-value {

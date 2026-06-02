@@ -3,22 +3,7 @@
     <header class="immersive-top">
       <div class="immersive-top-left">
       <button type="button" class="top-logo" title="返回剧集列表" aria-label="返回剧集列表" @click="goProjectEpisodes">
-        <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-          <path
-            d="M8 6c0-1.1.9-2 2-2h6a6 6 0 016 6v4a4 4 0 01-4 4h-4a2 2 0 00-2 2v6a2 2 0 01-2 2H6a2 2 0 01-2-2V18c0-2.2 1.8-4 4-4h4a2 2 0 002-2V8a2 2 0 00-2-2H8z"
-            stroke="white"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-          <path
-            d="M18 14h4a6 6 0 016 6v6a2 2 0 01-2 2h-4a2 2 0 01-2-2v-4a4 4 0 00-4-4h-2"
-            stroke="white"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
+        <img class="top-logo-img" src="/logo.svg" alt="" aria-hidden="true" />
       </button>
       <span v-if="project?.name" class="top-project-title">{{ project.name }}</span>
       </div>
@@ -1432,6 +1417,12 @@ onUnmounted(() => {
 }
 .top-logo:hover {
   background: var(--bg-muted);
+}
+
+.top-logo-img {
+  height: 28px;
+  object-fit: contain;
+  width: 28px;
 }
 
 .top-right {

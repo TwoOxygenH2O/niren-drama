@@ -2,22 +2,7 @@
   <div class="layout-root">
     <aside v-if="!hideSidebar" class="sidebar-rail" aria-label="主导航">
       <button type="button" class="rail-logo" title="泥人剧场" aria-label="泥人剧场首页" @click="onRailLogoClick">
-        <svg class="rail-logo-svg" width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-          <path
-            d="M8 6c0-1.1.9-2 2-2h6a6 6 0 016 6v4a4 4 0 01-4 4h-4a2 2 0 00-2 2v6a2 2 0 01-2 2H6a2 2 0 01-2-2V18c0-2.2 1.8-4 4-4h4a2 2 0 002-2V8a2 2 0 00-2-2H8z"
-            stroke="white"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-          <path
-            d="M18 14h4a6 6 0 016 6v6a2 2 0 01-2 2h-4a2 2 0 01-2-2v-4a4 4 0 00-4-4h-2"
-            stroke="white"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
+        <img class="rail-logo-svg" src="/logo.svg" alt="" aria-hidden="true" />
       </button>
 
       <div class="rail-center">
@@ -290,6 +275,9 @@ function onRailHomeClick(e: MouseEvent) {
   color: inherit;
 }
 .rail-logo-svg {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
   opacity: 0.95;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
 }
