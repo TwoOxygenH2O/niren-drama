@@ -141,6 +141,15 @@ public final class ProjectStyleSupport {
                 buildGenreVisualRule(resolvedGenre));
     }
 
+    public static String buildEpisodeContinuityBible(String projectType, String genre) {
+        String resolvedType = resolveProjectType(projectType);
+        String resolvedGenre = resolveGenre(genre);
+        return "Episode continuity bible: every first frame and video clip must read as the same drama episode; "
+                + "lock consistent actor identity, face, hairstyle, wardrobe logic, lens family, same color grade, "
+                + "contrast, grain, skin texture, subtitle-safe vertical composition, and " + resolvedType + " texture across shots; "
+                + "scene changes are allowed only as clear story transitions, not as mixed templates; genre=" + resolvedGenre + ".";
+    }
+
     public static String buildAudioPerformanceRules(String projectType, String genre) {
         String resolvedType = resolveProjectType(projectType);
         String resolvedGenre = resolveGenre(genre);

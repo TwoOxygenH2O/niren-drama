@@ -53,6 +53,7 @@ public class AiVideoGenerationService {
     private final StoryboardMapper storyboardMapper;
     private final PublicAssetStorageService publicAssetStorageService;
     private final ObjectMapper objectMapper;
+    private final GeneratedVideoQualityGate generatedVideoQualityGate;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(30))
@@ -153,9 +154,20 @@ public class AiVideoGenerationService {
                     throw new BusinessException("ComfyUI 视频 Provider 初始化失败，无法轮询任务");
                 }
                 ComfyUiVideoProvider.ComfyPromptQueryResult result = comfyUiVideoProvider.queryVideoTask(shot.getVideoTaskId());
-                return new VideoTaskQueryResult("comfyui", result.status(), result.videoUrl(), result.errorMessage());
+                return applyGeneratedVideoQualityGate(
+                        "comfyui",
+                        result.status(),
+                        result.videoUrl(),
+                        result.errorMessage(),
+                        shot);
             }
-            return queryVideoTask(provider, config.apiKey(), statusUrl);
+            VideoTaskQueryResult result = queryVideoTask(provider, config.apiKey(), statusUrl);
+            return applyGeneratedVideoQualityGate(
+                    result.provider(),
+                    result.status(),
+                    result.videoUrl(),
+                    result.errorMessage(),
+                    shot);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -882,9 +894,77 @@ public class AiVideoGenerationService {
             return null;
         }
         Project project = shot.getProjectId() != null ? projectService.getProject(shot.getProjectId()) : null;
-        Character character = shot.getCharacterId() != null ? characterMapper.selectById(shot.getCharacterId()) : null;
+        Character character = resolveShotCharacterOrBackfill(shot);
         Scene scene = shot.getSceneId() != null ? sceneMapper.selectById(shot.getSceneId()) : null;
         return Wan22ShortDramaPromptBuilder.build(shot, character, scene, project, chainedFromPreviousTail);
+    }
+
+    private Character resolveShotCharacterOrBackfill(Storyboard shot) {
+        if (shot == null) {
+            return null;
+        }
+        if (shot.getCharacterId() != null) {
+            return characterMapper.selectById(shot.getCharacterId());
+        }
+        Character inferred = inferCharacterFromShotText(shot);
+        if (inferred == null) {
+            return null;
+        }
+        shot.setCharacterId(inferred.getId());
+        if (shot.getId() != null) {
+            try {
+                storyboardMapper.updateById(shot);
+            } catch (Exception e) {
+                log.debug("视频生成前回填角色绑定未能持久化: shotId={}, characterId={}, error={}",
+                        shot.getId(), inferred.getId(), e.getMessage());
+            }
+        }
+        log.debug("视频生成前已从镜头文本回填角色绑定: projectId={}, shotNo={}, characterName={}, characterId={}",
+                shot.getProjectId(), shot.getShotNo(), inferred.getName(), inferred.getId());
+        return inferred;
+    }
+
+    private Character inferCharacterFromShotText(Storyboard shot) {
+        if (shot == null || shot.getProjectId() == null) {
+            return null;
+        }
+        String combined = normalizeCharacterLookupKey(String.join(" ",
+                nullToEmpty(shot.getDescription()),
+                nullToEmpty(shot.getDialogue()),
+                nullToEmpty(shot.getNarration()),
+                nullToEmpty(shot.getImagePrompt()),
+                nullToEmpty(shot.getVideoPrompt())));
+        if (!hasText(combined)) {
+            return null;
+        }
+        List<Character> characters = characterMapper.selectList(new LambdaQueryWrapper<Character>()
+                .eq(Character::getProjectId, shot.getProjectId())
+                .orderByAsc(Character::getSortOrder)
+                .orderByAsc(Character::getCreateTime));
+        for (Character character : characters) {
+            String nameKey = normalizeCharacterLookupKey(character.getName());
+            if (hasText(nameKey) && combined.contains(nameKey)) {
+                return character;
+            }
+        }
+        return null;
+    }
+
+    private String normalizeCharacterLookupKey(String value) {
+        if (!hasText(value)) {
+            return "";
+        }
+        StringBuilder normalized = new StringBuilder();
+        for (char ch : value.trim().toCharArray()) {
+            if (java.lang.Character.isLetterOrDigit(ch)) {
+                normalized.append(java.lang.Character.toLowerCase(ch));
+            }
+        }
+        return normalized.toString();
+    }
+
+    private String nullToEmpty(String value) {
+        return value != null ? value : "";
     }
 
     private boolean isAliyunProvider(String provider) {
@@ -936,7 +1016,12 @@ public class AiVideoGenerationService {
             String videoUrl = hasText(referenceImageUrl)
                     ? provider.generateVideoFromImage(referenceImageUrl, referenceImageUrls, prompt, duration, resolution, quality, false)
                     : provider.generateVideoFromText(prompt, duration, resolution, quality, false);
-            return new VideoTaskSubmission("comfyui", null, null, hasText(videoUrl) ? persistVideoUrl(videoUrl) : null);
+            videoUrl = hasText(videoUrl) ? persistVideoUrl(videoUrl) : null;
+            VideoTaskQueryResult qualityResult = applyGeneratedVideoQualityGate("comfyui", "completed", videoUrl, null, shot);
+            if (isFailureStatus(qualityResult.status())) {
+                throw new RuntimeException(qualityResult.errorMessage());
+            }
+            return new VideoTaskSubmission("comfyui", null, null, qualityResult.videoUrl());
         } catch (Exception e) {
             log.error("ComfyUI video generation failed for shot {}", shot.getShotNo(), e);
             maybeDowngradeToTierB(shot, e.getMessage());
@@ -961,13 +1046,11 @@ public class AiVideoGenerationService {
         addPublicReference(references, firstFrameOverrideUrl);
         addPublicReference(references, shot.getImageUrl());
 
-        if (shot.getCharacterId() != null) {
-            Character character = characterMapper.selectById(shot.getCharacterId());
-            if (character != null) {
-                addPublicReference(references, character.getImageUrl());
-                // 同时加入该角色全部多角度参考图（通常 3 张：正面/侧面/回眸）
-                addCharacterMultiAngleReferences(references, character);
-            }
+        Character character = resolveShotCharacterOrBackfill(shot);
+        if (character != null) {
+            addPublicReference(references, character.getImageUrl());
+            // 同时加入该角色全部多角度参考图（通常 3 张：正面/侧面/回眸）
+            addCharacterMultiAngleReferences(references, character);
         }
         if (shot.getSceneId() != null) {
             Scene scene = sceneMapper.selectById(shot.getSceneId());
@@ -1125,6 +1208,27 @@ public class AiVideoGenerationService {
 
     private String persistVideoUrl(String videoUrl) {
         return publicAssetStorageService.ensurePublicUrl(videoUrl, "videos", "mp4");
+    }
+
+    private VideoTaskQueryResult applyGeneratedVideoQualityGate(String provider,
+                                                               String status,
+                                                               String videoUrl,
+                                                               String errorMessage,
+                                                               Storyboard shot) {
+        if (!hasText(videoUrl) || !(isSuccessStatus(normalizeStatus(status)) || !hasText(status))) {
+            return new VideoTaskQueryResult(provider, status, videoUrl, errorMessage);
+        }
+        GeneratedVideoQualityGate.Result qualityResult = generatedVideoQualityGate.evaluate(videoUrl, resolveDuration(shot));
+        if (qualityResult.acceptable()) {
+            return new VideoTaskQueryResult(provider, status, videoUrl, errorMessage);
+        }
+        String reason = hasText(qualityResult.reason()) ? qualityResult.reason() : "视频视觉质检未通过";
+        log.warn("生成视频视觉质检未通过: shotId={}, shotNo={}, videoUrl={}, reason={}",
+                shot != null ? shot.getId() : null,
+                shot != null ? shot.getShotNo() : null,
+                videoUrl,
+                reason);
+        return new VideoTaskQueryResult(provider, "failed", null, reason);
     }
 
     private record VideoGenerationProfile(int durationSeconds, String qualityTier, String resolution) {}

@@ -46,7 +46,7 @@ const DOCS: Record<string, { title: string; paragraphs: string[] }> = {
   about: {
     title: '关于我们',
     paragraphs: [
-      '泥人剧场面向短剧与影像创作，提供从剧本到成片的一站式 AI 辅助能力。',
+      '泥人剧场面向短剧与影像创作，提供从剧本到成片的一站式智能辅助能力。',
       '团队持续优化模型与流程，帮助创作者更高效地完成故事呈现。',
     ],
   },

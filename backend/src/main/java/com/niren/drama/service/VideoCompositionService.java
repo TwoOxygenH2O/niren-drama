@@ -1,6 +1,7 @@
 package com.niren.drama.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -10,6 +11,7 @@ import com.niren.drama.ai.TtsProvider;
 import com.niren.drama.ai.trace.AiCallTrace;
 import com.niren.drama.ai.trace.AiTraceContext;
 import com.niren.drama.entity.Project;
+import com.niren.drama.common.AudioFormatSupport;
 import com.niren.drama.common.DramaTextSanitizer;
 import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
@@ -211,6 +213,8 @@ public class VideoCompositionService {
     private int dynamicVideoRetryMaxAttempts;
     @Value("${niren.dynamic-video.retry.backoff-seconds:8}")
     private long dynamicVideoRetryBackoffSeconds;
+    @Value("${niren.dynamic-video.quality-retry.max-attempts:1}")
+    private int dynamicVideoQualityRetryMaxAttempts;
     @Value("${niren.dynamic-video.chain.enabled:true}")
     private boolean dynamicVideoFrameChainEnabled;
     @Value("${niren.compose.segmented.enabled:true}")
@@ -256,6 +260,7 @@ public class VideoCompositionService {
 
     private record ShotSegment(Path videoPath, double clipDuration, Storyboard shot) {}
     private record NarrationSegment(long startMs, String text, double maxSeconds) {}
+    private record MediaStreamDurations(double formatDuration, double videoDuration, double audioDuration) {}
     public record ComposeOptions(Boolean narrationEnabled,
                                  Double narrationVolume,
                                  Boolean dialoguePriority,
@@ -481,32 +486,34 @@ public class VideoCompositionService {
                 // Download audio if available
                 Path audioPath = null;
                 if (hasText(shot.getAudioUrl())) {
-                    audioPath = workDir.resolve("shot_" + shot.getShotNo() + ".mp3");
+                    audioPath = workDir.resolve("shot_" + shot.getShotNo()
+                            + resolveAssetExtension(shot.getAudioUrl(), ".mp3"));
                     downloadFile(shot.getAudioUrl(), audioPath);
                 }
 
                 double audioDuration = measureMediaDurationSeconds(audioPath);
-                ShotRenderPlan renderPlan = buildShotRenderPlan(
-                        shot,
-                        audioDuration,
-                        hasNext ? transitionToNext : 0d);
+                double transitionTail = hasNext ? transitionToNext : 0d;
                 Path shotVideo = workDir.resolve("shot_" + shot.getShotNo() + ".mp4");
                 boolean dynamicSource = hasText(shot.getVideoUrl());
+                ShotRenderPlan renderPlan;
                 boolean applyMicroMotion = shouldApplyMicroMotion(shot, dynamicSource, consecutiveStaticShots, consecutiveStaticSeconds);
 
                 if (dynamicSource) {
                     Path sourceVideo = workDir.resolve("source_shot_" + shot.getShotNo() + ".mp4");
                     downloadFile(shot.getVideoUrl(), sourceVideo);
-                    composeDynamicShot(sourceVideo, audioPath, shotVideo, renderPlan, shot);
+                    double sourceVideoDuration = measureMediaDurationSeconds(sourceVideo);
+                    renderPlan = buildShotRenderPlan(shot, audioDuration, transitionTail, sourceVideoDuration);
+                    composeDynamicShot(sourceVideo, audioPath, shotVideo, renderPlan, shot, sourceVideoDuration);
                     int retry = 0;
                     while (retry < Math.max(0, dynamicQualityMaxRetry) && !isDynamicClipQualityAcceptable(shotVideo)) {
                         retry++;
                         log.debug("动态镜头质量未达阈值，触发重编码: taskId={}, shotNo={}, retry={}", taskId, shot.getShotNo(), retry);
-                        composeDynamicShot(sourceVideo, audioPath, shotVideo, renderPlan, shot);
+                        composeDynamicShot(sourceVideo, audioPath, shotVideo, renderPlan, shot, sourceVideoDuration);
                     }
                     consecutiveStaticShots = 0;
                     consecutiveStaticSeconds = 0d;
                 } else {
+                    renderPlan = buildShotRenderPlan(shot, audioDuration, transitionTail);
                     Path imagePath = workDir.resolve("shot_" + shot.getShotNo() + ".jpg");
                     downloadFile(shot.getImageUrl(), imagePath);
                     composeSingleShot(imagePath, audioPath, shotVideo, renderPlan, shot, applyMicroMotion);
@@ -515,9 +522,12 @@ public class VideoCompositionService {
                 }
 
                 if (Files.exists(shotVideo) && Files.size(shotVideo) > 0) {
-                    shotVideos.add(new ShotSegment(shotVideo, renderPlan.clipDuration(), shot));
-                    log.debug("镜头合成成功: taskId={}, projectId={}, shotNo={}, output={}",
-                            taskId, projectId, shot.getShotNo(), shotVideo);
+                    double actualClipDuration = resolveActualClipDuration(shotVideo, renderPlan.clipDuration());
+                    shotVideos.add(new ShotSegment(shotVideo, actualClipDuration, shot));
+                    log.debug("镜头合成成功: taskId={}, projectId={}, shotNo={}, output={}, plannedDuration={}, actualDuration={}",
+                            taskId, projectId, shot.getShotNo(), shotVideo,
+                            ffmpegNumber(renderPlan.clipDuration()),
+                            ffmpegNumber(actualClipDuration));
                 }
             }
 
@@ -532,6 +542,7 @@ public class VideoCompositionService {
             Path finalVideo = videoDir.resolve(outputFilename);
             Path narrationTrack = generateGlobalNarrationTrack(userId, shotVideos, workDir, runtimeOptions);
             concatenateVideosSmart(shotVideos, finalVideo, workDir, bgmPath, transitionSfxPath, transitionConflictSfxPath, transitionLyricalSfxPath, ambientPath, narrationTrack, runtimeOptions);
+            validateFinalMediaStreams(finalVideo);
 
             if (!Files.exists(finalVideo) || Files.size(finalVideo) == 0) {
                 throw new BusinessException("视频拼接失败");
@@ -547,6 +558,7 @@ public class VideoCompositionService {
                 project.setStatus("completed");
                 projectMapper.updateById(project);
             }
+            String composeResult = buildComposeTaskResult(videoUrl, shotVideos, narrationTrack, finalVideo);
 
             updateTask(task, "RUNNING", 95, "清理临时文件...");
 
@@ -556,7 +568,7 @@ public class VideoCompositionService {
             task.setStatus("SUCCESS");
             task.setProgress(100);
             task.setMessage("视频合成完成！");
-            task.setResult(buildComposeTaskResult(videoUrl, shotVideos, narrationTrack));
+            task.setResult(composeResult);
             taskRecordMapper.updateById(task);
             log.debug("视频合成完成: taskId={}, projectId={}, output={}, composedShots={}",
                     taskId, projectId, videoUrl, shotVideos.size());
@@ -718,11 +730,9 @@ public class VideoCompositionService {
                 } catch (Exception e) {
                     failed++;
                     chainedFirstFrameUrl = null;
-                    shot.setVideoTaskStatus("failed");
-                    shot.setStatus("video_failed");
-                    storyboardMapper.updateById(shot);
                     String shotLabel = resolveShotLabel(shot);
                     String errorMessage = buildFailureReason(e);
+                    markDynamicVideoShotFailed(shot, errorMessage, null);
                     failedDetails.add(String.format("镜头%s: %s", shotLabel, errorMessage));
                     log.warn("动态视频生成失败: shotLabel={}", shotLabel, e);
                 } finally {
@@ -781,9 +791,11 @@ public class VideoCompositionService {
         int omittedTraceCalls = 0;
         List<String> failedDetails = new ArrayList<>();
         boolean timedOut = isDynamicVideoTaskTimedOut(task);
+        int total = shots.size();
 
         try {
-            for (Storyboard shot : shots) {
+            for (int index = 0; index < shots.size(); index++) {
+                Storyboard shot = shots.get(index);
                 if (!isPendingDynamicVideoShot(shot)) {
                     continue;
                 }
@@ -801,9 +813,11 @@ public class VideoCompositionService {
                         shot.setVideoTaskStatus(hasText(result.status()) ? result.status() : "success");
                         shot.setStatus("video_generated");
                     } else if (isFailureVideoTaskStatus(result.status())) {
-                        markDynamicVideoShotFailed(shot,
-                                hasText(result.errorMessage()) ? result.errorMessage() : "视频生成任务失败",
-                                failedDetails);
+                        String reason = hasText(result.errorMessage()) ? result.errorMessage() : "视频生成任务失败";
+                        if (retryDynamicVideoAfterQualityFailure(userId, shot, task, index, total, reason)) {
+                            continue;
+                        }
+                        markDynamicVideoShotFailed(shot, reason, failedDetails);
                     } else {
                         shot.setVideoTaskStatus(hasText(result.status()) ? result.status() : "running");
                         shot.setStatus("video_polling");
@@ -821,7 +835,6 @@ public class VideoCompositionService {
                 }
             }
 
-            int total = shots.size();
             int generated = (int) shots.stream().filter(shot -> "video_generated".equalsIgnoreCase(shot.getStatus())).count();
             int failed = (int) shots.stream().filter(shot -> "video_failed".equalsIgnoreCase(shot.getStatus())).count();
             int pending = (int) shots.stream().filter(this::isPendingDynamicVideoShot).count();
@@ -908,7 +921,8 @@ public class VideoCompositionService {
                                     Path audioPath,
                                     Path outputPath,
                                     ShotRenderPlan renderPlan,
-                                    Storyboard shot) throws IOException, InterruptedException {
+                                    Storyboard shot,
+                                    double sourceVideoDurationSeconds) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
         cmd.add(ffmpegPath);
         cmd.add("-y");
@@ -929,7 +943,7 @@ public class VideoCompositionService {
         cmd.add("-map"); cmd.add("0:v:0");
         cmd.add("-map"); cmd.add("1:a:0");
         cmd.add("-vf");
-        cmd.add(buildDynamicShotFilter(shot, renderPlan));
+        cmd.add(buildDynamicShotFilter(shot, renderPlan, sourceVideoDurationSeconds));
         cmd.add("-af");
         cmd.add(buildShotAudioFilter(renderPlan.clipDuration()));
 
@@ -953,15 +967,28 @@ public class VideoCompositionService {
         return hasText(subtitleFilter) ? filter + "," + subtitleFilter : filter;
     }
 
-    private String buildDynamicShotFilter(Storyboard shot, ShotRenderPlan renderPlan) {
-        String filter = String.format(Locale.ROOT,
-                "fps=%d,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,tpad=stop_mode=clone:stop_duration=%s",
-                FRAME_RATE,
+    private String buildDynamicShotFilter(Storyboard shot,
+                                          ShotRenderPlan renderPlan,
+                                          double sourceVideoDurationSeconds) {
+        double targetDuration = Math.max(0.1d, renderPlan.clipDuration());
+        double sourceDuration = sourceVideoDurationSeconds > 0.1d
+                ? sourceVideoDurationSeconds
+                : targetDuration;
+        double stretchFactor = sourceDuration + 0.25d < targetDuration
+                ? Math.min(2.8d, Math.max(1.0d, targetDuration / sourceDuration))
+                : 1.0d;
+        String baseFilter = String.format(Locale.ROOT,
+                "scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,setsar=1",
                 VIDEO_WIDTH,
                 VIDEO_HEIGHT,
                 VIDEO_WIDTH,
-                VIDEO_HEIGHT,
-                ffmpegNumber(renderPlan.clipDuration()));
+                VIDEO_HEIGHT);
+        String motionFilter = stretchFactor > 1.02d
+                ? ",setpts=" + ffmpegNumber(stretchFactor)
+                + "*PTS,framerate=fps=" + FRAME_RATE
+                + ":interp_start=0:interp_end=255:scene=100"
+                : ",fps=" + FRAME_RATE;
+        String filter = baseFilter + motionFilter + ",tpad=stop_mode=clone:stop_duration=0.600";
         String subtitleFilter = buildSubtitleFilter(renderPlan.subtitleText(), renderPlan.subtitleVisibleDuration());
         return hasText(subtitleFilter) ? filter + "," + subtitleFilter : filter;
     }
@@ -1235,7 +1262,13 @@ public class VideoCompositionService {
             List<ShotSegment> subList = videos.subList(i, end);
             Path segmentFile = workDir.resolve("segment_" + segmentIndex + ".mp4");
             concatenateVideos(subList, segmentFile, null, null, null, null, null, null, runtimeOptions);
-            double segmentDuration = subList.stream().mapToDouble(ShotSegment::clipDuration).sum();
+            double plannedSegmentDuration = subList.stream().mapToDouble(ShotSegment::clipDuration).sum();
+            double segmentDuration = resolveActualClipDuration(segmentFile, plannedSegmentDuration);
+            log.debug("分段合成完成: segment={}, plannedDuration={}, actualDuration={}, shots={}",
+                    segmentFile,
+                    ffmpegNumber(plannedSegmentDuration),
+                    ffmpegNumber(segmentDuration),
+                    subList.size());
             segments.add(new ShotSegment(segmentFile, segmentDuration, subList.get(0).shot()));
             segmentIndex++;
         }
@@ -1404,19 +1437,21 @@ public class VideoCompositionService {
                         delayed));
                 delayedSfxTracks.add(delayed);
             }
-            if (delayedSfxTracks.isEmpty()) {
-                filterSteps.add(String.format(Locale.ROOT, "[%s]anull[aout]", mixedAudio));
-            } else {
+            if (!delayedSfxTracks.isEmpty()) {
                 StringBuilder mixInputs = new StringBuilder("[").append(mixedAudio).append("]");
                 delayedSfxTracks.forEach(label -> mixInputs.append("[").append(label).append("]"));
                 filterSteps.add(mixInputs + String.format(Locale.ROOT,
-                        "amix=inputs=%d:duration=first:normalize=0[aout]",
+                        "amix=inputs=%d:duration=first:normalize=0[amixsfx]",
                         delayedSfxTracks.size() + 1));
+                mixedAudio = "amixsfx";
             }
-        } else {
-            filterSteps.add(String.format(Locale.ROOT, "[%s]anull[aout]", mixedAudio));
         }
 
+        filterSteps.add(String.format(Locale.ROOT,
+                "[%s]apad=whole_dur=%s,atrim=duration=%s,asetpts=PTS-STARTPTS[aout]",
+                mixedAudio,
+                ffmpegNumber(currentDuration),
+                ffmpegNumber(currentDuration)));
         filterSteps.add(String.format(Locale.ROOT, "[%s]format=pix_fmts=yuv420p[vout]", currentVideo));
         return String.join(";", filterSteps);
     }
@@ -1764,11 +1799,105 @@ public class VideoCompositionService {
         }
     }
 
+    private double resolveActualClipDuration(Path mediaPath, double plannedDuration) {
+        double actualDuration = measureMediaDurationSeconds(mediaPath);
+        if (actualDuration <= 0.25d) {
+            return plannedDuration;
+        }
+        double drift = Math.abs(actualDuration - plannedDuration);
+        if (plannedDuration > 0.25d && drift > Math.max(0.35d, plannedDuration * 0.08d)) {
+            log.warn("合成片段真实时长与计划时长偏差较大: path={}, plannedDuration={}, actualDuration={}",
+                    mediaPath,
+                    ffmpegNumber(plannedDuration),
+                    ffmpegNumber(actualDuration));
+        }
+        return actualDuration;
+    }
+
+    private MediaStreamDurations measureMediaStreamDurations(Path mediaPath) {
+        if (mediaPath == null || !Files.exists(mediaPath)) {
+            return new MediaStreamDurations(0d, 0d, 0d);
+        }
+        try {
+            List<String> cmd = List.of(
+                    resolveFfprobeExecutable(),
+                    "-v", "error",
+                    "-show_entries", "stream=codec_type,duration:format=duration",
+                    "-of", "json",
+                    mediaPath.toAbsolutePath().toString());
+            String output = executeCommandForOutput(cmd, "ffprobe");
+            if (!hasText(output)) {
+                return new MediaStreamDurations(0d, 0d, 0d);
+            }
+            JsonNode root = objectMapper.readTree(output);
+            double formatDuration = parseFfprobeDuration(root.path("format").path("duration"));
+            double videoDuration = 0d;
+            double audioDuration = 0d;
+            JsonNode streams = root.path("streams");
+            if (streams.isArray()) {
+                for (JsonNode stream : streams) {
+                    String codecType = stream.path("codec_type").asText("");
+                    double duration = parseFfprobeDuration(stream.path("duration"));
+                    if ("video".equals(codecType) && duration > videoDuration) {
+                        videoDuration = duration;
+                    } else if ("audio".equals(codecType) && duration > audioDuration) {
+                        audioDuration = duration;
+                    }
+                }
+            }
+            return new MediaStreamDurations(formatDuration, videoDuration, audioDuration);
+        } catch (Exception e) {
+            log.warn("探测媒体流时长失败: path={}, reason={}", mediaPath, buildFailureReason(e));
+            return new MediaStreamDurations(0d, 0d, 0d);
+        }
+    }
+
+    private double parseFfprobeDuration(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return 0d;
+        }
+        String raw = node.asText("");
+        if (!hasText(raw) || "N/A".equalsIgnoreCase(raw)) {
+            return 0d;
+        }
+        try {
+            return Double.parseDouble(raw.trim());
+        } catch (NumberFormatException e) {
+            return 0d;
+        }
+    }
+
+    private void validateFinalMediaStreams(Path finalVideo) {
+        MediaStreamDurations durations = measureMediaStreamDurations(finalVideo);
+        if (durations.videoDuration() <= 0.5d) {
+            throw new BusinessException("视频合成失败：成片缺少有效视频流");
+        }
+        if (durations.audioDuration() <= 0.5d) {
+            throw new BusinessException("视频合成失败：成片缺少有效音频流");
+        }
+        double delta = Math.abs(durations.videoDuration() - durations.audioDuration());
+        double tolerance = Math.max(1.5d, Math.min(4.0d, durations.formatDuration() * 0.03d));
+        if (delta > tolerance) {
+            throw new BusinessException(String.format(Locale.ROOT,
+                    "视频合成失败：音视频时长不一致，video=%.2fs, audio=%.2fs",
+                    durations.videoDuration(),
+                    durations.audioDuration()));
+        }
+    }
+
     private ShotRenderPlan buildShotRenderPlan(Storyboard shot, double audioDuration, double transitionTail) {
+        return buildShotRenderPlan(shot, audioDuration, transitionTail, 0d);
+    }
+
+    private ShotRenderPlan buildShotRenderPlan(Storyboard shot,
+                                               double audioDuration,
+                                               double transitionTail,
+                                               double maxSourceContentDuration) {
         double cap = composeMaxShotDurationSeconds > 0.5d ? composeMaxShotDurationSeconds : 10.0d;
         double requestedDuration = shot.getDuration() != null && shot.getDuration() > 0
                 ? Math.min(shot.getDuration(), cap)
                 : Math.min(DEFAULT_SHOT_DURATION_SECONDS, cap);
+        double minDuration = MIN_SHOT_DURATION_SECONDS;
         double contentDuration;
         if (composeVoiceDrivenSyncEnabled && audioDuration > 0.01d) {
             double pauseSeconds = Math.min(Math.max(composeSyncPauseSeconds, MIN_VOICE_DRIVEN_PAUSE_SECONDS), MAX_VOICE_DRIVEN_PAUSE_SECONDS);
@@ -1784,7 +1913,7 @@ public class VideoCompositionService {
                     audioDuration + Math.max(0.1d, composeAudioTailPadding) + Math.max(0d, composeAudioBetweenShotsSeconds));
         }
         contentDuration = Math.min(contentDuration, cap);
-        contentDuration = Math.max(contentDuration, MIN_SHOT_DURATION_SECONDS);
+        contentDuration = Math.max(contentDuration, minDuration);
         double clipDuration = contentDuration + Math.max(0d, transitionTail);
         return new ShotRenderPlan(contentDuration, clipDuration, resolveSubtitleVisibleDuration(shot, contentDuration), resolveSubtitleText(shot));
     }
@@ -2223,16 +2352,138 @@ public class VideoCompositionService {
         shot.setVideoTaskProvider(null);
         shot.setVideoTaskStatus(null);
         shot.setVideoTaskRecordId(taskId);
+        persistDynamicVideoReset(shot, taskId);
     }
 
     private void markDynamicVideoShotFailed(Storyboard shot, String reason, List<String> failedDetails) {
         shot.setVideoUrl(null);
         shot.setVideoTaskStatus("failed");
         shot.setStatus("video_failed");
-        storyboardMapper.updateById(shot);
+        persistDynamicVideoFailure(shot);
         if (failedDetails != null) {
             failedDetails.add(String.format("镜头%s: %s", resolveShotLabel(shot), reason));
         }
+    }
+
+    private void persistDynamicVideoReset(Storyboard shot, Long taskId) {
+        if (shot == null || shot.getId() == null) {
+            return;
+        }
+        storyboardMapper.update(null, new UpdateWrapper<Storyboard>()
+                .eq("id", shot.getId())
+                .set("video_url", null)
+                .set("video_task_id", null)
+                .set("video_task_status_url", null)
+                .set("video_task_provider", null)
+                .set("video_task_status", null)
+                .set("video_task_record_id", taskId));
+    }
+
+    private void persistDynamicVideoFailure(Storyboard shot) {
+        if (shot == null || shot.getId() == null) {
+            return;
+        }
+        storyboardMapper.update(null, new UpdateWrapper<Storyboard>()
+                .eq("id", shot.getId())
+                .set("video_url", null)
+                .set("video_task_status", "failed")
+                .set("status", "video_failed"));
+    }
+
+    private boolean retryDynamicVideoAfterQualityFailure(Long userId,
+                                                         Storyboard shot,
+                                                         TaskRecord task,
+                                                         int index,
+                                                         int total,
+                                                         String reason) {
+        if (!isGeneratedVideoQualityFailure(reason)) {
+            return false;
+        }
+        int retryCount = resolveDynamicVideoQualityRetryCount(shot);
+        int maxRetries = Math.max(0, dynamicVideoQualityRetryMaxAttempts);
+        if (retryCount >= maxRetries) {
+            return false;
+        }
+        int nextRetry = retryCount + 1;
+        try {
+            prepareShotForDynamicVideoTask(shot, task.getId());
+            appendDynamicVideoQualityRetryReason(shot, nextRetry, reason);
+            AiVideoGenerationService.VideoTaskSubmission submission = submitDynamicVideoTaskWithRetry(
+                    userId,
+                    shot,
+                    null,
+                    false,
+                    task,
+                    index,
+                    total);
+            shot.setVideoTaskProvider(submission.provider());
+            if (hasText(submission.videoUrl())) {
+                shot.setVideoUrl(submission.videoUrl());
+                shot.setRenderMode("video");
+                shot.setVideoTaskStatus("success");
+                shot.setStatus("video_generated");
+            } else {
+                shot.setVideoTaskId(submission.taskId());
+                shot.setVideoTaskStatusUrl(submission.statusUrl());
+                shot.setVideoTaskStatus("submitted");
+                shot.setStatus("video_submitted");
+            }
+            storyboardMapper.updateById(shot);
+            updateTask(task, "RUNNING",
+                    10 + (80 * index / Math.max(1, total)),
+                    String.format("第%d/%d个镜头视觉质检未通过，已自动重试第%d次...",
+                            index + 1, total, nextRetry));
+            log.warn("动态视频视觉质检失败后已自动重试: taskId={}, shotId={}, shotNo={}, retry={}, reason={}",
+                    task.getId(), shot.getId(), shot.getShotNo(), nextRetry, reason);
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("动态视频视觉质检失败后的自动重试提交失败: taskId={}, shotId={}, retry={}, reason={}",
+                    task.getId(), shot.getId(), nextRetry, buildFailureReason(e));
+            return false;
+        }
+    }
+
+    private boolean isGeneratedVideoQualityFailure(String reason) {
+        if (!hasText(reason)) {
+            return false;
+        }
+        String normalized = reason.toLowerCase(Locale.ROOT);
+        return normalized.contains("视频视觉质检未通过")
+                || normalized.contains("washed_gray_video")
+                || normalized.contains("unwatchable_visual")
+                || normalized.contains("animated_still")
+                || normalized.contains("low_effective_fps");
+    }
+
+    private int resolveDynamicVideoQualityRetryCount(Storyboard shot) {
+        String reason = shot != null ? shot.getDynamicReason() : null;
+        if (!hasText(reason)) {
+            return 0;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("视频质检自动重试(\\d+)次")
+                .matcher(reason);
+        int count = 0;
+        while (matcher.find()) {
+            try {
+                count = Math.max(count, Integer.parseInt(matcher.group(1)));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return count;
+    }
+
+    private void appendDynamicVideoQualityRetryReason(Storyboard shot, int retry, String reason) {
+        if (shot == null) {
+            return;
+        }
+        String original = hasText(shot.getDynamicReason()) ? shot.getDynamicReason().trim() : "";
+        String compactReason = compactFailureReason(reason);
+        if (compactReason.length() > 96) {
+            compactReason = compactReason.substring(0, 96);
+        }
+        String suffix = "视频质检自动重试" + retry + "次：" + compactReason;
+        shot.setDynamicReason(hasText(original) ? original + "；" + suffix : suffix);
     }
 
     private String resolveShotLabel(Storyboard shot) {
@@ -2468,7 +2719,7 @@ public class VideoCompositionService {
         }
     }
 
-    private String buildComposeTaskResult(String videoUrl, List<ShotSegment> shotVideos, Path narrationTrack) {
+    private String buildComposeTaskResult(String videoUrl, List<ShotSegment> shotVideos, Path narrationTrack, Path finalVideo) {
         if (!hasText(videoUrl)) {
             return videoUrl;
         }
@@ -2485,6 +2736,12 @@ public class VideoCompositionService {
             root.put("globalNarrationEnabled", narrationTrack != null && Files.exists(narrationTrack));
             if (narrationTrack != null && Files.exists(narrationTrack)) {
                 root.put("globalNarrationDurationSeconds", measureMediaDurationSeconds(narrationTrack));
+            }
+            MediaStreamDurations durations = measureMediaStreamDurations(finalVideo);
+            if (durations.videoDuration() > 0d || durations.audioDuration() > 0d) {
+                root.put("videoDurationSeconds", durations.videoDuration());
+                root.put("audioDurationSeconds", durations.audioDuration());
+                root.put("formatDurationSeconds", durations.formatDuration());
             }
             return objectMapper.writeValueAsString(root);
         } catch (Exception e) {
@@ -2513,7 +2770,7 @@ public class VideoCompositionService {
                 if (audio == null || audio.length <= 100) {
                     continue;
                 }
-                Path segmentPath = workDir.resolve("narration_seg_" + index + ".mp3");
+                Path segmentPath = workDir.resolve("narration_seg_" + index + "." + AudioFormatSupport.extensionFor(audio));
                 Files.write(segmentPath, audio);
                 segmentAudios.add(segmentPath);
                 delays.add(Math.max(0L, segment.startMs()));

@@ -2,7 +2,11 @@
   <div class="layout-root">
     <aside v-if="!hideSidebar" class="sidebar-rail" aria-label="主导航">
       <button type="button" class="rail-logo" title="泥人剧场" aria-label="泥人剧场首页" @click="onRailLogoClick">
-        <img class="rail-logo-svg" src="/logo.svg" alt="" aria-hidden="true" />
+        <img class="rail-logo-svg" src="/favicon.svg" alt="" aria-hidden="true" />
+        <span class="rail-logo-text">
+          <b>泥人剧场</b>
+          <small>短剧生产台</small>
+        </span>
       </button>
 
       <div class="rail-center">
@@ -19,6 +23,7 @@
               <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
               <polyline points="9 22 9 12 15 12 15 22" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
+            <span class="rail-label">工作台</span>
           </router-link>
           <router-link
             to="/projects"
@@ -30,6 +35,7 @@
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
+            <span class="rail-label">项目中心</span>
           </router-link>
           <router-link
             to="/library/subjects"
@@ -43,19 +49,21 @@
               <path d="M5 20v-1a5 5 0 015-5h2a5 5 0 015 5v1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
               <path d="M18.5 5.5l1.2 1.2M19.7 3.3l1.2 1.2M21 6h1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
             </svg>
+            <span class="rail-label">资产矩阵</span>
           </router-link>
           <router-link
             to="/settings"
             class="rail-icon"
             :class="{ 'rail-icon--active': isNavSettings }"
-            title="AI配置"
-            aria-label="AI配置"
+            title="模型配置"
+            aria-label="模型配置"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="12" cy="8" r="3" stroke="currentColor" stroke-width="1.8" />
               <path d="M6 20v-1a4 4 0 014-4h0a4 4 0 014 4v1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
               <path d="M17 11h3M18.5 9.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
             </svg>
+            <span class="rail-label">模型配置</span>
           </router-link>
         </nav>
       </div>
@@ -155,7 +163,7 @@
         <div class="topbar-right">
           <div class="topbar-badge">
             <span class="badge-dot"></span>
-            AI 配置
+            模型配置
           </div>
         </div>
       </header>
@@ -498,6 +506,189 @@ function onRailHomeClick(e: MouseEvent) {
 }
 .rail-more-label {
   flex: 1;
+}
+
+.sidebar-rail {
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  align-items: center;
+  background:
+    linear-gradient(180deg, rgba(7, 16, 21, 0.92), rgba(5, 9, 13, 0.94)),
+    radial-gradient(circle at 18% 8%, rgba(91, 208, 255, 0.12), transparent 26%);
+  border-right: 1px solid var(--sidebar-border);
+  box-shadow: 18px 0 48px rgba(0, 0, 0, 0.32);
+}
+
+.rail-logo {
+  width: 100%;
+  justify-content: center;
+  gap: 0;
+  padding: 24px 0 20px;
+  color: var(--text-primary);
+}
+
+.rail-logo-svg {
+  width: 42px;
+  height: 42px;
+  filter: drop-shadow(0 0 16px rgba(24, 216, 255, 0.28));
+}
+
+.rail-logo-text {
+  display: none;
+}
+
+.rail-logo-text b {
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+.rail-logo-text small {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.rail-center {
+  align-items: center;
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.rail-floating-nav {
+  width: 56px;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.rail-icon {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  border-radius: 8px;
+  color: var(--sidebar-text);
+  border: 1px solid transparent;
+}
+
+.rail-icon svg {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+
+.rail-label {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid rgba(132, 180, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(5, 9, 19, 0.92);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  color: var(--sidebar-text-hover);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-2px, -50%);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  visibility: hidden;
+  white-space: nowrap;
+}
+
+.rail-icon:hover .rail-label,
+.rail-icon:focus .rail-label,
+.rail-icon:focus-visible .rail-label {
+  opacity: 1;
+  transform: translate(0, -50%);
+  visibility: visible;
+}
+
+.rail-icon:hover {
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--sidebar-text-hover);
+  border-color: rgba(132, 180, 255, 0.12);
+}
+
+.rail-icon--active {
+  position: relative;
+  background: linear-gradient(90deg, rgba(24, 216, 255, 0.18), rgba(139, 92, 246, 0.14));
+  color: #ffffff;
+  border-color: rgba(24, 216, 255, 0.24);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+}
+
+.rail-icon--active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: var(--primary);
+  box-shadow: 0 0 18px rgba(103, 232, 249, 0.72);
+}
+
+.rail-bottom {
+  padding: 18px 0 22px;
+  gap: 10px;
+}
+
+.rail-user,
+.rail-menu-btn {
+  width: 56px;
+}
+
+.rail-user {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.rail-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+
+.rail-menu-btn {
+  width: 56px;
+  height: 48px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.layout-root {
+  background: var(--page-environment);
+}
+
+.topbar {
+  height: 68px;
+  background: rgba(11, 20, 27, 0.68);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(28px) saturate(145%);
+}
+
+.page-main {
+  background: transparent;
 }
 </style>
 

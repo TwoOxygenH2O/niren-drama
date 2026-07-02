@@ -38,11 +38,11 @@ class AuthServiceTest {
     @Test
     void loginRejectsInvalidCaptchaBeforeAuthenticatingPassword() {
         LoginRequest request = loginRequest();
-        when(captchaService.validateCaptcha("captcha-1", "A7K2")).thenReturn(false);
+        when(captchaService.validateCaptcha("captcha-1", "PASSIVE:82:1200:6")).thenReturn(false);
 
         assertThatThrownBy(() -> service.login(request))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("验证码错误或已过期");
+                .hasMessage("安全验证失败或已过期");
         verify(authenticationManager, never()).authenticate(any());
     }
 
@@ -62,7 +62,7 @@ class AuthServiceTest {
         user.setAvatar("https://img.example/alice.png");
         user.setRoles("USER");
 
-        when(captchaService.validateCaptcha("captcha-1", "A7K2")).thenReturn(true);
+        when(captchaService.validateCaptcha("captcha-1", "PASSIVE:82:1200:6")).thenReturn(true);
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class))).thenReturn(authentication);
         when(authentication.getPrincipal()).thenReturn(userDetails);
         when(userMapper.selectOne(any())).thenReturn(user);
@@ -81,7 +81,7 @@ class AuthServiceTest {
         request.setUsername("alice");
         request.setPassword("secret123");
         request.setCaptchaId("captcha-1");
-        request.setCaptchaCode("A7K2");
+        request.setCaptchaCode("PASSIVE:82:1200:6");
         return request;
     }
 }

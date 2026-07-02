@@ -1,208 +1,167 @@
 <template>
-  <div class="dashboard-immersive" v-loading="creatingProject" element-loading-text="正在创建项目…">
+  <div
+    class="dashboard-immersive"
+    v-loading="creatingProject || dashboardLoading"
+    :element-loading-text="creatingProject ? '正在创建项目…' : '正在加载真实工作台数据…'"
+  >
     <div class="dashboard-bg" aria-hidden="true" />
-    <div class="dashboard-inner" :class="{ 'dashboard-inner--expanded': expanded }">
-      <h1 class="dashboard-headline">有什么新的故事灵感？</h1>
-      <p class="dashboard-sub">你好，{{ userStore.userInfo?.nickname || '创作者' }} · 泥人剧场</p>
+    <div class="dashboard-inner">
+      <header class="dashboard-topbar">
+        <div>
+          <p class="dashboard-eyebrow">泥人剧场 · 创作中枢</p>
+          <h1>用户工作台大盘</h1>
+        </div>
+        <div class="dashboard-actions">
+          <span class="kbd-pill">⌘ K</span>
+          <span v-if="dashboardBadge > 0" class="notify-dot">{{ dashboardBadge }}</span>
+          <div class="mini-avatar">{{ (userStore.userInfo?.nickname || 'ND').slice(0, 2).toUpperCase() }}</div>
+        </div>
+      </header>
 
-      <div
-        class="inspire-bar-wrap"
-        :class="{ 'inspire-bar-wrap--expanded': expanded }"
-        @click="onWrapClick"
-      >
-        <Transition name="inspire-swap" mode="out-in">
-          <!-- Collapsed: single pill row（点击除「发送」外区域展开） -->
-          <div v-if="!expanded" key="compact" class="inspire-bar inspire-bar--compact">
-            <input
-              v-model="inspiration"
-              type="text"
-              class="inspire-input"
-              placeholder="输入你的灵感，AI 会为你自动规划内容生成视频"
-              maxlength="500"
-              readonly
-              tabindex="-1"
-              @keydown.enter.prevent="goFromInspiration"
-            />
-            <button type="button" class="inspire-submit" title="开始创作" aria-label="开始创作" @click.stop="goFromInspiration">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="19" x2="12" y2="5" />
-                <polyline points="5 12 12 5 19 12" />
-              </svg>
-            </button>
+      <section class="inspiration-panel">
+        <div class="panel-orbit" aria-hidden="true" />
+        <div class="inspiration-head">
+          <div class="spark-icon">✧</div>
+          <h2>灵感输入栏</h2>
+          <label class="auto-enhance">
+            <span>自动增强</span>
+            <input type="checkbox" checked />
+          </label>
+        </div>
+        <textarea
+          v-model="inspiration"
+          class="inspiration-input"
+          placeholder="描述你的下一场短剧戏，例如：雨夜天台，女主发现男主隐藏身份，镜头缓慢推进..."
+          maxlength="500"
+          rows="3"
+          @keydown.ctrl.enter.prevent="goFromInspiration"
+        />
+        <div class="inspiration-footer">
+          <div class="prompt-tools">
+            <button type="button">上传素材</button>
+            <button type="button">情绪板</button>
+            <button type="button">参考图</button>
           </div>
-
-          <!-- Expanded: full composer -->
-          <div v-else key="expanded" class="inspire-bar inspire-bar--expanded" @click.stop>
-          <button type="button" class="composer-collapse" title="收起" aria-label="收起" @click="collapseComposer">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <polyline points="6 15 12 9 18 15" />
-            </svg>
-          </button>
-
-          <div class="composer-body">
-            <div class="composer-input-row">
-              <span class="composer-prefix"><span class="composer-prefix-accent">短剧原创</span><span class="composer-slash">/</span></span>
-              <textarea
-                ref="textareaRef"
-                v-model="inspiration"
-                class="composer-textarea"
-                placeholder="输入你的灵感，AI 会为你自动策划内容生成视频"
-                maxlength="500"
-                rows="3"
-                @keydown.ctrl.enter.prevent="goFromInspiration"
-              />
-            </div>
-
-            <div class="creation-controls" aria-label="创作设置">
-              <label class="creation-field">
-                <span>题材</span>
-                <el-select v-model="selectedGenre" size="small" popper-class="dashboard-genre-dropdown">
-                  <el-option
-                    v-for="item in GENRE_OPTIONS"
-                    :key="item.value"
-                    :value="item.value"
-                    :label="item.label"
-                  />
-                </el-select>
-              </label>
-              <div class="creation-field">
-                <span>平台</span>
-                <div class="creation-segment" aria-label="目标平台">
-                  <button
-                    v-for="item in PLATFORM_PROFILE_OPTIONS"
-                    :key="item.value"
-                    type="button"
-                    :class="{ active: platformProfile === item.value }"
-                    @click="setPlatformProfile(item.value)"
-                  >
-                    {{ item.label }}
-                  </button>
-                </div>
-              </div>
-              <div class="creation-field">
-                <span>质量</span>
-                <div class="creation-segment" aria-label="生成意图">
-                  <button
-                    v-for="item in PRODUCTION_MODE_OPTIONS"
-                    :key="item.value"
-                    type="button"
-                    :class="{ active: productionMode === item.value }"
-                    @click="setProductionMode(item.value)"
-                  >
-                    {{ item.label }}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div class="composer-toolbar">
-              <div class="toolbar-icons">
-                <button type="button" class="tool-ico" title="附件" aria-label="附件">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
-                  </svg>
-                </button>
-                <button type="button" class="tool-ico" title="素材" aria-label="素材">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <path d="M12 2l9 5v10l-9 5-9-5V7l9-5z" />
-                    <path d="M12 22V12M12 12L3 7M12 12l9-5" />
-                  </svg>
-                </button>
-                <button type="button" class="tool-ico" title="提及" aria-label="提及">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <circle cx="12" cy="12" r="4" />
-                    <path d="M16 8v5a4 4 0 01-8 0v-1" />
-                    <path d="M16 12h1.5a2.5 2.5 0 010 5H17" />
-                  </svg>
-                </button>
-                <button type="button" class="tool-ico" title="对话" aria-label="对话">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 018.5-8.5h.5a8.48 8.48 0 018 8.5z" />
-                  </svg>
-                </button>
-              </div>
-              <div class="toolbar-center">
-                <button type="button" class="mode-pill" title="当前默认文生视频模型（来自 AI 配置）" aria-label="当前默认文生视频模型">
-                  <span class="mode-pill-text">{{ videoModelLabel }}</span>
-                  <span class="mode-pill-new">NEW</span>
-                </button>
-              </div>
-              <div class="toolbar-right">
-                <span class="multi-label">集数</span>
-                <el-select v-model="episodeCount" size="small" style="width: 68px" popper-class="episode-count-dropdown">
-                  <el-option v-for="n in 40" :key="n" :value="n" :label="`${n}集`" />
-                </el-select>
-                <button type="button" class="send-pill" title="生成 / 前往项目" aria-label="生成并进入项目" @click="goFromInspiration">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="12" y1="19" x2="12" y2="5" />
-                    <polyline points="5 12 12 5 19 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
+          <div class="generate-pack">
+            <span>{{ inspiration.length }} / 500</span>
+            <button type="button" class="generate-btn" @click="goFromInspiration">生成 ✧</button>
           </div>
         </div>
-        </Transition>
-      </div>
-
-      <div class="dashboard-extras" :class="{ 'dashboard-extras--visible': expanded }">
-        <div class="quick-actions">
-          <button type="button" class="quick-chip quick-chip--drama" @click="goFromInspiration">
-            <span class="quick-chip-ico quick-chip-ico--pink" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3l2 4 4 .5-3 3 1 4.5L12 13l-4 2 .5-4.5-3-3L10 7l2-4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-            </span>
-            短剧原创
-          </button>
-          <button type="button" class="quick-chip quick-chip--casr" :disabled="creatingProject" @click="createCasrDemo">
-            <span class="quick-chip-ico quick-chip-ico--blue" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4 7h16" />
-                <path d="M6 17h12" />
-                <path d="M8 7a4 4 0 018 0" />
-                <path d="M10 17a2 2 0 014 0" />
-                <path d="M12 11v2" />
-              </svg>
-            </span>
-            创建 CASR 研究 Demo
-          </button>
-        </div>
-
-        <div class="feature-cards">
-          <button type="button" class="feature-card" @click="goFromInspiration">
-            <div class="feature-card-icon" aria-hidden="true">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-              </svg>
+        <div class="creation-controls" aria-label="创作设置">
+          <label class="creation-field">
+            <span>题材</span>
+            <el-select v-model="selectedGenre" size="small" popper-class="dashboard-genre-dropdown">
+              <el-option v-for="item in GENRE_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
+            </el-select>
+          </label>
+          <div class="creation-field">
+            <span>平台</span>
+            <div class="creation-segment" aria-label="目标平台">
+              <button
+                v-for="item in PLATFORM_PROFILE_OPTIONS"
+                :key="item.value"
+                type="button"
+                :class="{ active: platformProfile === item.value }"
+                @click="setPlatformProfile(item.value)"
+              >
+                {{ item.label }}
+              </button>
             </div>
-            <span class="feature-card-title">对话剧情</span>
-            <span class="feature-card-desc">多角色对话驱动的短剧形式，适合都市情感、悬疑推理等题材</span>
-          </button>
-          <button type="button" class="feature-card" @click="goFromInspiration">
-            <div class="feature-card-icon feature-card-icon--cyan" aria-hidden="true">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
-                <path d="M19 10v2a7 7 0 01-14 0v-2" />
-                <line x1="12" y1="19" x2="12" y2="23" />
-              </svg>
+          </div>
+          <div class="creation-field">
+            <span>质量</span>
+            <div class="creation-segment" aria-label="生成意图">
+              <button
+                v-for="item in PRODUCTION_MODE_OPTIONS"
+                :key="item.value"
+                type="button"
+                :class="{ active: productionMode === item.value }"
+                @click="setProductionMode(item.value)"
+              >
+                {{ item.label }}
+              </button>
             </div>
-            <span class="feature-card-title">旁白解说</span>
-            <span class="feature-card-desc">旁白解说驱动叙事，适合知识分享、故事讲解等内容</span>
-          </button>
+          </div>
+          <div class="creation-field">
+            <span>模型</span>
+            <b>{{ videoModelLabel }}</b>
+          </div>
+          <div class="creation-field">
+            <span>集数</span>
+            <el-select v-model="episodeCount" size="small" style="width: 84px" popper-class="episode-count-dropdown">
+              <el-option v-for="n in 40" :key="n" :value="n" :label="`${n}集`" />
+            </el-select>
+          </div>
         </div>
-      </div>
+      </section>
+
+      <section class="metric-grid" aria-label="生产指标">
+        <article
+          v-for="metric in metricCards"
+          :key="metric.id"
+          class="metric-card"
+          :class="{
+            'metric-card--violet': metric.tone === 'violet',
+            'metric-card--review': metric.tone === 'review',
+          }"
+        >
+          <div class="metric-top">
+            <span class="metric-icon">{{ metricIcon(metric.id) }}</span>
+            <b>{{ metric.title }}</b>
+            <em>{{ metric.status }}</em>
+          </div>
+          <div class="metric-value">
+            <strong>{{ metric.value }}</strong>
+            <span v-if="metric.total">/ {{ metric.total }}</span>
+          </div>
+          <p>{{ metric.description }}</p>
+          <div class="metric-track"><span :style="{ width: `${metric.progress}%` }" /></div>
+          <footer><span>{{ metric.footerLabel }}</span><b>{{ metric.footerValue }}</b></footer>
+        </article>
+        <article v-if="!dashboardLoading && metricCards.length === 0" class="metric-card metric-card--empty">
+          <div class="metric-top"><span class="metric-icon">◎</span><b>暂无生产数据</b><em>空</em></div>
+          <div class="metric-value"><strong>0</strong></div>
+          <p>创建项目后显示剧集、镜头和生成任务。</p>
+          <div class="metric-track"><span style="width: 0%" /></div>
+          <footer><span>数据源</span><b>真实接口</b></footer>
+        </article>
+      </section>
+
+      <section class="recent-panel">
+        <div class="recent-head">
+          <h2>最近生成</h2>
+          <button type="button" @click="goToRecentTarget">查看全部</button>
+        </div>
+        <div class="recent-table">
+          <div class="recent-row recent-row--head"><span>场景</span><span>项目</span><span>状态</span><span>进度</span><span>详情</span></div>
+          <div v-for="row in recentRows" :key="`${row.project}-${row.scene}-${row.status}`" class="recent-row">
+            <span>{{ row.scene }}</span>
+            <span>{{ row.project }}</span>
+            <span :class="row.statusTone">{{ row.status }}</span>
+            <span>{{ row.progress }}</span>
+            <span>{{ row.detail }}</span>
+          </div>
+          <div v-if="!dashboardLoading && recentRows.length === 0" class="recent-row recent-row--empty">
+            <span>暂无镜头</span>
+            <span>暂无项目</span>
+            <span class="violet">无任务</span>
+            <span>0%</span>
+            <span>等待首个镜头</span>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { aiConfigApi } from '@/api/aiConfig'
+import { dashboardApi, type DashboardMetric, type DashboardOverview, type DashboardRecentRow } from '@/api/dashboard'
 import { projectApi } from '@/api/project'
-import { productionApi } from '@/api/production'
-import { DASHBOARD_COLLAPSE_COMPOSER } from '@/constants/dashboard'
 import {
   DEFAULT_GENRE,
   DEFAULT_PLATFORM_PROFILE,
@@ -219,14 +178,14 @@ type ProductionMode = 'preview' | 'publish'
 const router = useRouter()
 const userStore = useUserStore()
 const inspiration = ref('')
-const expanded = ref(false)
 const episodeCount = ref(20)
 const selectedGenre = ref(DEFAULT_GENRE)
 const platformProfile = ref<PlatformProfile>(DEFAULT_PLATFORM_PROFILE as PlatformProfile)
 const productionMode = ref<ProductionMode>(DEFAULT_PRODUCTION_MODE as ProductionMode)
-const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const videoModelName = ref('')
 const creatingProject = ref(false)
+const dashboardLoading = ref(false)
+const dashboardOverview = ref<DashboardOverview | null>(null)
 
 const INSPIRATION_KEY = 'niren.dashboard.inspiration'
 const EPISODE_COUNT_KEY = 'niren.dashboard.episodeCount'
@@ -234,11 +193,19 @@ const GENRE_KEY = 'niren.dashboard.genre'
 const PLATFORM_PROFILE_KEY = 'niren.dashboard.platformProfile'
 const PRODUCTION_MODE_KEY = 'niren.dashboard.productionMode'
 
-/** 与 AI 配置中心「文生视频」默认项的模型名称一致 */
+/** 与模型配置中心「文生视频」默认项的模型名称一致 */
 const videoModelLabel = computed(() => {
   const m = videoModelName.value.trim()
   if (m) return `${m} 全能模式`
-  return '请在 AI 配置中添加文生视频模型'
+  return '请在模型配置中添加文生视频模型'
+})
+
+const metricCards = computed<DashboardMetric[]>(() => dashboardOverview.value?.metrics || [])
+const recentRows = computed<DashboardRecentRow[]>(() => dashboardOverview.value?.recentRows || [])
+const dashboardBadge = computed(() => {
+  const production = dashboardOverview.value?.productionSummary || {}
+  const tasks = dashboardOverview.value?.taskSummary || {}
+  return Number(production.issueCount || 0) + Number(tasks.active || 0)
 })
 
 async function loadDefaultVideoModel() {
@@ -257,39 +224,9 @@ async function loadDefaultVideoModel() {
   }
 }
 
-function collapseComposer() {
-  expanded.value = false
-}
-
-function expandComposer() {
-  if (expanded.value) return
-  expanded.value = true
-  loadDefaultVideoModel()
-  nextTick(() => textareaRef.value?.focus())
-}
-
-function onExternalCollapse() {
-  collapseComposer()
-}
-
-function onWindowWheel(e: WheelEvent) {
-  if (!expanded.value) return
-  const t = e.target as HTMLElement | null
-  // 下拉弹窗内滚动不收起
-  if (t && t.closest('.el-select-dropdown, .el-popper, .el-overlay')) return
-  if (t instanceof HTMLTextAreaElement) {
-    if (t.scrollHeight > t.clientHeight + 1 && t.scrollTop > 0) {
-      return
-    }
-  }
-  const main = document.querySelector('main.page-main') as HTMLElement | null
-  if (main && main.scrollTop > 2) return
-  if (e.deltaY >= 0) return
-  collapseComposer()
-}
-
 onMounted(() => {
   loadDefaultVideoModel()
+  loadDashboardOverview()
   try {
     const saved = sessionStorage.getItem(EPISODE_COUNT_KEY)
     if (saved) {
@@ -309,17 +246,19 @@ onMounted(() => {
       productionMode.value = savedMode
     }
   } catch { /* ignore */ }
-  window.addEventListener(DASHBOARD_COLLAPSE_COMPOSER, onExternalCollapse)
-  window.addEventListener('wheel', onWindowWheel, { passive: true })
 })
 
-onBeforeUnmount(() => {
-  window.removeEventListener(DASHBOARD_COLLAPSE_COMPOSER, onExternalCollapse)
-  window.removeEventListener('wheel', onWindowWheel)
-})
-
-function onWrapClick() {
-  if (!expanded.value) expandComposer()
+async function loadDashboardOverview() {
+  dashboardLoading.value = true
+  try {
+    const res = await dashboardApi.getOverview()
+    dashboardOverview.value = res.data?.data || null
+  } catch {
+    dashboardOverview.value = null
+    ElMessage.warning('工作台真实数据加载失败')
+  } finally {
+    dashboardLoading.value = false
+  }
 }
 
 function setPlatformProfile(value: PlatformProfile) {
@@ -330,6 +269,10 @@ function setProductionMode(value: ProductionMode) {
   productionMode.value = value
 }
 
+function projectInspirationKey(id: string | number) {
+  return `${INSPIRATION_KEY}:${id}`
+}
+
 async function goFromInspiration() {
   const text = inspiration.value.trim()
   if (!text) {
@@ -338,7 +281,6 @@ async function goFromInspiration() {
   }
   try {
     sessionStorage.setItem(EPISODE_COUNT_KEY, String(episodeCount.value))
-    sessionStorage.setItem(INSPIRATION_KEY, text)
     sessionStorage.setItem(GENRE_KEY, selectedGenre.value)
     sessionStorage.setItem(PLATFORM_PROFILE_KEY, platformProfile.value)
     sessionStorage.setItem(PRODUCTION_MODE_KEY, productionMode.value)
@@ -364,6 +306,12 @@ async function goFromInspiration() {
       ElMessage.error('创建项目失败')
       return
     }
+    try {
+      sessionStorage.setItem(projectInspirationKey(pid), text)
+      sessionStorage.removeItem(INSPIRATION_KEY)
+    } catch {
+      /* ignore */
+    }
     await router.push(`/projects/${pid}/immersive`)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : '创建项目失败'
@@ -373,573 +321,461 @@ async function goFromInspiration() {
   }
 }
 
-async function createCasrDemo() {
-  if (creatingProject.value) return
-  creatingProject.value = true
-  try {
-    const res = await productionApi.createCasrDemo()
-    const data = (res as any).data?.data || {}
-    if (!data.projectId) {
-      ElMessage.error('CASR Demo 创建失败')
-      return
-    }
-    ElMessage.success('CASR 研究 Demo 已创建')
-    await router.push(data.route || `/projects/${data.projectId}/immersive/workbench`)
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'CASR Demo 创建失败'
-    ElMessage.error(msg)
-  } finally {
-    creatingProject.value = false
+function metricIcon(id: string) {
+  const icons: Record<string, string> = {
+    activeTasks: '✦',
+    queue: '☰',
+    firstFrames: '◎',
+    videoReady: '⌁',
+    environment: '▣',
+    issues: '▻',
   }
+  return icons[id] || '◎'
 }
+
+function goToRecentTarget() {
+  const latestProject = dashboardOverview.value?.latestProject
+  if (latestProject?.id) {
+    router.push(`/projects/${latestProject.id}/immersive/workbench`)
+    return
+  }
+  router.push('/projects')
+}
+
 </script>
 
 <style scoped>
 .dashboard-immersive {
   position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: min(720px, 100%);
-  padding: 32px 20px 48px;
-  overflow: hidden;
+  display: block;
+  min-height: 100%;
+  padding: 0;
+  overflow-x: clip;
+  overflow-y: auto;
+  background: var(--page-environment);
+  color: #f7fbff;
 }
 
 .dashboard-bg {
-  position: absolute;
-  inset: 0;
+  position: fixed;
+  inset: 0 0 0 var(--sidebar-width);
   pointer-events: none;
   background:
-    url("/background/background1.png") center / cover no-repeat,
-    radial-gradient(ellipse 120% 80% at 50% 120%, rgba(30, 25, 45, 0.92) 0%, transparent 55%),
-    radial-gradient(ellipse 90% 60% at 70% 20%, rgba(60, 80, 120, 0.38) 0%, transparent 50%),
-    radial-gradient(ellipse 70% 50% at 20% 60%, rgba(90, 60, 40, 0.22) 0%, transparent 45%),
-    linear-gradient(165deg, #0a0a0f 0%, #0a0a0f 100%);
-}
-
-.dashboard-bg::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(10, 10, 15, 0.45);
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(180deg, black, transparent 85%);
 }
 
 .dashboard-inner {
   position: relative;
-  z-index: 1;
-  width: 100%;
-  max-width: 820px;
-  text-align: center;
-  transition:
-    max-width 0.55s cubic-bezier(0.4, 0, 0.2, 1),
-    transform 0.55s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.dashboard-inner--expanded {
-  max-width: 980px;
-  transform: translateY(-10px);
+  box-sizing: border-box;
+  width: min(1480px, calc(100% - 56px));
+  max-width: none;
+  margin: 0 auto;
+  padding: 30px 28px 48px;
 }
 
-.dashboard-headline {
-  margin: 0 0 12px;
-  font-size: clamp(26px, 4.5vw, 38px);
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: -0.02em;
-  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
-  transition: opacity 0.35s ease;
-}
-
-.dashboard-sub {
-  margin: 0 0 28px;
-  font-size: 14px;
-  color: rgba(226, 232, 240, 0.65);
-}
-
-.inspire-bar-wrap {
-  width: 100%;
-  cursor: pointer;
-  transition: margin 0.45s ease;
-}
-.inspire-bar-wrap--expanded {
-  cursor: default;
-}
-
-/* Collapsed pill */
-.inspire-bar--compact {
+.dashboard-topbar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 8px 8px 22px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  justify-content: space-between;
+  margin-bottom: 22px;
 }
 
-.inspire-input {
-  flex: 1;
-  min-width: 0;
-  background: transparent;
-  border: none;
-  outline: none;
-  font-size: 15px;
-  color: #f1f5f9;
-  padding: 12px 0;
+.dashboard-eyebrow {
+  margin: 0 0 6px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dashboard-topbar h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: 0;
+}
+
+.dashboard-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.kbd-pill,
+.mini-avatar {
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(150, 190, 255, 0.16);
+  background: rgba(255, 255, 255, 0.055);
+  color: #dbe8ff;
+  border-radius: 8px;
+}
+
+.kbd-pill {
+  padding: 0 15px;
+}
+
+.notify-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #6d5dfc;
+  color: #fff;
+  font-size: 12px;
+  box-shadow: 0 0 22px rgba(109, 93, 252, 0.45);
+}
+
+.mini-avatar {
+  width: 46px;
+  font-weight: 800;
+}
+
+.inspiration-panel,
+.metric-card,
+.recent-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.11);
+  backdrop-filter: blur(var(--glass-blur)) saturate(145%);
+}
+
+.inspiration-panel {
+  position: relative;
+  overflow: hidden;
+  padding: 30px 34px 24px;
+  border-color: rgba(103, 232, 249, 0.24);
+  box-shadow: var(--shadow-md), 0 0 0 1px rgba(103, 232, 249, 0.08) inset;
+}
+
+.panel-orbit {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 74% 20%, transparent 0 24%, rgba(139, 92, 246, 0.08) 25%, transparent 26%),
+    radial-gradient(circle at 12% 0%, rgba(103, 232, 249, 0.1), transparent 28%);
+  opacity: 0.9;
   pointer-events: none;
 }
-.inspire-input::placeholder {
-  color: rgba(148, 163, 184, 0.85);
-}
 
-.inspire-submit {
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.95);
-  color: #1e293b;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-  transition: transform 0.15s, box-shadow 0.15s;
-  pointer-events: auto;
-}
-.inspire-submit:hover {
-  transform: scale(1.05);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-}
-
-/* Expanded panel */
-.inspire-bar--expanded {
+.inspiration-head {
   position: relative;
-  text-align: left;
-  border-radius: 20px;
-  padding: 14px 16px 12px;
-  background: rgba(22, 24, 32, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  animation: inspire-expand-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes inspire-expand-in {
-  from {
-    opacity: 0.65;
-    transform: translateY(12px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.inspire-swap-enter-active,
-.inspire-swap-leave-active {
-  transition:
-    opacity 0.42s ease,
-    transform 0.48s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.inspire-swap-enter-from {
-  opacity: 0;
-  transform: translateY(14px) scale(0.985);
-}
-.inspire-swap-leave-to {
-  opacity: 0;
-  transform: translateY(18px) scale(0.978);
-}
-
-.composer-collapse {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  width: 36px;
-  height: 36px;
-  border: none;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(226, 232, 240, 0.85);
-  cursor: pointer;
   display: flex;
   align-items: center;
+  gap: 16px;
+}
+
+.spark-icon,
+.metric-icon {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  transition: background 0.15s, color 0.15s;
-  z-index: 2;
-}
-.composer-collapse:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
-
-.composer-body {
-  padding-right: 36px;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: rgba(24, 216, 255, 0.12);
+  color: var(--primary);
+  box-shadow: 0 0 26px rgba(103, 232, 249, 0.14);
 }
 
-.composer-input-row {
+.inspiration-head h2 {
+  margin: 0;
+  font-size: 22px;
+  color: var(--primary);
+}
+
+.auto-enhance {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #b9c4d6;
+  font-size: 14px;
+}
+
+.auto-enhance input {
+  width: 42px;
+  height: 22px;
+  appearance: none;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), var(--secondary));
+  position: relative;
+}
+
+.auto-enhance input::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.inspiration-input {
+  position: relative;
+  width: 100%;
+  min-height: 92px;
+  margin-top: 26px;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  color: #f7fbff;
+  font-size: 21px;
+  line-height: 1.55;
+}
+
+.inspiration-input::placeholder {
+  color: #8897ae;
+}
+
+.inspiration-footer,
+.creation-controls {
+  position: relative;
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 14px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.prompt-tools {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.prompt-tools button,
+.recent-head button,
+.creation-segment button {
+  border: 1px solid rgba(150, 190, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #dbe8ff;
+}
+
+.prompt-tools button {
+  height: 42px;
+  padding: 0 18px;
+}
+
+.generate-pack {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  color: #b9c4d6;
+}
+
+.generate-btn {
+  height: 50px;
+  min-width: 190px;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(100deg, #f7fbff, var(--primary), var(--secondary));
+  color: #03101d;
+  font-size: 18px;
+  font-weight: 800;
+  box-shadow: var(--shadow-primary);
 }
 
 .creation-controls {
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) auto auto;
-  align-items: end;
-  gap: 10px;
-  margin: 0 0 14px;
-  padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.045);
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(150, 190, 255, 0.12);
+  justify-content: flex-start;
 }
 
 .creation-field {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #9aa8bd;
+  font-size: 13px;
 }
 
-.creation-field > span {
-  color: rgba(203, 213, 225, 0.82);
-  font-size: 11px;
-  font-weight: 700;
+.creation-field b {
+  color: #f7fbff;
 }
 
 .creation-segment {
   display: inline-flex;
-  padding: 3px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.24);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 6px;
 }
 
 .creation-segment button {
-  min-height: 28px;
-  border: 0;
-  border-radius: 8px;
+  height: 30px;
   padding: 0 10px;
-  background: transparent;
-  color: rgba(226, 232, 240, 0.72);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
+  color: #9aa8bd;
 }
 
 .creation-segment button.active {
-  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(103, 232, 249, 0.3);
   color: #fff;
+  background: rgba(103, 232, 249, 0.12);
 }
 
-.creation-field :deep(.el-select) {
-  width: 100%;
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(260px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
 }
 
-.creation-field :deep(.el-input__wrapper) {
-  min-height: 34px;
-  background: rgba(0, 0, 0, 0.24);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+.metric-card {
+  padding: 22px;
+  min-height: 186px;
 }
 
-.creation-field :deep(.el-input__inner) {
-  color: #f1f5f9;
-  font-weight: 700;
+.metric-card--empty {
+  grid-column: 1 / -1;
 }
 
-.composer-prefix {
-  flex-shrink: 0;
-  padding-top: 4px;
-  font-size: 15px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.composer-prefix-accent {
-  color: #22d3ee;
-}
-.composer-slash {
-  color: rgba(148, 163, 184, 0.55);
-  margin-left: 2px;
-}
-
-.composer-textarea {
-  flex: 1;
-  min-width: 0;
-  min-height: 72px;
-  max-height: 160px;
-  resize: vertical;
-  background: transparent;
-  border: none;
-  outline: none;
-  font-size: 15px;
-  line-height: 1.55;
-  color: #f1f5f9;
-  font-family: inherit;
-}
-.composer-textarea::placeholder {
-  color: rgba(148, 163, 184, 0.75);
-}
-
-.composer-toolbar {
+.metric-top,
+.metric-card footer,
+.recent-head {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px 12px;
-  padding-top: 4px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 14px;
 }
 
-.toolbar-icons {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.tool-ico {
-  width: 36px;
-  height: 36px;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: rgba(226, 232, 240, 0.75);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s, color 0.15s;
-}
-.tool-ico:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+.metric-top b {
+  margin-right: auto;
+  font-size: 17px;
 }
 
-.toolbar-center {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  min-width: 0;
+.metric-top em {
+  font-style: normal;
+  color: #b9c4d6;
+  font-size: 13px;
 }
 
-.mode-pill {
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.35);
-  color: rgba(248, 250, 252, 0.92);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 8px 14px;
-  border-radius: 999px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
+.metric-top em::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--secondary);
+  box-shadow: 0 0 14px rgba(139, 124, 255, 0.56);
+}
+
+.metric-value {
+  margin: 18px 0 4px;
+  display: flex;
+  align-items: baseline;
   gap: 8px;
-  max-width: min(280px, 46vw);
-  min-width: 0;
-  transition: background 0.15s, border-color 0.15s;
-}
-.mode-pill-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.mode-pill:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.2);
-}
-.mode-pill-new {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  color: #0f172a;
-  background: linear-gradient(135deg, #fde047, #facc15);
-  padding: 2px 6px;
-  border-radius: 6px;
 }
 
-.toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.multi-label {
-  font-size: 12px;
-  color: rgba(203, 213, 225, 0.85);
-  font-weight: 500;
-}
-.send-pill {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.95);
-  color: #1e293b;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-  transition: transform 0.15s;
-}
-.send-pill:hover {
-  transform: scale(1.06);
+.metric-value strong {
+  font-size: 38px;
+  line-height: 1;
 }
 
-/* Extras slide in */
-.dashboard-extras {
-  margin-top: 0;
-  max-height: 0;
-  opacity: 0;
-  overflow: hidden;
-  transform: translateY(16px);
-  transition:
-    max-height 0.65s cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 0.45s ease 0.08s,
-    transform 0.55s cubic-bezier(0.4, 0, 0.2, 1),
-    margin-top 0.45s ease;
-  pointer-events: none;
-}
-.dashboard-extras--visible {
-  margin-top: 28px;
-  max-height: 560px;
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
+.metric-value span,
+.metric-card p,
+.metric-card footer {
+  color: #aab5c8;
 }
 
-.quick-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 12px;
-  margin-bottom: 28px;
-}
-
-.quick-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 22px;
+.metric-track {
+  height: 7px;
+  margin: 18px 0;
   border-radius: 999px;
-  font-size: 14px;
-  font-weight: 600;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
-  color: #f1f5f9;
-  cursor: pointer;
-  backdrop-filter: blur(10px);
-  transition: background 0.2s, border-color 0.2s, transform 0.15s;
-}
-.quick-chip:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.22);
-  transform: translateY(-1px);
-}
-.quick-chip-ico {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-}
-.quick-chip-ico--pink {
-  background: linear-gradient(145deg, #f472b6, #db2777);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
 }
 
-.quick-chip-ico--blue {
-  background: linear-gradient(145deg, #38bdf8, #2563eb);
-  color: #fff;
-}
-
-.feature-cards {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  width: 100%;
-}
-
-.feature-card {
-  text-align: left;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  background: var(--bg-card);
-  cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
-}
-.feature-card:hover {
-  border-color: var(--primary-light);
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-4px);
-}
-
-.feature-card-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: var(--primary-glow);
-  color: var(--primary-light);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 16px;
-}
-.feature-card-icon--cyan {
-  background: rgba(6, 182, 212, 0.15);
-  color: var(--accent-light);
-}
-
-.feature-card-desc {
+.metric-track span {
   display: block;
-  margin-top: 8px;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--text-secondary);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary), var(--secondary));
 }
 
+.recent-panel {
+  margin-top: 20px;
+  padding: 22px;
+}
 
-.feature-card-title {
+.recent-head h2 {
+  margin: 0;
   font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.02em;
 }
 
-@media (max-width: 640px) {
-  .creation-controls {
-    grid-template-columns: 1fr;
-    align-items: stretch;
+.recent-head button {
+  height: 36px;
+  padding: 0 16px;
+}
+
+.recent-table {
+  margin-top: 14px;
+  border: 1px solid rgba(150, 190, 255, 0.11);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.recent-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 0.7fr 0.8fr;
+  gap: 16px;
+  padding: 13px 16px;
+  color: #dbe8ff;
+  border-top: 1px solid rgba(150, 190, 255, 0.09);
+}
+
+.recent-row--head {
+  border-top: 0;
+  background: rgba(255, 255, 255, 0.045);
+  color: #8897ae;
+  font-size: 13px;
+}
+
+.recent-row--empty {
+  color: #9aa9be;
+}
+
+.cyan { color: var(--primary); }
+.violet { color: var(--secondary-light); }
+.green { color: #40d28f; }
+.red { color: #f87171; }
+
+@media (max-width: 1180px) {
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(240px, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .dashboard-bg {
+    inset: 0;
   }
 
-  .creation-segment {
+  .dashboard-inner {
     width: 100%;
+    padding: 20px 14px 32px;
   }
 
-  .creation-segment button {
-    flex: 1;
+  .dashboard-topbar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
-  .feature-cards {
+  .metric-grid {
     grid-template-columns: 1fr;
   }
-  .toolbar-center {
-    order: 3;
-    width: 100%;
-    flex-basis: 100%;
-    justify-content: flex-start;
+
+  .recent-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -51,6 +51,18 @@ niren:
   upload:
     path: ${UPLOAD_PATH:./uploads}
     base-url: ${BASE_URL:http://localhost:8080}/api/files
+  visual-review:
+    enabled: ${NIREN_VISUAL_REVIEW_ENABLED:true}
+    # Optional OpenAI-compatible VLM endpoint for CASR visual analysis 2.0.
+    # If unset, the service falls back to the default text config; if no usable
+    # vision model/key is available, VLM review is skipped and local metrics remain active.
+    base-url: ${NIREN_VISUAL_REVIEW_BASE_URL:}
+    api-key: ${NIREN_VISUAL_REVIEW_API_KEY:}
+    model: ${NIREN_VISUAL_REVIEW_MODEL:}
+    max-keyframes: ${NIREN_VISUAL_REVIEW_MAX_KEYFRAMES:3}
+  generated-video:
+    quality-gate:
+      enabled: ${NIREN_GENERATED_VIDEO_QUALITY_GATE_ENABLED:true}
   ai:
     text:
       provider: ${AI_TEXT_PROVIDER:openai}
@@ -98,6 +110,8 @@ niren:
     retry:
       max-attempts: ${NIREN_DYNAMIC_VIDEO_RETRY_MAX_ATTEMPTS:2}
       backoff-seconds: ${NIREN_DYNAMIC_VIDEO_RETRY_BACKOFF_SECONDS:8}
+    quality-retry:
+      max-attempts: ${NIREN_DYNAMIC_VIDEO_QUALITY_RETRY_MAX_ATTEMPTS:1}
     poll:
       base-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_BASE_SECONDS:5}
       max-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_MAX_SECONDS:30}

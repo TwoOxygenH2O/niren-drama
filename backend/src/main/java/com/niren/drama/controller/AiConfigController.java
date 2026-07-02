@@ -140,6 +140,7 @@ public class AiConfigController {
                                              @RequestParam(required = false) Integer loraRank,
                                              @RequestParam(required = false) Integer epochs,
                                              @RequestParam(defaultValue = "true") Boolean lowVram,
+                                             @RequestParam(required = false) String samplePromptsJson,
                                              @AuthenticationPrincipal UserDetails userDetails) throws IOException {
         Long userId = getUserId(userDetails);
         return Result.success(wanLoraTrainingService.submit(
@@ -151,7 +152,23 @@ public class AiConfigController {
                 runName,
                 loraRank,
                 epochs,
-                lowVram));
+                lowVram,
+                samplePromptsJson));
+    }
+
+    @Operation(summary = "生成 Wan2.2 外站训练提示词包")
+    @PostMapping("/{id}/wan22-lora/prompt-pack")
+    public Result<WanLoraTrainingService.TrainingPromptPack> buildWan22PromptPack(@PathVariable Long id,
+                                                                                   @RequestBody(required = false) Map<String, Object> body,
+                                                                                   @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = getUserId(userDetails);
+        Map<String, Object> safeBody = body == null ? Map.of() : body;
+        return Result.success(wanLoraTrainingService.buildPromptPack(
+                userId,
+                id,
+                stringValue(safeBody.get("theme")),
+                stringValue(safeBody.get("genre")),
+                intValue(safeBody.get("count"))));
     }
 
     /**

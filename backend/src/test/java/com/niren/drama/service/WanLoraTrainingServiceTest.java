@@ -61,7 +61,8 @@ class WanLoraTrainingServiceTest {
                 "trial",
                 8,
                 1,
-                true))
+                true,
+                null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("授权");
     }
@@ -81,7 +82,8 @@ class WanLoraTrainingServiceTest {
                 "trial",
                 8,
                 1,
-                true))
+                true,
+                null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("ComfyUI");
     }
@@ -100,7 +102,8 @@ class WanLoraTrainingServiceTest {
                 "pilot run",
                 8,
                 1,
-                true);
+                true,
+                null);
 
         assertThat(task.getId()).isEqualTo(99L);
         assertThat(task.getTaskType()).isEqualTo("WAN22_LORA_TRAIN");
@@ -123,6 +126,57 @@ class WanLoraTrainingServiceTest {
         assertThat(context.epochs()).isEqualTo(1);
         assertThat(Files.exists(context.samples().get(0).videoPath())).isTrue();
         assertThat(context.samples().get(0).originalFilename()).isEqualTo("shot01.mp4");
+        assertThat(context.samples().get(0).prompt()).contains("Keep the same actor");
+        assertThat(context.samples().get(0).negativePrompt()).contains("no cuts");
+    }
+
+    @Test
+    void submitAcceptsPerVideoPromptPairsForExternalGeneratedTrainingSamples() throws Exception {
+        AiConfig config = wanComfyUiConfig();
+        when(aiConfigMapper.selectOne(any())).thenReturn(config);
+
+        service.submit(
+                7L,
+                11L,
+                List.of(videoFile("shot01.mp4"), videoFile("shot02.mp4")),
+                "fallback continuity caption",
+                true,
+                "external prompt pairs",
+                16,
+                3,
+                false,
+                """
+                [
+                  {"filename":"shot01.mp4","prompt":"Ancient revenge heroine turns back under palace lanterns, real body turn and sleeve motion.","negativePrompt":"no slideshow, no camera cut"},
+                  {"filename":"shot02.mp4","prompt":"Ancient revenge heroine kneels then rises in the courtyard, clear acting beat.","negativePrompt":"no identity drift"}
+                ]
+                """);
+
+        ArgumentCaptor<WanLoraTrainingService.TrainingContext> contextCaptor =
+                ArgumentCaptor.forClass(WanLoraTrainingService.TrainingContext.class);
+        verify(trainingRunner).startTraining(contextCaptor.capture());
+        WanLoraTrainingService.TrainingContext context = contextCaptor.getValue();
+        assertThat(context.samples()).hasSize(2);
+        assertThat(context.samples().get(0).prompt()).contains("palace lanterns");
+        assertThat(context.samples().get(0).negativePrompt()).contains("no slideshow");
+        assertThat(context.samples().get(1).prompt()).contains("kneels then rises");
+        assertThat(context.samples().get(1).negativePrompt()).contains("identity drift");
+    }
+
+    @Test
+    void buildPromptPackCreatesExternalVideoPromptPairsForGenreTraining() {
+        AiConfig config = wanComfyUiConfig();
+        when(aiConfigMapper.selectOne(any())).thenReturn(config);
+
+        WanLoraTrainingService.TrainingPromptPack pack =
+                service.buildPromptPack(7L, 11L, "女频 复仇 古代", "追妻火葬场", 6);
+
+        assertThat(pack.theme()).isEqualTo("女频 复仇 古代");
+        assertThat(pack.items()).hasSize(6);
+        assertThat(pack.items().get(0).filename()).isEqualTo("external_wan22_001.mp4");
+        assertThat(pack.items().get(0).prompt()).contains("reference image is the exact first frame");
+        assertThat(pack.items().get(0).negativePrompt()).contains("no slideshow");
+        assertThat(pack.samplePromptsJson()).contains("external_wan22_001.mp4");
     }
 
     private AiConfig wanComfyUiConfig() {
@@ -138,6 +192,10 @@ class WanLoraTrainingServiceTest {
     }
 
     private MockMultipartFile videoFile() {
-        return new MockMultipartFile("files", "shot01.mp4", "video/mp4", new byte[]{1, 2, 3, 4});
+        return videoFile("shot01.mp4");
+    }
+
+    private MockMultipartFile videoFile(String filename) {
+        return new MockMultipartFile("files", filename, "video/mp4", new byte[]{1, 2, 3, 4});
     }
 }

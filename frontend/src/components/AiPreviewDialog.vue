@@ -12,7 +12,7 @@
       <div class="preview-hero">
         <div class="preview-hero__glow"></div>
         <div class="preview-hero__content">
-          <div class="preview-hero__eyebrow">AI Workspace</div>
+          <div class="preview-hero__eyebrow">智能创作预览台</div>
           <div class="preview-hero__main">
             <div>
               <div class="preview-hero__title">{{ title }}</div>
@@ -167,7 +167,7 @@ function handleCancel() {
   border-radius: var(--radius-full);
   font-size: 12px;
   font-weight: 600;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(24px) saturate(140%);
 }
 
 .preview-pill.is-loading {

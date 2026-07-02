@@ -57,10 +57,24 @@ public class ProductionWorkspaceService {
     private static final Set<String> ACTIVE_TASK_STATUS = Set.of("PENDING", "RUNNING");
     private static final List<String> QUALITY_ISSUE_TYPES = List.of(
             "missing_media",
+            "missing_video",
             "wrong_aspect_ratio",
             "duration_out_of_range",
             "black_frame",
             "frozen_frame",
+            "low_visual_detail",
+            "unwatchable_visual",
+            "weak_motion",
+            "animated_still",
+            "motion_smear",
+            "first_frame_drift_risk",
+            "identity_drift",
+            "wardrobe_inconsistent",
+            "face_broken",
+            "action_mismatch",
+            "unpublishable_frame",
+            "storyboard_mismatch",
+            "reference_mismatch",
             "probe_failed"
     );
 
@@ -77,6 +91,8 @@ public class ProductionWorkspaceService {
     private final CharacterMapper characterMapper;
     private final SceneMapper sceneMapper;
     private final ObjectMapper objectMapper;
+    private final VisualQualityAnalyzer visualQualityAnalyzer;
+    private final VisualReviewService visualReviewService;
 
     @Value("${niren.upload.path:./uploads}")
     private String uploadPath;
@@ -151,6 +167,10 @@ public class ProductionWorkspaceService {
                 result.put("videoConfig", applyVideoPreset(userId, "wan"));
                 task = videoCompositionService.startGenerateDynamicVideos(userId, projectId, emptyToNull(shotIds));
             }
+            case "switchHunyuan" -> {
+                result.put("videoConfig", applyVideoPreset(userId, "hunyuan"));
+                task = videoCompositionService.startGenerateDynamicVideos(userId, projectId, emptyToNull(shotIds));
+            }
             case "downgradeTier" -> {
                 updateShotTier(projectId, shotIds, "C", true);
                 task = videoCompositionService.startGenerateDynamicVideos(userId, projectId, emptyToNull(shotIds));
@@ -181,7 +201,7 @@ public class ProductionWorkspaceService {
 
         List<ProductionIssue> created = new ArrayList<>();
         for (Storyboard shot : shots) {
-            created.addAll(checkShotQuality(projectId, shot));
+            created.addAll(checkShotQuality(userId, projectId, shot));
         }
         created.forEach(productionIssueMapper::insert);
 
@@ -731,10 +751,21 @@ public class ProductionWorkspaceService {
         AiConfig videoConfig = aiConfigService.getDefaultByType(userId, "video");
         Map<String, Object> health = new LinkedHashMap<>();
         health.put("token", Map.of("status", "ok", "label", "登录有效"));
+        health.put("csrf", csrfPolicySummary());
         health.put("ffmpeg", checkCommand(ffmpegPath, "-version", "FFmpeg"));
         health.put("videoConfig", videoConfigSummary(videoConfig));
         health.put("comfyui", checkComfyUi(videoConfig));
         return health;
+    }
+
+    private Map<String, Object> csrfPolicySummary() {
+        return Map.of(
+                "status", "ok",
+                "label", "CSRF 已关闭",
+                "mode", "stateless-jwt",
+                "enabled", false,
+                "reason", "REST API 使用 Bearer JWT，不依赖 Cookie Session"
+        );
     }
 
     private Map<String, Object> videoConfigSummary(AiConfig config) {
@@ -885,12 +916,23 @@ public class ProductionWorkspaceService {
             config.setBaseUrl("http://127.0.0.1:8188");
         }
         Map<String, Object> extra = new LinkedHashMap<>();
-        if ("wan".equals(preset)) {
+        if ("hunyuan".equals(preset)) {
+            config.setModel("hunyuanvideo1.5_720p_i2v_fp16.safetensors");
+            extra.put("workflowFile", "video_hunyuan_video_1.5_720p_i2v.json");
+            extra.put("qualityMode", "hunyuan15-i2v-720p");
+            extra.put("maxFrames", 49);
+            extra.put("maxSteps", 12);
+            extra.put("maxReferenceImages", 1);
+        } else if ("wan".equals(preset)) {
             config.setModel("wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors");
-            extra.put("workflowFile", "video_wan2_2_14B_i2v.json");
+            extra.put("workflowFile", "video_wan2_2_14B_i2v_series_balanced.json");
+            extra.put("qualityMode", "wan22-series-balanced");
+            extra.put("maxFrames", 65);
+            extra.put("maxSteps", 12);
+            extra.put("frameRate", 16);
             extra.put("maxReferenceImages", 1);
             extra.put("patchWanControlnetStrength", true);
-            extra.put("bypassWanReferenceEmbeds", true);
+            extra.put("bypassWanReferenceEmbeds", false);
         } else {
             config.setModel("ltx-2-19b-distilled.safetensors");
             extra.put("workflowFile", "video_ltx2_i2v_short_drama_consistency.json");
@@ -999,7 +1041,7 @@ public class ProductionWorkspaceService {
                 .in(ProductionIssue::getStatus, List.of("open", "repairing")));
     }
 
-    private List<ProductionIssue> checkShotQuality(Long projectId, Storyboard shot) {
+    private List<ProductionIssue> checkShotQuality(Long userId, Long projectId, Storyboard shot) {
         List<ProductionIssue> issues = new ArrayList<>();
         if (!hasText(shot.getVideoUrl()) && !hasText(shot.getImageUrl())) {
             issues.add(newIssue(projectId, shot.getId(), "missing_media", "blocking", "镜头缺少可合成素材",
@@ -1007,6 +1049,10 @@ public class ProductionWorkspaceService {
             return issues;
         }
         if (!hasText(shot.getVideoUrl())) {
+            if (requiresDynamicVideo(shot)) {
+                issues.add(newIssue(projectId, shot.getId(), "missing_video", "blocking", "视频镜头缺少动态视频",
+                        "该镜头被设定为视频镜头，但还没有动态视频；不能用首帧静态素材替代发布。", "retryVideo", Map.of()));
+            }
             return issues;
         }
 
@@ -1029,7 +1075,7 @@ public class ProductionWorkspaceService {
             }
         }
         int expectedDuration = shot.getDuration() == null || shot.getDuration() <= 0 ? 5 : shot.getDuration();
-        if (duration > 0 && (duration < Math.max(2, expectedDuration - 3) || duration > expectedDuration + 8)) {
+        if (isVideoDurationOutOfRange(duration, expectedDuration)) {
             issues.add(newIssue(projectId, shot.getId(), "duration_out_of_range", "warning", "视频时长偏离镜头设定",
                     "当前检测时长约 " + Math.round(duration * 10d) / 10d + " 秒，镜头设定为 " + expectedDuration + " 秒。", "retryVideo", probe));
         }
@@ -1040,6 +1086,102 @@ public class ProductionWorkspaceService {
         if (detectWithFfmpeg(localVideo, "freezedetect=n=0.003:d=1.2", "freeze_start")) {
             issues.add(newIssue(projectId, shot.getId(), "frozen_frame", "warning", "检测到冻结画面",
                     "本地质检发现视频长时间不动，预览可接受但发布前建议重跑。", "retryVideo", probe));
+        }
+        issues.addAll(checkVisualQuality(userId, projectId, shot, localVideo, expectedDuration, probe));
+        return issues;
+    }
+
+    private boolean requiresDynamicVideo(Storyboard shot) {
+        if (shot == null) {
+            return false;
+        }
+        String renderMode = shot.getRenderMode();
+        if (hasText(renderMode) && "video".equalsIgnoreCase(renderMode.trim())) {
+            return true;
+        }
+        return Boolean.TRUE.equals(shot.getDynamicSelected());
+    }
+
+    private boolean isVideoDurationOutOfRange(double duration, int expectedDuration) {
+        if (duration <= 0d) {
+            return false;
+        }
+        double minimumDuration = expectedDuration >= 7
+                ? 3.75d
+                : Math.max(2d, expectedDuration - 3d);
+        return duration < minimumDuration || duration > expectedDuration + 8d;
+    }
+
+    private List<ProductionIssue> checkVisualQuality(Long userId,
+                                                     Long projectId,
+                                                     Storyboard shot,
+                                                     Path localVideo,
+                                                     int expectedDuration,
+                                                     Map<String, Object> probe) {
+        List<ProductionIssue> issues = new ArrayList<>();
+
+        VisualQualityReport localReport = null;
+        if (visualQualityAnalyzer != null) {
+            localReport = visualQualityAnalyzer.analyze(localVideo, expectedDuration);
+            if (localReport != null && localReport.analyzed() && localReport.findings() != null) {
+                for (VisualQualityFinding finding : localReport.findings()) {
+                    Map<String, Object> metadata = new LinkedHashMap<>();
+                    if (probe != null) {
+                        metadata.putAll(probe);
+                    }
+                    if (localReport.metrics() != null) {
+                        metadata.put("visualMetrics", localReport.metrics());
+                    }
+                    if (finding.metadata() != null && !finding.metadata().isEmpty()) {
+                        metadata.put("finding", finding.metadata());
+                    }
+                    metadata.put("visualAnalyzer", "local_frame_metrics");
+                    issues.add(newIssue(
+                            projectId,
+                            shot.getId(),
+                            textOr(finding.issueType(), "visual_quality"),
+                            textOr(finding.severity(), "warning"),
+                            textOr(finding.title(), "视觉质检异常"),
+                            textOr(finding.message(), "本地视觉分析发现镜头画面质量异常，建议重跑或切换工作流。"),
+                            textOr(finding.recommendedAction(), "retryVideo"),
+                            metadata));
+                }
+            }
+        }
+
+        if (visualReviewService != null) {
+            Path referenceImage = resolveLocalAsset(shot.getImageUrl());
+            Map<String, Object> localMetrics = localReport == null || localReport.metrics() == null
+                    ? Map.of()
+                    : localReport.metrics();
+            VisualReviewReport reviewReport = visualReviewService.review(userId, shot, localVideo, referenceImage, expectedDuration, localMetrics);
+            if (reviewReport != null && reviewReport.analyzed() && reviewReport.findings() != null) {
+                for (VisualReviewFinding finding : reviewReport.findings()) {
+                    Map<String, Object> metadata = new LinkedHashMap<>();
+                    if (probe != null) {
+                        metadata.putAll(probe);
+                    }
+                    if (!localMetrics.isEmpty()) {
+                        metadata.put("visualMetrics", localMetrics);
+                    }
+                    if (reviewReport.metrics() != null && !reviewReport.metrics().isEmpty()) {
+                        metadata.put("vlmReview", reviewReport.metrics());
+                    }
+                    if (finding.metadata() != null && !finding.metadata().isEmpty()) {
+                        metadata.put("finding", finding.metadata());
+                    }
+                    metadata.put("visualAnalyzer", "vlm_keyframe_review");
+                    issues.add(newIssue(
+                            projectId,
+                            shot.getId(),
+                            textOr(finding.issueType(), "visual_review"),
+                            textOr(finding.severity(), "warning"),
+                            textOr(finding.title(), "VLM 视觉审片异常"),
+                            textOr(finding.message(), "VLM 逐镜审片发现镜头与参考图或分镜不一致。"),
+                            textOr(finding.recommendedAction(), "retryVideo"),
+                            metadata));
+                }
+            }
         }
         return issues;
     }
@@ -1159,6 +1301,7 @@ public class ProductionWorkspaceService {
         actions.add(Map.of("id", "useFirstFrameOnly", "label", "只用首帧"));
         actions.add(Map.of("id", "switchLtx", "label", "切 LTX"));
         actions.add(Map.of("id", "switchWan", "label", "切 Wan"));
+        actions.add(Map.of("id", "switchHunyuan", "label", "切 Hunyuan"));
         return actions.stream().distinct().toList();
     }
 
@@ -1187,12 +1330,26 @@ public class ProductionWorkspaceService {
         return switch (issueType == null ? "" : issueType) {
             case "missing_first_frame" -> scope + "问题：缺少参考首帧，无法稳定生成分镜视频。";
             case "missing_media" -> scope + "问题：缺少可合成素材，无法进入预览或发布。";
+            case "missing_video" -> scope + "问题：视频镜头缺少动态视频，不能用静态首帧替代发布。";
             case "video_task_failed" -> scope + "问题：分镜视频失败，当前镜头不会进入成片。";
             case "stale_task" -> scope + "问题：任务长时间卡住，可能阻塞后续重新提交。";
             case "wrong_aspect_ratio" -> scope + "问题：视频不是 9:16，阻塞平台发布。";
             case "duration_out_of_range" -> scope + "问题：时长偏离镜头设定，影响节奏。";
             case "black_frame" -> scope + "问题：存在黑屏片段，阻塞发布。";
             case "frozen_frame" -> scope + "问题：画面冻结，发布前建议重跑。";
+            case "low_visual_detail" -> scope + "问题：画面细节不足，人物或场景可能不可读。";
+            case "unwatchable_visual" -> scope + "问题：视觉质量不可用，阻塞发布。";
+            case "weak_motion" -> scope + "问题：动态过弱，可能接近静态图。";
+            case "animated_still" -> scope + "问题：疑似只把参考图做成动图，缺少真实表演和视差。";
+            case "motion_smear" -> scope + "问题：存在拖影糊化，影响观看。";
+            case "first_frame_drift_risk" -> scope + "问题：视频可能偏离参考首帧，存在连续性风险。";
+            case "identity_drift" -> scope + "问题：VLM 审片发现人物身份漂移，连续性不可接受。";
+            case "wardrobe_inconsistent" -> scope + "问题：VLM 审片发现服装/妆造不一致。";
+            case "face_broken" -> scope + "问题：VLM 审片发现脸部崩坏或五官异常。";
+            case "action_mismatch" -> scope + "问题：VLM 审片发现动作不符合分镜。";
+            case "unpublishable_frame" -> scope + "问题：VLM 审片判定画面不可发布。";
+            case "storyboard_mismatch" -> scope + "问题：VLM 审片发现视频偏离分镜意图。";
+            case "reference_mismatch" -> scope + "问题：VLM 审片发现视频偏离参考首帧。";
             case "probe_failed" -> scope + "问题：本地无法读取视频，质检结果不完整。";
             default -> scope + "问题：需要处理后再确认发布。";
         };
@@ -1203,10 +1360,14 @@ public class ProductionWorkspaceService {
         if ("clearStaleTasks".equals(action) || "useFirstFrameOnly".equals(action)) return 1;
         if ("generateImages".equals(action) || "regenerateFirstFrame".equals(action)) return 2;
         if ("generateAudio".equals(action)) return 3;
+        if ("switchHunyuan".equals(action)) return 18;
         if ("switchWan".equals(action)) return 12;
         if ("retryVideo".equals(action) || "retry".equals(action) || "switchLtx".equals(action)) return 5;
         return switch (issueType == null ? "" : issueType) {
-            case "wrong_aspect_ratio", "black_frame", "frozen_frame", "video_task_failed" -> 8;
+            case "wrong_aspect_ratio", "black_frame", "frozen_frame", "video_task_failed",
+                    "low_visual_detail", "unwatchable_visual", "weak_motion", "animated_still", "motion_smear",
+                    "first_frame_drift_risk", "identity_drift", "wardrobe_inconsistent", "face_broken",
+                    "action_mismatch", "unpublishable_frame", "storyboard_mismatch", "reference_mismatch" -> 8;
             case "duration_out_of_range", "probe_failed" -> 4;
             default -> 3;
         };
@@ -1224,6 +1385,7 @@ public class ProductionWorkspaceService {
             case "useFirstFrameOnly" -> "只用首帧";
             case "switchLtx" -> "切 LTX";
             case "switchWan" -> "切 Wan";
+            case "switchHunyuan" -> "切 Hunyuan";
             case "clearStaleTasks" -> "清理任务";
             default -> action;
         };
@@ -1249,13 +1411,14 @@ public class ProductionWorkspaceService {
     private String inferProductionMode(Long userId) {
         AiConfig config = aiConfigService.getDefaultByType(userId, "video");
         String preset = inferPreset(config);
-        return "wan".equals(preset) ? "publish" : "preview";
+        return ("wan".equals(preset) || "hunyuan".equals(preset)) ? "publish" : "preview";
     }
 
     private String inferPreset(AiConfig config) {
         if (config == null) return "unset";
         String haystack = ((config.getModel() == null ? "" : config.getModel()) + " " + (config.getExtra() == null ? "" : config.getExtra()))
                 .toLowerCase(Locale.ROOT);
+        if (haystack.contains("hunyuan")) return "hunyuan";
         if (haystack.contains("wan")) return "wan";
         if (haystack.contains("ltx")) return "ltx";
         return "custom";
@@ -1265,6 +1428,7 @@ public class ProductionWorkspaceService {
         return switch (preset) {
             case "ltx" -> "快测 LTX";
             case "wan" -> "高质 Wan2.2";
+            case "hunyuan" -> "高质 Hunyuan";
             case "custom" -> "专家模式";
             default -> "未配置";
         };

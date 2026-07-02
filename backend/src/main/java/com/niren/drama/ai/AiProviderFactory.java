@@ -10,6 +10,7 @@ import com.niren.drama.ai.impl.MockTtsProvider;
 import com.niren.drama.ai.impl.OpenAiImageProvider;
 import com.niren.drama.ai.impl.OpenAiTextProvider;
 import com.niren.drama.ai.impl.OpenAiTtsProvider;
+import com.niren.drama.ai.impl.WindowsSapiTtsProvider;
 import com.niren.drama.entity.AiConfig;
 import com.niren.drama.mapper.AiConfigMapper;
 import com.niren.drama.service.AiConfigSecretCodec;
@@ -114,7 +115,13 @@ public class AiProviderFactory {
         AiResolvedConfig resolved = resolveConfig(userId, "tts");
         String provider = resolved.provider();
         String apiKey = resolved.apiKey();
+        if (isWindowsSapiProvider(provider)) {
+            return new WindowsSapiTtsProvider();
+        }
         if (!hasText(apiKey)) {
+            if (WindowsSapiTtsProvider.isSupported()) {
+                return new WindowsSapiTtsProvider();
+            }
             return new MockTtsProvider();
         }
         if (isAliyunProvider(provider)) {
@@ -178,6 +185,16 @@ public class AiProviderFactory {
                 || "dashscope".equals(normalized)
                 || "wanx".equals(normalized)
                 || "cosyvoice".equals(normalized);
+    }
+
+    private boolean isWindowsSapiProvider(String provider) {
+        if (!hasText(provider)) {
+            return false;
+        }
+        String normalized = provider.trim().toLowerCase();
+        return "sapi".equals(normalized)
+                || "windows-sapi".equals(normalized)
+                || "windows_sapi".equals(normalized);
     }
 
     private String getDefaultProvider(String configType) {
@@ -253,6 +270,7 @@ public class AiProviderFactory {
             case "jimeng" -> "https://jimeng.jianying.com/v1";
             case "runway" -> "https://api.dev.runwayml.com/v1";
             case "volcengine" -> "https://openspeech.bytedance.com/api/v1";
+            case "sapi", "windows-sapi", "windows_sapi" -> "";
             case "xunfei" -> "https://spark-api-open.xf-yun.com/v1";
             case "sd" -> "http://localhost:7860";
             case "comfyui" -> "http://127.0.0.1:8188";
@@ -310,6 +328,7 @@ public class AiProviderFactory {
             };
             case "runway" -> "gen-3";
             case "volcengine" -> "zh_female_qingxin";
+            case "sapi", "windows-sapi", "windows_sapi" -> "zh_female_zhubo";
             case "sd" -> "stable-diffusion-xl";
             case "comfyui" -> switch (configType) {
                 case "image" -> "";

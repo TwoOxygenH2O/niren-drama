@@ -1,0 +1,122 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "ltx-2.3-22b-dev-fp8.safetensors"
+    }
+  },
+  "2": {
+    "class_type": "LTXAVTextEncoderLoader",
+    "inputs": {
+      "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors",
+      "ckpt_name": "ltx-2.3-22b-dev-fp8.safetensors",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "positive prompt placeholder",
+      "clip": ["2", 0]
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "low quality, blurry, distorted, identity drift, face morphing, different person, changing clothes, scene jump, camera cut, flicker, jitter, watermark, subtitle, logo, sketch, line art, manga, monochrome, slideshow, frozen frame",
+      "clip": ["2", 0]
+    }
+  },
+  "5": {
+    "class_type": "LTXVConditioning",
+    "inputs": {
+      "positive": ["3", 0],
+      "negative": ["4", 0],
+      "frame_rate": 24.0
+    }
+  },
+  "6": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "input_keyframe.png"
+    }
+  },
+  "7": {
+    "class_type": "EmptyLTXVLatentVideo",
+    "inputs": {
+      "width": 720,
+      "height": 1280,
+      "length": 121,
+      "batch_size": 1
+    }
+  },
+  "8": {
+    "class_type": "LTXVImgToVideoConditionOnly",
+    "inputs": {
+      "image": ["6", 0],
+      "vae": ["1", 2],
+      "latent": ["7", 0],
+      "strength": 0.96,
+      "bypass": false
+    }
+  },
+  "9": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 0
+    }
+  },
+  "10": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["5", 0],
+      "negative": ["5", 1],
+      "cfg": 2.1
+    }
+  },
+  "11": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "12": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "scheduler": "normal",
+      "steps": 12,
+      "denoise": 0.94,
+      "model": ["1", 0]
+    }
+  },
+  "13": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": ["9", 0],
+      "guider": ["10", 0],
+      "sampler": ["11", 0],
+      "sigmas": ["12", 0],
+      "latent_image": ["8", 0]
+    }
+  },
+  "14": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["13", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "15": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "frame_rate": 24,
+      "loop_count": 0,
+      "filename_prefix": "niren_ltx2_3_pro_fp8_i2v",
+      "format": "video/h264-mp4",
+      "save_output": true,
+      "pingpong": false,
+      "images": ["14", 0]
+    }
+  }
+}

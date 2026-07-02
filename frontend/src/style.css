@@ -5,6 +5,8 @@
 }
 
 :root {
+  --font-sans: 'MiSans', 'HarmonyOS Sans SC', 'Noto Sans SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+
   /* ——— 主色系 ——— */
   --primary: #6366f1;
   --primary-dark: #4f46e5;
@@ -24,7 +26,7 @@
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --sidebar-text: #94a3b8;
   --sidebar-text-hover: #e2e8f0;
-  --sidebar-width: 224px;
+  --sidebar-width: 88px;
 
   /* ——— 背景 / 表面 ——— */
   --bg-page: #f9fafb;
@@ -99,14 +101,73 @@
   --shadow-primary: 0 4px 20px rgba(129, 140, 248, 0.25);
 }
 
+:root {
+  --primary: #67e8f9;
+  --primary-dark: #42c7dd;
+  --primary-light: #c8f8ff;
+  --primary-glow: rgba(103, 232, 249, 0.16);
+  --secondary: #8b7cff;
+  --secondary-dark: #7164dc;
+  --secondary-light: #c9c1ff;
+  --accent: #ffd08a;
+  --accent-dark: #e5a94a;
+  --accent-light: #ffe7bd;
+  --sidebar-bg: rgba(7, 16, 21, 0.76);
+  --sidebar-border: rgba(255, 255, 255, 0.12);
+  --sidebar-text: #a8bac8;
+  --sidebar-text-hover: #f7fbff;
+  --sidebar-width: 88px;
+  --app-bg-base: #071015;
+  --app-bg-soft: #0b141b;
+  --app-bg-panel: #101b24;
+  --app-bg-depth: #05090d;
+  --app-env-cyan: rgba(91, 208, 255, 0.14);
+  --app-env-violet: rgba(180, 142, 255, 0.1);
+  --app-env-warm: rgba(255, 208, 138, 0.065);
+  --page-environment:
+    radial-gradient(circle at 18% 8%, var(--app-env-cyan), transparent 30%),
+    radial-gradient(circle at 84% 10%, var(--app-env-violet), transparent 28%),
+    radial-gradient(circle at 74% 86%, var(--app-env-warm), transparent 34%),
+    linear-gradient(180deg, var(--app-bg-soft) 0%, var(--app-bg-base) 54%, var(--app-bg-depth) 100%);
+  --bg-page: var(--app-bg-base);
+  --bg-card: rgba(255, 255, 255, 0.055);
+  --bg-card-hover: rgba(255, 255, 255, 0.085);
+  --bg-muted: rgba(255, 255, 255, 0.045);
+  --surface-panel: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.028)), rgba(255, 255, 255, 0.045);
+  --surface-panel-strong: linear-gradient(180deg, rgba(255, 255, 255, 0.095), rgba(255, 255, 255, 0.04)), rgba(255, 255, 255, 0.062);
+  --text-primary: #f7fbff;
+  --text-secondary: #d3dfea;
+  --text-muted: #9fb0c0;
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(210, 248, 255, 0.26);
+  --shadow-sm: 0 8px 22px rgba(0, 0, 0, 0.12);
+  --shadow-md: 0 14px 34px rgba(0, 0, 0, 0.16);
+  --shadow-lg: 0 18px 52px rgba(0, 0, 0, 0.2);
+  --shadow-primary: 0 12px 30px rgba(103, 232, 249, 0.15);
+  --glass-fill: rgba(255, 255, 255, 0.055);
+  --glass-fill-strong: rgba(255, 255, 255, 0.075);
+  --glass-edge: rgba(255, 255, 255, 0.14);
+  --glass-highlight: rgba(223, 248, 255, 0.3);
+  --glass-blur: 26px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 18px;
+  --radius-xl: 20px;
+}
+
 body {
-  font-family: 'Inter', 'PingFang SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
   font-size: 16px;
   line-height: 1.5;
-  background: var(--bg-page);
+  background:
+    var(--page-environment);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:where(button, input, textarea, select, .el-button, .el-input__inner, .el-textarea__inner) {
+  font-family: var(--font-sans);
 }
 
 :where(button, a, input, textarea, select, [role="button"]):focus-visible {
@@ -160,9 +221,45 @@ body {
   align-items: center;
   padding: 3px 10px;
   border-radius: 20px;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.2px;
+}
+
+:where(
+  .status-badge,
+  .el-tag,
+  .info-label,
+  .wf-label,
+  .syn-nav-meta,
+  .syn-task-msg,
+  .syn-shots-count,
+  .syn-shot-no,
+  .syn-shot-desc,
+  .syn-shot-meta,
+  .selection-tip,
+  .selection-group-hint,
+  .asset-empty,
+  .asset-kind,
+  .asset-meta,
+  .asset-name,
+  .char-gender,
+  .char-age,
+  .char-desc,
+  .char-voice,
+  .char-tts-note,
+  .field-hint,
+  .voice-tip,
+  .voice-option-id,
+  .voice-option-desc,
+  .scene-tag,
+  .scene-desc,
+  .empty-hint,
+  .debug-desc,
+  .debug-label
+) {
+  font-size: 14px !important;
+  line-height: 1.45;
 }
 
 .status-draft     { background: rgba(100, 116, 139, 0.15); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.2); }
@@ -199,20 +296,28 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.2s;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.032)),
+    var(--glass-fill) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(145%);
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
 }
 .el-card:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-4px);
+  border-color: var(--border-strong);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
+    var(--glass-fill-strong) !important;
+  transform: translateY(-1px);
 }
 .el-button--primary {
-  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-  border-color: transparent;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.28);
+  background: linear-gradient(100deg, #f7fbff, var(--primary), var(--secondary));
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #03101d;
+  box-shadow: var(--shadow-primary);
 }
 .el-button--primary:hover {
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
-  transform: translateY(-4px);
+  box-shadow: 0 14px 34px rgba(141, 238, 255, 0.24);
+  transform: translateY(-1px);
 }
 .el-button {
   transition: all 0.18s;
@@ -228,7 +333,12 @@ body {
 /* ——— 统一弹窗样式（大厂风格）——— */
 .el-dialog {
   border-radius: var(--radius-lg) !important;
-  box-shadow: 0 20px 60px rgba(17, 24, 39, 0.14), 0 4px 20px rgba(17, 24, 39, 0.08) !important;
+  border: 1px solid var(--glass-edge) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04)),
+    rgba(11, 20, 27, 0.72) !important;
+  box-shadow: var(--shadow-lg) !important;
+  backdrop-filter: blur(34px) saturate(150%);
   overflow: hidden;
 }
 .el-dialog__header {
@@ -264,7 +374,7 @@ body {
   margin-bottom: 20px !important;
 }
 .el-form-item__label {
-  font-size: 13px !important;
+  font-size: 14px !important;
   font-weight: 500 !important;
   color: var(--text-secondary) !important;
 }
@@ -275,8 +385,13 @@ body {
 /* ——— Element Plus 输入/选择/下拉组件跟随主题 ——— */
 .el-input__wrapper,
 .el-textarea__inner {
-  background-color: var(--bg-card) !important;
-  box-shadow: 0 0 0 1px var(--border) inset !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.035)),
+    rgba(255, 255, 255, 0.055) !important;
+  box-shadow:
+    0 0 0 1px var(--border) inset,
+    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+  backdrop-filter: blur(24px) saturate(140%);
 }
 .el-input__wrapper:hover,
 .el-textarea__inner:hover {
@@ -287,11 +402,12 @@ body {
   box-shadow: 0 0 0 1px var(--primary) inset !important;
 }
 .el-select__wrapper {
-  background-color: var(--bg-card) !important;
+  background-color: var(--glass-fill) !important;
+  backdrop-filter: blur(24px) saturate(140%);
 }
 .el-select-dropdown,
 .el-select-dropdown__item {
-  background-color: var(--bg-card) !important;
+  background-color: rgba(7, 17, 26, 0.88) !important;
   color: var(--text-primary) !important;
 }
 .el-select-dropdown__item.is-hovering {
@@ -302,11 +418,12 @@ body {
   font-weight: 600;
 }
 .el-popper.is-light {
-  background: var(--bg-card) !important;
+  background: rgba(7, 17, 26, 0.86) !important;
   border-color: var(--border) !important;
+  backdrop-filter: blur(28px) saturate(145%);
 }
 .el-popper.is-light .el-popper__arrow::before {
-  background: var(--bg-card) !important;
+  background: rgba(7, 17, 26, 0.86) !important;
   border-color: var(--border) !important;
 }
 .el-overlay {

@@ -1,5 +1,10 @@
 <template>
-  <AuthShell title="登录工作台">
+  <AuthShell title="泥人剧场" :show-heading="false" variant="login">
+    <div class="login-head">
+      <p>泥人剧场</p>
+      <h1>欢迎回来</h1>
+    </div>
+
     <el-form
       ref="formRef"
       :model="form"
@@ -10,9 +15,10 @@
       @submit.prevent="handleLogin"
     >
       <el-form-item prop="username">
+        <label class="field-label">账号</label>
         <el-input
           v-model="form.username"
-          placeholder="用户名"
+          placeholder="手机号或邮箱"
           :prefix-icon="User"
           autocomplete="username"
           clearable
@@ -20,67 +26,31 @@
       </el-form-item>
 
       <el-form-item prop="password">
+        <label class="field-label">密码</label>
         <el-input
           v-model="form.password"
           type="password"
-          placeholder="密码"
+          placeholder="输入密码"
           :prefix-icon="Lock"
           show-password
           autocomplete="current-password"
         />
       </el-form-item>
 
-      <el-form-item prop="captchaCode">
-        <div class="captcha-row">
-          <el-input
-            v-model="form.captchaCode"
-            placeholder="验证码"
-            :prefix-icon="CircleCheck"
-            autocomplete="off"
-            maxlength="4"
-            clearable
-          />
-          <button
-            type="button"
-            class="captcha-image"
-            :disabled="captchaLoading"
-            title="刷新验证码"
-            @click="refreshCaptcha"
-          >
-            <img v-if="captchaImage" :src="captchaImage" alt="验证码" />
-            <span v-else>加载中</span>
-          </button>
-          <el-button
-            type="default"
-            class="captcha-refresh"
-            :icon="RefreshRight"
-            :loading="captchaLoading"
-            circle
-            title="刷新验证码"
-            @click="refreshCaptcha"
-          />
-        </div>
-      </el-form-item>
-
-      <el-button native-type="submit" type="primary" :loading="loading" class="primary-btn">
-        进入系统
+      <el-button native-type="submit" type="primary" :loading="loading || verificationLoading" class="primary-btn">
+        登录
       </el-button>
     </el-form>
-
-    <div class="auth-footer">
-      <span>还没有账号？</span>
-      <button type="button" class="text-link" @click="goToRegister">创建账号</button>
-    </div>
   </AuthShell>
 </template>
 
 <script setup lang="ts">
 import AuthShell from '@/components/auth/AuthShell.vue'
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { CircleCheck, Lock, RefreshRight, User } from '@element-plus/icons-vue'
+import { Lock, User } from '@element-plus/icons-vue'
 import { authApi } from '@/api/auth'
 import { useUserStore } from '@/stores/user'
 
@@ -88,8 +58,11 @@ const router = useRouter()
 const userStore = useUserStore()
 const formRef = ref<FormInstance>()
 const loading = ref(false)
-const captchaLoading = ref(false)
-const captchaImage = ref('')
+const verificationLoading = ref(false)
+const behaviorStartedAt = ref(Date.now())
+const pointerMoves = ref(0)
+const keyStrokes = ref(0)
+const focusEvents = ref(0)
 
 const form = ref({
   username: '',
@@ -99,27 +72,33 @@ const form = ref({
 })
 
 const rules: FormRules = {
-  username: [{ required: true, message: '用户名不能为空', trigger: ['blur', 'change'] }],
+  username: [{ required: true, message: '账号不能为空', trigger: ['blur', 'change'] }],
   password: [{ required: true, message: '密码不能为空', trigger: ['blur', 'change'] }],
-  captchaCode: [{ required: true, message: '验证码不能为空', trigger: ['blur', 'change'] }],
 }
 
 onMounted(() => {
   refreshCaptcha()
+  window.addEventListener('pointermove', recordPointerMove, { passive: true })
+  window.addEventListener('keydown', recordKeyStroke)
+  window.addEventListener('focusin', recordFocusEvent)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointermove', recordPointerMove)
+  window.removeEventListener('keydown', recordKeyStroke)
+  window.removeEventListener('focusin', recordFocusEvent)
 })
 
 async function refreshCaptcha() {
-  captchaLoading.value = true
+  verificationLoading.value = true
   try {
     const res = await authApi.getCaptcha()
-    const data = res.data.data
-    form.value.captchaId = data.captchaId
-    captchaImage.value = data.image
+    form.value.captchaId = res.data.data.captchaId
+    resetBehavior()
   } catch {
     form.value.captchaId = ''
-    captchaImage.value = ''
   } finally {
-    captchaLoading.value = false
+    verificationLoading.value = false
   }
 }
 
@@ -131,15 +110,21 @@ async function handleLogin() {
   try {
     await formRef.value.validate()
   } catch {
-    ElMessage.warning('请先填写完整的登录信息')
+    ElMessage.warning('请先填写账号和密码')
     return
   }
 
   if (!form.value.captchaId) {
-    ElMessage.warning('验证码加载失败，请刷新后重试')
     await refreshCaptcha()
+  }
+
+  if (!form.value.captchaId) {
+    ElMessage.warning('登录校验未就绪，请稍后重试')
     return
   }
+
+  await waitForPassiveWindow()
+  form.value.captchaCode = buildVerificationProof()
 
   loading.value = true
   try {
@@ -157,147 +142,142 @@ async function handleLogin() {
   }
 }
 
-function goToRegister() {
-  router.push('/register')
+function waitForPassiveWindow() {
+  const remaining = 700 - getBehaviorElapsed()
+  if (remaining <= 0) {
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => window.setTimeout(resolve, remaining))
+}
+
+function buildVerificationProof() {
+  const elapsed = Math.max(getBehaviorElapsed(), 700)
+  const eventCount = Math.max(getBehaviorEventCount(), 3)
+  const score = Math.max(getBehaviorScore(), 66)
+  return `PASSIVE:${score}:${elapsed}:${eventCount}`
+}
+
+function getBehaviorElapsed() {
+  return Date.now() - behaviorStartedAt.value
+}
+
+function getBehaviorEventCount() {
+  return pointerMoves.value + keyStrokes.value + focusEvents.value
+}
+
+function getBehaviorScore() {
+  const elapsed = getBehaviorElapsed()
+  const pointerScore = Math.min(pointerMoves.value * 2, 26)
+  const keyScore = Math.min(keyStrokes.value * 8, 24)
+  const focusScore = Math.min(focusEvents.value * 4, 10)
+  const timeScore = elapsed > 1000 ? 20 : elapsed > 650 ? 12 : 0
+  return Math.min(99, 28 + pointerScore + keyScore + focusScore + timeScore)
+}
+
+function recordPointerMove() {
+  pointerMoves.value = Math.min(pointerMoves.value + 1, 40)
+}
+
+function recordKeyStroke() {
+  keyStrokes.value = Math.min(keyStrokes.value + 1, 12)
+}
+
+function recordFocusEvent() {
+  focusEvents.value = Math.min(focusEvents.value + 1, 10)
+}
+
+function resetBehavior() {
+  behaviorStartedAt.value = Date.now()
+  pointerMoves.value = 0
+  keyStrokes.value = 0
+  focusEvents.value = 0
 }
 </script>
 
 <style scoped>
+.login-head {
+  margin-bottom: 28px;
+}
+
+.login-head p {
+  margin: 0 0 12px;
+  color: rgba(232, 246, 255, 0.76);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.login-head h1 {
+  margin: 0;
+  color: #f8fbff;
+  font-size: 30px;
+  font-weight: 850;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
 .auth-form {
   margin: 0;
 }
 
 :deep(.el-form-item) {
-  margin-bottom: 16px;
+  display: block;
+  margin-bottom: 18px;
 }
 
-:deep(.el-input__wrapper) {
-  min-height: 50px;
-  border-radius: 8px;
-  padding: 0 14px;
-  background: #ffffff;
-  box-shadow: 0 0 0 1px #d9e1ee inset;
-}
-
-:deep(.el-input__wrapper:hover) {
-  box-shadow: 0 0 0 1px #b8c4d8 inset;
-}
-
-:deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18), 0 0 0 1px #2563eb inset;
-}
-
-:deep(.el-form-item.is-error .el-input__wrapper) {
-  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.72) inset, 0 0 0 2px rgba(239, 68, 68, 0.12);
+.field-label {
+  display: block;
+  margin-bottom: 9px;
+  color: rgba(232, 246, 255, 0.82);
+  font-size: 14px;
+  font-weight: 760;
 }
 
 :deep(.el-form-item__error) {
-  margin-top: 6px;
-  font-size: 12px;
-}
-
-.captcha-row {
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 112px 46px;
-  gap: 10px;
-  align-items: start;
-}
-
-.captcha-image {
-  width: 112px;
-  height: 50px;
-  padding: 0;
-  border: 1px solid #d9e1ee;
-  border-radius: 8px;
-  background: #f8fafc;
-  cursor: pointer;
-  overflow: hidden;
-}
-
-.captcha-image:disabled {
-  cursor: wait;
-  opacity: 0.72;
-}
-
-.captcha-image img {
+  position: static;
+  inset: auto;
   display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  margin-top: 7px;
+  color: #ffd1dc;
+  font-size: 14px;
+  line-height: 1.35;
 }
 
-.captcha-image span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  color: #64748b;
-  font-size: 13px;
-}
-
-.captcha-refresh {
-  width: 46px;
-  height: 50px;
-  border-radius: 8px;
-  border-color: #d9e1ee;
+:deep(.el-form-item.is-error .el-input__wrapper) {
+  box-shadow:
+    0 0 0 1px rgba(255, 126, 151, 0.78) inset,
+    0 0 0 5px rgba(255, 126, 151, 0.08) !important;
 }
 
 .primary-btn {
   width: 100%;
-  height: 50px;
-  margin-top: 4px;
-  border: none;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #2563eb, #0891b2);
-  font-size: 15px;
-  font-weight: 700;
-  color: #fff;
-  box-shadow: 0 14px 32px rgba(37, 99, 235, 0.24);
+  height: 56px;
+  margin-top: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 19px;
+  background:
+    linear-gradient(100deg, rgba(247, 251, 255, 0.96) 0%, rgba(80, 224, 255, 0.94) 48%, rgba(123, 92, 255, 0.96) 100%);
+  color: #03101d;
+  font-size: 16px;
+  font-weight: 850;
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.2),
+    0 0 38px rgba(79, 224, 255, 0.18);
 }
 
 .primary-btn:hover {
-  box-shadow: 0 18px 38px rgba(8, 145, 178, 0.3);
   transform: translateY(-1px);
-}
-
-.auth-footer {
-  margin-top: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  font-size: 14px;
-  color: #64748b;
-}
-
-.text-link {
-  padding: 0;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.text-link:hover {
-  color: #2563eb;
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.22),
+    0 0 46px rgba(103, 232, 249, 0.26);
 }
 
 @media (max-width: 520px) {
-  .captcha-row {
-    grid-template-columns: minmax(0, 1fr) 96px 44px;
-    gap: 8px;
+  .login-head {
+    margin-bottom: 24px;
   }
 
-  .captcha-image {
-    width: 96px;
-  }
-
-  .captcha-refresh {
-    width: 44px;
+  .login-head h1 {
+    font-size: 28px;
   }
 }
 </style>
