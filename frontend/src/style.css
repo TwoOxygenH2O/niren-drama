@@ -28,32 +28,32 @@
   --accent-light: #86d0de;
 
   /* 侧边栏 */
-  --sidebar-bg: #0d0e15;
+  --sidebar-bg: #0b0c12;
   --sidebar-border: rgba(255, 255, 255, 0.07);
   --sidebar-text: #9aa2b6;
   --sidebar-text-hover: #eef0f6;
   --sidebar-width: 88px;
 
   /* 背景 / 表面：全部实心，按明度分层，不再依赖半透明叠加 */
-  --app-bg-base: #0e0f15;
-  --app-bg-soft: #12131b;
-  --app-bg-panel: #171922;
-  --app-bg-depth: #090a0f;
+  --app-bg-base: #101219;
+  --app-bg-soft: #141722;
+  --app-bg-panel: #1b1e29;
+  --app-bg-depth: #0b0c12;
   --bg-page: var(--app-bg-base);
-  --bg-card: #171922;
-  --bg-card-hover: #1c1f2b;
-  --bg-muted: #14161f;
-  --bg-elevated: #1e2130;
+  --bg-card: #1b1e29;
+  --bg-card-hover: #202433;
+  --bg-muted: #151824;
+  --bg-elevated: #232735;
 
   /* 面板底：实心，供卡片/容器复用 */
-  --surface-panel: #171922;
-  --surface-panel-strong: #1e2130;
+  --surface-panel: #1b1e29;
+  --surface-panel-strong: #232735;
 
   /* 玻璃相关 token 仍保留（组件在引用），但默认不再模糊：
      blur=0 让散落在各处的 backdrop-filter 变为无操作，
      仅在弹窗、侧边栏这类少数容器里单独开启模糊。 */
-  --glass-fill: #171922;
-  --glass-fill-strong: #1e2130;
+  --glass-fill: #1b1e29;
+  --glass-fill-strong: #232735;
   --glass-edge: rgba(255, 255, 255, 0.08);
   --glass-blur: 0px;
 
@@ -72,8 +72,8 @@
   --text-muted: #8b93a7;
 
   /* 边框 */
-  --border: #262a37;
-  --border-strong: #3a4152;
+  --border: #2a2f3d;
+  --border-strong: #40485c;
 
   /* 阴影：实心深色主题下更克制的层次 */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
