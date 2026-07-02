@@ -1,30 +1,29 @@
 {
   "1": {
-    "class_type": "WanVideoModelLoader",
+    "class_type": "CLIPVisionLoader",
     "inputs": {
-      "model": "hunyuanvideo1.5_720p_i2v_fp16.safetensors",
-      "precision": "fp16"
+      "clip_name": "sigclip_vision_patch14_384.safetensors"
     }
   },
   "2": {
-    "class_type": "WanVideoVAELoader",
+    "class_type": "DualCLIPLoader",
     "inputs": {
-      "vae_name": "hunyuan_video_vae.safetensors"
+      "clip_name1": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "clip_name2": "byt5_small_glyphxl_fp16.safetensors",
+      "type": "hunyuan_video_15"
     }
   },
   "3": {
-    "class_type": "CLIPTextEncode",
+    "class_type": "VAELoader",
     "inputs": {
-      "text": "positive prompt placeholder",
-      "clip": ["1", 1]
+      "vae_name": "hunyuanvideo15_vae_fp16.safetensors"
     }
   },
   "4": {
-    "class_type": "WanVideoTextEncode",
+    "class_type": "UNETLoader",
     "inputs": {
-      "positive_prompt": "positive prompt placeholder",
-      "negative_prompt": "low quality, blurry, distorted",
-      "clip": ["1", 1]
+      "unet_name": "hunyuanvideo1.5_720p_i2v_fp16.safetensors",
+      "weight_dtype": "default"
     }
   },
   "5": {
@@ -34,51 +33,109 @@
     }
   },
   "6": {
-    "class_type": "WanVideoImageClipEncode",
+    "class_type": "CLIPVisionEncode",
     "inputs": {
-      "clip": ["1", 1],
-      "vae": ["2", 0],
-      "image": ["5", 0]
+      "clip_vision": ["1", 0],
+      "image": ["5", 0],
+      "crop": "center"
     }
   },
   "7": {
-    "class_type": "HunyuanVideo15ImageToVideo",
+    "class_type": "CLIPTextEncode",
     "inputs": {
-      "width": 720,
-      "height": 1280,
-      "length": 40,
-      "image_embeds": ["6", 0]
+      "clip": ["2", 0],
+      "text": "HunyuanVideo 1.5 image-to-video, commercial vertical short-drama shot, one continuous live-action take with readable actor performance, stable identity, natural cloth and hair motion, and no slideshow feeling."
     }
   },
   "8": {
-    "class_type": "WanVideoSampler",
+    "class_type": "CLIPTextEncode",
     "inputs": {
-      "seed": 0,
-      "steps": 30,
-      "cfg": 6.0,
-      "model": ["1", 0],
-      "positive": ["4", 0],
-      "negative": ["4", 1],
-      "latent_image": ["7", 0]
+      "clip": ["2", 0],
+      "text": ""
     }
   },
   "9": {
-    "class_type": "WanVideoDecode",
+    "class_type": "HunyuanVideo15ImageToVideo",
     "inputs": {
-      "samples": ["8", 0],
-      "vae": ["2", 0]
+      "positive": ["7", 0],
+      "negative": ["8", 0],
+      "vae": ["3", 0],
+      "width": 720,
+      "height": 1280,
+      "length": 49,
+      "batch_size": 1,
+      "start_image": ["5", 0],
+      "clip_vision_output": ["6", 0]
     }
   },
   "10": {
-    "class_type": "VHS_VideoCombine",
+    "class_type": "ModelSamplingSD3",
     "inputs": {
-      "frame_rate": 8,
-      "loop_count": 0,
-      "filename_prefix": "niren_video",
-      "format": "video/h264-mp4",
-      "save_output": false,
-      "pingpong": false,
-      "images": ["9", 0]
+      "model": ["4", 0],
+      "shift": 7
+    }
+  },
+  "11": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "model": ["10", 0],
+      "positive": ["9", 0],
+      "negative": ["9", 1],
+      "cfg": 2.2
+    }
+  },
+  "12": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "model": ["10", 0],
+      "scheduler": "simple",
+      "steps": 12,
+      "denoise": 1.0
+    }
+  },
+  "13": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 0
+    }
+  },
+  "14": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "15": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": ["13", 0],
+      "guider": ["11", 0],
+      "sampler": ["14", 0],
+      "sigmas": ["12", 0],
+      "latent_image": ["9", 2]
+    }
+  },
+  "16": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["15", 0],
+      "vae": ["3", 0]
+    }
+  },
+  "17": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "images": ["16", 0],
+      "fps": 8
+    }
+  },
+  "18": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": ["17", 0],
+      "format": "mp4",
+      "codec": "h264",
+      "filename_prefix": "video/niren_hunyuan15_i2v"
     }
   }
 }

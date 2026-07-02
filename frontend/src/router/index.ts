@@ -87,7 +87,7 @@ const router = createRouter({
           path: 'projects/:id/storyboard',
           name: 'Storyboard',
           component: () => import('@/views/storyboard/StoryboardView.vue'),
-          meta: { title: '分镜制作' },
+          meta: { title: '分镜制作', fullBleed: true },
         },
         {
           path: 'projects/:id/characters',
@@ -105,7 +105,7 @@ const router = createRouter({
           path: 'projects/:id/assets',
           name: 'Assets',
           component: () => import('@/views/asset/AssetView.vue'),
-          meta: { title: '素材库' },
+          meta: { title: '素材库', fullBleed: true },
         },
         {
           path: 'projects/:id/synthesis',
@@ -119,7 +119,7 @@ const router = createRouter({
           path: 'settings',
           name: 'Settings',
           component: () => import('@/views/settings/SettingsView.vue'),
-          meta: { title: 'AI配置', fullBleed: true },
+          meta: { title: '模型配置', fullBleed: true },
         },
         {
           path: 'library/subjects',

@@ -22,6 +22,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -49,6 +50,19 @@ public class WanLoraTrainingService {
                              Integer loraRank,
                              Integer epochs,
                              Boolean lowVram) throws IOException {
+        return submit(userId, configId, files, caption, licenseConfirmed, runName, loraRank, epochs, lowVram, null);
+    }
+
+    public TaskRecord submit(Long userId,
+                             Long configId,
+                             List<MultipartFile> files,
+                             String caption,
+                             Boolean licenseConfirmed,
+                             String runName,
+                             Integer loraRank,
+                             Integer epochs,
+                             Boolean lowVram,
+                             String samplePromptsJson) throws IOException {
         AiConfig config = getOwnedConfig(userId, configId);
         validateWanComfyUiConfig(config);
         if (!Boolean.TRUE.equals(licenseConfirmed)) {
@@ -70,6 +84,8 @@ public class WanLoraTrainingService {
         Files.createDirectories(rawVideoDir);
 
         List<TrainingSample> samples = new ArrayList<>();
+        Map<String, SamplePrompt> samplePrompts = parseSamplePrompts(samplePromptsJson);
+        String fallbackPrompt = safeCaption(caption);
         for (MultipartFile file : cleanFiles) {
             if (!isVideoFile(file)) {
                 continue;
@@ -81,12 +97,15 @@ public class WanLoraTrainingService {
                 throw new BusinessException("素材文件名不合法");
             }
             file.transferTo(target.toFile());
+            SamplePrompt samplePrompt = resolveSamplePrompt(samplePrompts, file.getOriginalFilename(), safeName, fallbackPrompt);
             samples.add(new TrainingSample(
                     safeName,
                     file.getOriginalFilename(),
                     target,
                     contentType(file),
-                    file.getSize()));
+                    file.getSize(),
+                    samplePrompt.prompt(),
+                    samplePrompt.negativePrompt()));
         }
 
         if (samples.isEmpty()) {
@@ -110,7 +129,7 @@ public class WanLoraTrainingService {
                 runDir,
                 workflowFile,
                 config.getModel(),
-                safeCaption(caption),
+                fallbackPrompt,
                 safeRank(loraRank),
                 safeEpochs(epochs),
                 Boolean.TRUE.equals(lowVram),
@@ -121,6 +140,43 @@ public class WanLoraTrainingService {
 
     void setTrainingRootForTest(Path trainingRoot) {
         this.trainingRoot = trainingRoot.toString();
+    }
+
+    public TrainingPromptPack buildPromptPack(Long userId,
+                                              Long configId,
+                                              String theme,
+                                              String genre,
+                                              Integer count) {
+        AiConfig config = getOwnedConfig(userId, configId);
+        validateWanComfyUiConfig(config);
+        String safeTheme = hasText(theme) ? theme.trim() : "女频 复仇 古代";
+        String safeGenre = hasText(genre) ? genre.trim() : "追妻火葬场";
+        int safeCount = Math.max(4, Math.min(count == null ? 12 : count, 60));
+        List<String> motionBeats = List.of(
+                "the heroine turns back under palace lanterns, sleeves moving with a real body turn",
+                "the heroine walks through a rain-soaked corridor, hair and robe moving naturally",
+                "the heroine kneels, steadies her breath, then rises with controlled anger",
+                "the male lead reaches out and misses her sleeve as she steps away",
+                "the heroine opens a carved wooden door and enters a cold ancestral hall",
+                "two characters face each other across a courtyard, subtle blocking and eye movement",
+                "the heroine draws a hairpin and hides evidence in her sleeve",
+                "the male lead backs away in shock while servants react in the background",
+                "the heroine lifts a letter toward camera, fingers trembling but face calm",
+                "the camera tracks beside the heroine as she crosses the palace bridge"
+        );
+        List<TrainingPromptItem> items = new ArrayList<>();
+        for (int i = 0; i < safeCount; i++) {
+            String filename = "external_wan22_" + String.format(Locale.ROOT, "%03d", i + 1) + ".mp4";
+            String motion = motionBeats.get(i % motionBeats.size());
+            String prompt = "Commercial vertical short-drama I2V training sample for " + safeTheme + " / " + safeGenre + ". "
+                    + "The reference image is the exact first frame; preserve the same actor identity, face, hairstyle, costume, props, lighting, camera angle, and scene layout. "
+                    + "Action beat: " + motion + ". "
+                    + "Use one continuous live-action shot with visible acting progression, body movement, cloth or hair response, foreground/background parallax, and no scene cut. "
+                    + "Ancient Chinese drama atmosphere, readable emotion, novel-narration mood, cinematic but natural.";
+            String negative = "no slideshow, no frozen frame, no static image pan, no gif-like zoom, no camera cut, no new person, no identity drift, no wardrobe change, no face morphing, no subtitles, no logo, no watermark";
+            items.add(new TrainingPromptItem(i + 1, filename, prompt, negative, motion));
+        }
+        return new TrainingPromptPack(safeTheme, safeGenre, items, toSamplePromptsJson(items));
     }
 
     private AiConfig getOwnedConfig(Long userId, Long configId) {
@@ -237,6 +293,120 @@ public class WanLoraTrainingService {
         return caption.trim();
     }
 
+    private Map<String, SamplePrompt> parseSamplePrompts(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Map.of();
+        }
+        try {
+            JsonNode root = objectMapper.readTree(raw);
+            Map<String, SamplePrompt> prompts = new java.util.LinkedHashMap<>();
+            JsonNode array = root.isArray() ? root : root.path("samples");
+            if (array.isArray()) {
+                for (JsonNode item : array) {
+                    addSamplePrompt(prompts, item);
+                }
+                return prompts;
+            }
+            if (root.isObject()) {
+                for (var it = root.fields(); it.hasNext(); ) {
+                    var entry = it.next();
+                    JsonNode value = entry.getValue();
+                    if (value.isTextual()) {
+                        prompts.put(promptKey(entry.getKey()), new SamplePrompt(value.asText(), defaultNegativePrompt()));
+                    } else if (value.isObject()) {
+                        String prompt = firstText(value, "prompt", "caption", "positivePrompt");
+                        String negative = firstText(value, "negativePrompt", "negative", "negative_prompt");
+                        if (hasText(prompt)) {
+                            prompts.put(promptKey(entry.getKey()), new SamplePrompt(prompt.trim(), safeNegativePrompt(negative)));
+                        }
+                    }
+                }
+            }
+            return prompts;
+        } catch (Exception e) {
+            throw new BusinessException("samplePromptsJson 格式不正确，请上传文件名与 prompt 的 JSON 对应关系");
+        }
+    }
+
+    private void addSamplePrompt(Map<String, SamplePrompt> prompts, JsonNode item) {
+        if (item == null || !item.isObject()) {
+            return;
+        }
+        String filename = firstText(item, "filename", "fileName", "originalFilename", "name", "sampleId");
+        String prompt = firstText(item, "prompt", "caption", "positivePrompt");
+        String negative = firstText(item, "negativePrompt", "negative", "negative_prompt");
+        if (hasText(filename) && hasText(prompt)) {
+            prompts.put(promptKey(filename), new SamplePrompt(prompt.trim(), safeNegativePrompt(negative)));
+        }
+    }
+
+    private SamplePrompt resolveSamplePrompt(Map<String, SamplePrompt> samplePrompts,
+                                             String originalFilename,
+                                             String safeName,
+                                             String fallbackPrompt) {
+        SamplePrompt prompt = samplePrompts.get(promptKey(originalFilename));
+        if (prompt == null) {
+            prompt = samplePrompts.get(promptKey(safeName));
+        }
+        if (prompt == null) {
+            return new SamplePrompt(fallbackPrompt, defaultNegativePrompt());
+        }
+        return new SamplePrompt(
+                hasText(prompt.prompt()) ? prompt.prompt().trim() : fallbackPrompt,
+                safeNegativePrompt(prompt.negativePrompt()));
+    }
+
+    private String firstText(JsonNode node, String... names) {
+        if (node == null || names == null) {
+            return null;
+        }
+        for (String name : names) {
+            JsonNode value = node.path(name);
+            if (value.isTextual() && hasText(value.asText())) {
+                return value.asText();
+            }
+        }
+        return null;
+    }
+
+    private String safeNegativePrompt(String negativePrompt) {
+        return hasText(negativePrompt) ? negativePrompt.trim() : defaultNegativePrompt();
+    }
+
+    private String toSamplePromptsJson(List<TrainingPromptItem> items) {
+        try {
+            List<Map<String, String>> payload = items.stream()
+                    .map(item -> Map.of(
+                            "filename", item.filename(),
+                            "prompt", item.prompt(),
+                            "negativePrompt", item.negativePrompt()))
+                    .toList();
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(payload);
+        } catch (Exception e) {
+            return "[]";
+        }
+    }
+
+    private String defaultNegativePrompt() {
+        return "no cuts, no new people, no wardrobe change, no scene jump, no face morphing, no slideshow";
+    }
+
+    private String promptKey(String filename) {
+        if (filename == null) {
+            return "";
+        }
+        String normalized = filename.trim().replace('\\', '/');
+        int slash = normalized.lastIndexOf('/');
+        if (slash >= 0) {
+            normalized = normalized.substring(slash + 1);
+        }
+        return normalized.toLowerCase(Locale.ROOT);
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
     private int safeRank(Integer rank) {
         if (rank == null) {
             return 8;
@@ -293,6 +463,25 @@ public class WanLoraTrainingService {
                                  String originalFilename,
                                  Path videoPath,
                                  String contentType,
-                                 long fileSize) {
+                                 long fileSize,
+                                 String prompt,
+                                 String negativePrompt) {
+    }
+
+    public record SamplePrompt(String prompt,
+                               String negativePrompt) {
+    }
+
+    public record TrainingPromptPack(String theme,
+                                     String genre,
+                                     List<TrainingPromptItem> items,
+                                     String samplePromptsJson) {
+    }
+
+    public record TrainingPromptItem(int index,
+                                     String filename,
+                                     String prompt,
+                                     String negativePrompt,
+                                     String motionFocus) {
     }
 }

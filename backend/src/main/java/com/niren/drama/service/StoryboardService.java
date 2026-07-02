@@ -9,6 +9,7 @@ import com.niren.drama.ai.VoiceInfo;
 import com.niren.drama.ai.trace.AiCallTrace;
 import com.niren.drama.ai.trace.AiTraceContext;
 import com.niren.drama.common.DramaTextSanitizer;
+import com.niren.drama.common.AudioFormatSupport;
 import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.dto.storyboard.StoryboardGenerateRequest;
 import com.niren.drama.dto.storyboard.StoryboardPreviewSaveRequest;
@@ -86,7 +87,14 @@ public class StoryboardService {
             "低分辨率",
             "人物漂移",
             "多余肢体",
-            "手部畸形");
+            "手部畸形",
+            "角色设定卡",
+            "多宫格",
+            "拼贴图",
+            "参考图拼贴",
+            "画中画",
+            "监看屏",
+            "边框");
 
     private static final int STORYBOARD_CONTINUATION_MAX_ATTEMPTS = 4;
     private static final int STORYBOARD_CONTINUATION_TAIL_LENGTH = 600;
@@ -809,13 +817,6 @@ if (isStream) {
         }
         if (shots.isEmpty()) throw new BusinessException("项目下没有分镜数据，请先生成分镜");
 
-        shots = shots.stream()
-                .filter(shot -> !Boolean.TRUE.equals(shot.getDynamicSelected()))
-                .toList();
-        if (shots.isEmpty()) {
-            throw new BusinessException("当前选择的镜头均已勾选动态生成，请在动态镜头生成中处理");
-        }
-
         log.debug("创建分镜图片任务: userId={}, projectId={}, shotCount={}, filteredByIds={}",
                 userId, projectId, shots.size(), shotIds != null && !shotIds.isEmpty());
 
@@ -842,15 +843,19 @@ if (isStream) {
             if (hasText(shot.getImageUrl())) continue;
             try {
                 String prompt = shot.getImagePrompt();
-                Character character = resolveShotCharacter(shot);
+                Character character = resolveShotCharacterOrBackfill(projectId, shot);
                 if (prompt == null || prompt.isBlank()) {
                     prompt = buildImagePrompt(shot, character, project);
                 }
                 List<String> referenceImageUrls = collectReferenceImageUrls(shot, character);
                 String generationPrompt = buildImageGenerationPrompt(prompt, character, referenceImageUrls, project);
                 String negativePrompt = buildImageNegativePrompt(character, project);
+                String imageSize = costEstimationService.getOptimalImageSize(shot.getCameraAngle());
+                if (!hasText(imageSize)) {
+                    imageSize = ImageAiProvider.DEFAULT_PORTRAIT_SIZE;
+                }
                 String imageUrl = generateImageWithRetry(imageProvider,
-                        generationPrompt, "1024*1024", referenceImageUrls, negativePrompt, shot);
+                        generationPrompt, imageSize, referenceImageUrls, negativePrompt, shot);
                 shot.setImageUrl(imageUrl);
                 shot.setStatus("image_generated");
                 storyboardMapper.updateById(shot);
@@ -891,7 +896,7 @@ if (isStream) {
                 boolean hadExistingImage = hasText(shot.getImageUrl());
 
                 String prompt = shot.getImagePrompt();
-                Character character = resolveShotCharacter(shot);
+                Character character = resolveShotCharacterOrBackfill(projectId, shot);
                 if (prompt == null || prompt.isBlank()) {
                     prompt = buildImagePrompt(shot, character, project);
                 }
@@ -1025,6 +1030,9 @@ if (isStream) {
      * scene/character context two shots are unlikely to share the same visual.
      */
     private String buildImageCacheKey(Storyboard shot) {
+        if (Boolean.TRUE.equals(shot.getDynamicSelected())) {
+            return null;
+        }
         Long sceneId = shot.getSceneId();
         Long characterId = shot.getCharacterId();
         String angle = shot.getCameraAngle();
@@ -1154,9 +1162,9 @@ if (isStream) {
                     StoredAsset storedAudio = publicAssetStorageService.storeBytes(
                             audioData,
                             "audios",
-                            UUID.randomUUID().toString().replace("-", "") + ".mp3",
-                            "audio/mpeg",
-                            "mp3");
+                            AudioFormatSupport.filename(UUID.randomUUID().toString().replace("-", ""), audioData),
+                            AudioFormatSupport.contentTypeFor(audioData),
+                            AudioFormatSupport.extensionFor(audioData));
 
                     shot.setAudioUrl(storedAudio.publicUrl());
                     shot.setStatus("audio_generated");
@@ -1731,7 +1739,10 @@ if (isStream) {
                 || msg.contains("timed out")
                 || msg.contains("connection reset")
                 || msg.contains("stream disconnected")
-                || msg.contains("internal_server_error");
+                || msg.contains("internal_server_error")
+                || msg.contains("没有输出图片")
+                || msg.contains("no output")
+                || msg.contains("empty output");
     }
 
     private String buildStoryboardSystemPrompt(Project project) {
@@ -2010,6 +2021,7 @@ if (isStream) {
         String description = shot.getDescription() != null ? shot.getDescription() : "短剧场景画面";
         String characterAnchor = buildCharacterAnchor(character);
         String projectVisualGuide = compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project)));
+        String continuityBible = compactGuide(ProjectStyleSupport.buildEpisodeContinuityBible(resolveProjectType(project), resolveGenre(project)));
 
         StringBuilder sb = new StringBuilder();
         sb.append("竖版9:16构图，").append(cameraLabel).append("镜头");
@@ -2019,8 +2031,9 @@ if (isStream) {
         }
         sb.append("。画面内容：").append(description);
         sb.append("。项目视觉约束：").append(projectVisualGuide);
-        sb.append("。超高清8K，电影级戏剧性光影，高饱和度色彩，短剧封面级画质，");
-        sb.append("景深虚化效果，C4D渲染级精度，皮肤纹理细腻，服装材质真实，专业电影摄影");
+        sb.append("。连续性约束：").append(continuityBible);
+        sb.append("。实拍短剧质感，电影级戏剧性光影，统一色彩分级，");
+        sb.append("景深虚化效果，皮肤纹理细腻，服装材质真实，专业电影摄影");
 
         return clampPromptLength(sb.toString(), IMAGE_PROMPT_MAX_CHARS);
     }
@@ -2397,6 +2410,55 @@ if (isStream) {
         return characterMapper.selectById(shot.getCharacterId());
     }
 
+    private Character resolveShotCharacterOrBackfill(Long projectId, Storyboard shot) {
+        Character character = resolveShotCharacter(shot);
+        if (character != null) {
+            return character;
+        }
+        Character inferred = inferCharacterFromShotText(projectId, shot);
+        if (inferred == null) {
+            return null;
+        }
+        shot.setCharacterId(inferred.getId());
+        if (shot.getId() != null) {
+            try {
+                storyboardMapper.updateById(shot);
+            } catch (Exception e) {
+                log.debug("镜头角色绑定回填落库失败: projectId={}, shotId={}, characterId={}, error={}",
+                        projectId, shot.getId(), inferred.getId(), e.getMessage());
+            }
+        }
+        log.debug("已从镜头文本回填角色绑定: projectId={}, shotNo={}, characterName={}, characterId={}",
+                projectId, shot.getShotNo(), inferred.getName(), inferred.getId());
+        return inferred;
+    }
+
+    private Character inferCharacterFromShotText(Long projectId, Storyboard shot) {
+        if (projectId == null || shot == null) {
+            return null;
+        }
+        String combined = normalizeCharacterLookupKey(String.join(" ",
+                nullToEmpty(shot.getDescription()),
+                nullToEmpty(shot.getDialogue()),
+                nullToEmpty(shot.getNarration()),
+                nullToEmpty(shot.getImagePrompt()),
+                nullToEmpty(shot.getVideoPrompt())));
+        if (!hasText(combined)) {
+            return null;
+        }
+        List<Character> characters = characterMapper.selectList(new LambdaQueryWrapper<Character>()
+                .eq(Character::getProjectId, projectId)
+                .orderByAsc(Character::getSortOrder)
+                .orderByAsc(Character::getCreateTime));
+        for (Character character : characters) {
+            String nameKey = normalizeCharacterLookupKey(character.getName());
+            if (hasText(nameKey) && combined.contains(nameKey)) {
+                return character;
+            }
+        }
+        return null;
+    }
+
     private Project resolveProjectById(Long projectId) {
         if (projectId == null) {
             return null;
@@ -2447,45 +2509,63 @@ if (isStream) {
     }
 
     private String buildImageGenerationPrompt(String originalPrompt, Character character, List<String> referenceImageUrls, Project project) {
-        String promptCore = trimPromptSegment(originalPrompt, 280);
-        if (character == null) {
-            return clampPromptLength("项目视觉约束："
-                    + compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project)))
-                    + "。当前镜头要求："
-                    + promptCore, IMAGE_PROMPT_MAX_CHARS);
-        }
+        String promptCore = trimPromptSegment(sanitizePositiveImagePrompt(originalPrompt), 300);
         StringBuilder builder = new StringBuilder();
-        builder.append("项目视觉约束：")
-                .append(compactGuide(ProjectStyleSupport.buildVisualCreationRules(resolveProjectType(project), resolveGenre(project))))
-                .append("。");
-        builder.append("角色一致性锚点：主体必须是角色“")
-                .append(character.getName())
-                .append("”");
+        builder.append("Vertical 9:16 cinematic live-action Chinese drama photograph. ");
+        builder.append("Current shot scene: ").append(promptCore).append(". ");
+        builder.append("Use one unbroken full-screen camera view, one real environment, edge-to-edge photographic background, and a clean single-scene composition. ");
+        if (character != null) {
+            List<String> anchors = new ArrayList<>();
+            if (hasText(character.getGender())) {
+                anchors.add(displayGender(character.getGender()));
+            }
+            if (hasText(character.getAge())) {
+                anchors.add(character.getAge());
+            }
+            if (hasText(character.getAppearance())) {
+                anchors.add(character.getAppearance());
+            }
+            if (hasText(character.getPersonality())) {
+                anchors.add(character.getPersonality());
+            }
+            if (!anchors.isEmpty()) {
+                builder.append("Heroine identity lock: ")
+                        .append(String.join(", ", anchors))
+                        .append(". Keep face shape, hairstyle, age, body type, skin tone, and outfit stable, but do not draw a name label. ");
+            }
 
-        List<String> anchors = new ArrayList<>();
-        if (hasText(character.getGender())) {
-            anchors.add("性别" + displayGender(character.getGender()));
+            if (hasCharacterReferenceImage(character, referenceImageUrls)) {
+                builder.append("Use reference images only as identity guidance while keeping the current scene as one complete photograph. ");
+            }
         }
-        if (hasText(character.getAge())) {
-            anchors.add("年龄" + character.getAge());
+        builder.append("Render natural film lighting, realistic actor skin texture, believable lens perspective, same episode color grade, consistent wardrobe logic, and photoreal live-action texture. ");
+        if (hasText(resolveGenre(project))) {
+            builder.append("Genre tone: ").append(resolveGenre(project)).append(". ");
         }
-        if (hasText(character.getAppearance())) {
-            anchors.add("外貌特征" + character.getAppearance());
-        }
-        if (hasText(character.getPersonality())) {
-            anchors.add("气质" + character.getPersonality());
-        }
-        if (!anchors.isEmpty()) {
-            builder.append("，").append(String.join("，", anchors));
-        }
-        builder.append("。人物年龄感、脸型五官、发型、体型、服装必须保持完全稳定，脸部清晰可辨无变形。");
-
-        if (hasCharacterReferenceImage(character, referenceImageUrls)) {
-            builder.append("已提供该角色多角度参考图（正面/侧面/回眸），必须严格保持与参考图为同一人物，不得改变年龄感、五官结构、发型、肤色和服装。面部五官比例和轮廓必须与参考图高度一致，不可更换演员。");
-        }
-
-        builder.append("当前镜头要求：").append(promptCore);
         return clampPromptLength(builder.toString(), IMAGE_PROMPT_MAX_CHARS);
+    }
+
+    private String sanitizePositiveImagePrompt(String text) {
+        if (!hasText(text)) {
+            return "";
+        }
+        String compact = text.replaceAll("\\s+", " ").trim();
+        List<String> kept = new ArrayList<>();
+        for (String segment : compact.split(",")) {
+            String trimmed = segment.trim();
+            String lowerSegment = lower(trimmed);
+            if (!hasText(trimmed)
+                    || lowerSegment.startsWith("no ")
+                    || lowerSegment.startsWith("without ")
+                    || lowerSegment.contains(" no ")
+                    || lowerSegment.contains("不得")
+                    || lowerSegment.contains("不要")
+                    || lowerSegment.contains("禁止")) {
+                continue;
+            }
+            kept.add(trimmed);
+        }
+        return kept.isEmpty() ? compact : String.join(", ", kept);
     }
 
     private boolean hasCharacterReferenceImage(Character character, List<String> referenceImageUrls) {
@@ -2520,6 +2600,13 @@ if (isStream) {
                 negativeTerms.add("中老年面相");
                 negativeTerms.add("年龄偏大");
             }
+            negativeTerms.add("参考图拼贴");
+            negativeTerms.add("画中画");
+            negativeTerms.add("设定卡");
+            negativeTerms.add("监看屏");
+            negativeTerms.add("边框");
+            negativeTerms.add("inset image");
+            negativeTerms.add("picture in picture");
         }
         return clampPromptLength(String.join("，", negativeTerms), IMAGE_NEGATIVE_MAX_CHARS);
     }
@@ -2612,6 +2699,10 @@ if (isStream) {
             parts.add(character.getAppearance());
         }
         return String.join("，", parts);
+    }
+
+    private String nullToEmpty(String value) {
+        return value != null ? value : "";
     }
 
     private static final String[] ACTION_KEYWORDS = {

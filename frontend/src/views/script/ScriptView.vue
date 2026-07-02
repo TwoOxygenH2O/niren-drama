@@ -5,7 +5,7 @@
     </div>
 
     <el-card class="gen-card">
-      <template #header><b>AI 生成剧本</b></template>
+      <template #header><b>智能生成剧本</b></template>
       <el-form :model="genForm" label-width="100px">
         <el-form-item label="创意描述">
           <el-input
@@ -25,7 +25,7 @@
             项目类型：{{ projectTypeLabel }}，项目题材：{{ projectGenreLabel }}。项目共 {{ projectInfo?.episodes || '—' }} 集，单集约 {{ projectInfo?.episodeDuration || '—' }} 秒。
           </div>
           <div class="form-tip">
-            所有文本 AI 结果都会先进入预览弹窗，可修改后再确认入库。
+            所有文本生成结果都会先进入预览弹窗，可修改后再确认入库。
           </div>
         </el-form-item>
         <el-form-item>
@@ -139,7 +139,7 @@
     <AiPreviewDialog
       v-model="outlinePreview.visible"
       title="大纲预览工作台"
-      subtitle="实时接收 AI 生成的项目通用信息与全剧分集大纲，允许修改后再确认入库。"
+      subtitle="实时接收智能生成的项目通用信息与全剧分集大纲，允许修改后再确认入库。"
       description="保存前请保留项目通用信息和每一集的大纲标记块；如果模型漏了内容，可直接在这里补齐后再确认。"
       :phase-text="outlinePreview.generating ? '流式生成中' : '待确认保存'"
       :loading="outlinePreview.generating"
@@ -167,7 +167,7 @@
             :loading="outlinePreview.repairing"
             @click="repairOutlinePreview"
           >
-            AI 修复缺失集
+            智能修复缺失集
           </el-button>
         </div>
       </template>
@@ -179,7 +179,7 @@
         type="textarea"
         :rows="28"
         class="preview-editor"
-        placeholder="AI 生成的大纲预览会实时出现在这里，可直接修改。"
+        placeholder="智能生成的大纲预览会实时出现在这里，可直接修改。"
       />
     </AiPreviewDialog>
 
@@ -187,7 +187,7 @@
       v-model="scriptPreview.visible"
       :title="scriptPreview.mode === 'single' ? '剧本预览工作台' : '批量剧本预览工作台'"
       :subtitle="scriptPreview.mode === 'single'
-        ? '先看 AI 输出，再决定是否入库这一集剧本。'
+        ? '先看生成结果，再决定是否入库这一集剧本。'
         : '区间多集剧本会带标记输出，可在确认前集中修改。'"
       :description="scriptPreview.mode === 'single'
         ? '单集模式下可同时调整标题、大纲和剧本正文。'
@@ -230,7 +230,7 @@
             type="textarea"
             :rows="18"
             class="preview-editor"
-            placeholder="AI 生成内容会在这里实时出现"
+            placeholder="智能生成内容会在这里实时出现"
           />
         </el-form-item>
       </el-form>
@@ -338,7 +338,7 @@ const outlinePreviewRepairHint = computed(() => {
     return `缺失集：第 ${outlinePreview.value.errorData.missingEpisodeRanges} 集`
   }
   if (outlinePreview.value.error.includes('大纲预览解析失败')) {
-    return '检测到大纲标记不完整，可尝试 AI 自动修复'
+    return '检测到大纲标记不完整，可尝试智能修复'
   }
   return ''
 })
@@ -349,7 +349,7 @@ const scriptPreviewRangeLabel = computed(() => {
   return `第 ${scriptPreview.value.startEpisode}-${scriptPreview.value.endEpisode} 集`
 })
 
-const scriptStatusLabel = (status: string) => ({ draft: '草稿', ai_generated: 'AI生成', reviewed: '已审核' }[status] || status)
+const scriptStatusLabel = (status: string) => ({ draft: '草稿', ai_generated: '智能生成', reviewed: '已审核' }[status] || status)
 
 function findScriptByEpisode(episodeNo: number) {
   return scripts.value.find((script) => Number(script.episodeNo) === episodeNo)
@@ -499,7 +499,7 @@ async function repairOutlinePreview() {
     outlinePreview.value.error = ''
     outlinePreview.value.errorData = null
     const repairedRanges = payload.repairedEpisodeRanges ? `第 ${payload.repairedEpisodeRanges} 集` : '缺失集'
-    ElMessage.success(`AI 已补齐 ${repairedRanges}，请确认后保存`)
+    ElMessage.success(`已补齐 ${repairedRanges}，请确认后保存`)
   } catch (error: any) {
     outlinePreview.value.error = error?.message || '大纲预览修复失败'
     outlinePreview.value.errorData = extractOutlinePreviewErrorData(error) ?? outlinePreview.value.errorData

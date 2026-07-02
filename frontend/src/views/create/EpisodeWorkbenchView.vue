@@ -50,7 +50,7 @@
       <section class="center-pane">
         <div class="overview-band">
           <div class="overview-main">
-            <div class="overview-label">下一步</div>
+            <div class="overview-label">当前动作</div>
             <div class="overview-title">{{ primaryAction.title }}</div>
             <p>{{ primaryAction.description }}</p>
           </div>
@@ -503,6 +503,7 @@ const casrPlan = ref<any | null>(null)
 const casrLoading = ref('')
 const casrSelectedOptionId = ref('')
 let refreshTimer: ReturnType<typeof setInterval> | null = null
+let workspaceRequestId = 0
 
 const PLATFORM_PROFILE_KEY = 'niren.dashboard.platformProfile'
 const PRODUCTION_MODE_KEY = 'niren.dashboard.productionMode'
@@ -522,7 +523,7 @@ const finalVideoUrl = computed(() => workspace.value?.finalVideoUrl || '')
 const consistencyItems = computed<any[]>(() => workspace.value?.consistency?.items || [])
 const currentProfile = computed(() => (workspace.value?.exportProfiles || []).find((item: any) => item.id === platformProfile.value))
 const healthVideoWorkflow = computed(() => workspace.value?.health?.videoConfig?.workflowFile || '')
-const videoRepairAction = computed(() => (mode.value === 'publish' ? 'switchWan' : 'switchLtx'))
+const videoRepairAction = computed(() => (mode.value === 'publish' ? 'switchHunyuan' : 'switchLtx'))
 const noVideosReady = computed(() => shots.value.length > 0 && Number(summary.value.videoReady || 0) <= 0)
 const casrFailureTypes = computed<string[]>(() => Array.isArray(casrAnalysis.value?.failureTypes) ? casrAnalysis.value.failureTypes : [])
 const casrShotDiagnoses = computed<any[]>(() => Array.isArray(casrAnalysis.value?.shotDiagnoses) ? casrAnalysis.value.shotDiagnoses : [])
@@ -569,6 +570,7 @@ const healthItems = computed(() => {
   const video = health.videoConfig || {}
   return [
     { key: 'token', status: health.token?.status || 'ok', label: health.token?.label || '登录有效' },
+    { key: 'csrf', status: health.csrf?.status || 'skipped', label: health.csrf?.label || 'CSRF 未检测' },
     { key: 'comfyui', status: health.comfyui?.status || 'skipped', label: health.comfyui?.label || 'ComfyUI 未检测' },
     { key: 'ffmpeg', status: health.ffmpeg?.status || 'skipped', label: health.ffmpeg?.label || 'FFmpeg 未检测' },
     { key: 'video', status: video.status || 'degraded', label: video.label || '视频配置未完成' },
@@ -579,9 +581,12 @@ const exportManifestText = computed(() => JSON.stringify(exportManifest.value, n
 
 async function loadWorkspace(silent = false) {
   if (!projectId.value) return
+  const requestId = ++workspaceRequestId
+  const requestedProjectId = projectId.value
   loading.value = true
   try {
-    const res = await productionApi.getWorkspace(projectId.value)
+    const res = await productionApi.getWorkspace(requestedProjectId)
+    if (requestId !== workspaceRequestId || requestedProjectId !== projectId.value) return
     const data = (res as any).data?.data || {}
     workspace.value = data
     mode.value = data.mode === 'publish' ? 'publish' : mode.value
@@ -594,8 +599,21 @@ async function loadWorkspace(silent = false) {
   } catch (error: any) {
     if (!silent) ElMessage.error(error?.message || '生产线加载失败')
   } finally {
-    loading.value = false
+    if (requestId === workspaceRequestId) {
+      loading.value = false
+    }
   }
+}
+
+function resetWorkspaceState() {
+  workspace.value = null
+  selectedShotId.value = null
+  issueSeverityFilter.value = 'all'
+  exportManifest.value = null
+  casrAnalysis.value = null
+  casrPlan.value = null
+  casrLoading.value = ''
+  casrSelectedOptionId.value = ''
 }
 
 function switchMode(nextMode: Mode) {
@@ -633,7 +651,7 @@ async function runRepair(action: string, shotIds: Array<string | number> = []) {
       action,
       shotIds,
       mode: mode.value,
-      workflowPreset: mode.value === 'publish' ? 'wan' : 'ltx',
+      workflowPreset: mode.value === 'publish' ? 'hunyuan' : 'ltx',
       platformProfile: platformProfile.value,
     })
     const data = (res as any).data?.data || {}
@@ -653,7 +671,7 @@ function executePrimaryAction() {
   if (action.id === 'qualityCheck') return runQualityCheck()
   if (action.id === 'export') return exportPackage()
   if (action.type === 'route') return goStoryboard()
-  if (action.id === 'retryVideo' || action.id === 'switchLtx' || action.id === 'switchWan') return generateVideos()
+  if (action.id === 'retryVideo' || action.id === 'switchLtx' || action.id === 'switchWan' || action.id === 'switchHunyuan') return generateVideos()
   if (action.id === 'generateImages') return generateFirstFrames()
   if (action.id === 'generateAudio') return generateAudio()
   if (action.type === 'repair') return runRepair(action.id, [])
@@ -667,7 +685,7 @@ function generateFirstFrames() {
 function generateVideos() {
   const ids = selectedOrMissing('videoUrl')
   const limited = mode.value === 'preview' ? ids.slice(0, 3) : ids
-  runRepair(mode.value === 'publish' ? 'switchWan' : 'switchLtx', limited)
+  runRepair(mode.value === 'publish' ? 'switchHunyuan' : 'switchLtx', limited)
 }
 
 function generateAudio() {
@@ -885,6 +903,12 @@ onMounted(() => {
   }, 7000)
 })
 
+watch(projectId, (nextId, prevId) => {
+  if (!nextId || nextId === prevId) return
+  resetWorkspaceState()
+  void loadWorkspace()
+})
+
 watch([mode, platformProfile], ([nextMode, nextPlatform]) => {
   try {
     sessionStorage.setItem(PRODUCTION_MODE_KEY, nextMode)
@@ -903,7 +927,7 @@ onUnmounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--bg-page);
+  background: var(--page-environment);
   color: var(--text-primary);
 }
 
@@ -1880,5 +1904,212 @@ button:disabled {
   .casr-plan-head {
     grid-template-columns: 1fr 1fr;
   }
+}
+.production-workbench {
+  min-height: 100%;
+  background: var(--page-environment);
+  color: #f7fbff;
+}
+
+.pw-header {
+  height: 58px;
+  border-bottom: 1px solid rgba(150, 190, 255, 0.14);
+  background: rgba(11, 20, 27, 0.68);
+  backdrop-filter: blur(28px) saturate(145%);
+}
+
+.pw-kicker {
+  color: var(--primary);
+}
+
+.pw-title-copy h1,
+.section-head h2,
+.inspector-head h2 {
+  color: #f7fbff;
+}
+
+.icon-button,
+.text-button,
+.secondary-button,
+.mode-switch,
+.profile-select,
+.issue-filter,
+.stage-item,
+.overview-band,
+.work-panel,
+.inspector,
+.health-pill,
+.shot-card,
+.compare-cell,
+.inspect-section {
+  border: 1px solid rgba(150, 190, 255, 0.16);
+  border-radius: 8px;
+  background: var(--surface-panel);
+  color: #dbe8ff;
+  backdrop-filter: blur(var(--glass-blur)) saturate(145%);
+}
+
+.primary-button {
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(100deg, #f7fbff, var(--primary), var(--secondary));
+  color: #03101d;
+  box-shadow: var(--shadow-primary);
+}
+
+.mode-switch {
+  padding: 4px;
+}
+
+.mode-switch button {
+  border-radius: 6px;
+  color: #9aa8bd;
+}
+
+.mode-switch button.active {
+  background: rgba(24, 216, 255, 0.16);
+  color: #fff;
+}
+
+.pw-layout {
+  gap: 12px;
+  padding: 12px;
+}
+
+.stage-rail {
+  gap: 10px;
+}
+
+.stage-item {
+  box-shadow: none;
+}
+
+.stage-track,
+.task-track {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.stage-track span,
+.task-track span {
+  background: linear-gradient(90deg, var(--primary), var(--secondary));
+  box-shadow: 0 0 18px rgba(103, 232, 249, 0.24);
+}
+
+.overview-band {
+  border-color: rgba(103, 232, 249, 0.22);
+}
+
+.overview-label,
+.link-button,
+.section-head p,
+.panel-empty,
+.issue-row small,
+.task-row p {
+  color: #9aa8bd;
+}
+
+.overview-title {
+  color: #f7fbff;
+}
+
+.health-pill.is-ok,
+.health-pill.is-ready,
+.health-pill.is-success {
+  color: #40d28f;
+}
+
+.timeline-section {
+  border: 1px solid rgba(150, 190, 255, 0.16);
+  border-radius: 8px;
+  background: var(--glass-fill);
+  backdrop-filter: blur(var(--glass-blur)) saturate(145%);
+}
+
+.shot-grid {
+  gap: 10px;
+}
+
+.shot-card {
+  overflow: hidden;
+  transition: border-color 0.18s, transform 0.18s;
+}
+
+.shot-card:hover,
+.shot-card.active {
+  border-color: rgba(103, 232, 249, 0.3);
+  transform: translateY(-2px);
+}
+
+.shot-thumb {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    rgba(255, 255, 255, 0.04);
+  background-size: 28px 28px;
+}
+
+.shot-number {
+  color: #f7fbff;
+}
+
+.shot-status-line,
+.release-state span,
+.lineage-list dt {
+  color: #9aa8bd;
+}
+
+.lower-grid {
+  gap: 12px;
+}
+
+.task-row,
+.issue-row,
+.casr-option,
+.snapshot-row,
+.bible-row {
+  border-color: rgba(150, 190, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.issue-row.is-blocking {
+  border-color: rgba(255, 111, 134, 0.32);
+}
+
+.issue-row.is-warning {
+  border-color: rgba(242, 191, 102, 0.32);
+}
+
+.inspector {
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.3);
+}
+
+.tier-badge,
+.casr-chip-row span {
+  border-color: rgba(139, 92, 246, 0.28);
+  background: rgba(139, 92, 246, 0.16);
+  color: #c4b5fd;
+}
+
+.compare-cell {
+  overflow: hidden;
+}
+
+.compare-cell span,
+.inspect-section h3 {
+  color: var(--primary);
+}
+
+.repair-grid button,
+.casr-option-actions button {
+  border: 1px solid rgba(150, 190, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: #dbe8ff;
+}
+
+.manifest-box {
+  border-color: rgba(150, 190, 255, 0.14);
+  background: rgba(3, 7, 15, 0.6);
+  color: #dbe8ff;
 }
 </style>

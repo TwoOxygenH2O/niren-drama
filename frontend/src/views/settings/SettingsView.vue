@@ -4,8 +4,8 @@
       <!-- Header -->
       <div class="settings-header">
         <div>
-          <h1 class="settings-title">AI 配置中心</h1>
-          <p class="settings-desc">管理文本、图像、视频、语音等 AI 服务商的接入配置</p>
+          <h1 class="settings-title">模型配置中心</h1>
+          <p class="settings-desc">管理文本、图像、视频、语音等智能服务商的接入配置</p>
         </div>
         <el-button type="primary" @click="openDialog()">
           <el-icon><Plus /></el-icon>
@@ -194,7 +194,7 @@
             </svg>
           </div>
           <p class="empty-title">暂未配置{{ currentTabLabel }}服务</p>
-          <p class="empty-hint">点击「添加配置」接入您的 AI 服务商</p>
+          <p class="empty-hint">点击「添加配置」接入您的智能服务商</p>
         </div>
 
         <!-- Config Cards -->
@@ -258,7 +258,7 @@
       <!-- Add/Edit Dialog -->
       <el-dialog
         v-model="showDialog"
-        :title="editing ? '编辑 AI 配置' : '添加 AI 配置'"
+        :title="editing ? '编辑模型配置' : '添加模型配置'"
         width="580px"
         :close-on-click-modal="false"
         class="config-dialog"
@@ -409,6 +409,15 @@
               <el-form-item label="低显存模式">
                 <el-switch v-model="trainingForm.lowVram" active-text="启用" inactive-text="关闭" />
               </el-form-item>
+              <el-form-item label="提示词主题">
+                <el-input v-model="trainingForm.promptTheme" placeholder="女频 复仇 古代" />
+              </el-form-item>
+              <el-form-item label="提示词类型">
+                <el-input v-model="trainingForm.promptGenre" placeholder="追妻火葬场" />
+              </el-form-item>
+              <el-form-item label="提示词数量">
+                <el-input-number v-model="trainingForm.promptCount" :min="4" :max="60" controls-position="right" />
+              </el-form-item>
             </div>
 
             <el-form-item label="统一训练描述">
@@ -420,6 +429,22 @@
                 show-word-limit
                 placeholder="描述这批素材共同强化的短剧能力，例如：同一演员身份、服装、办公室场景和灯光保持稳定，单镜头连续运动。"
               />
+            </el-form-item>
+
+            <el-form-item label="外站视频 Prompt 配对 JSON（可选）">
+              <el-input
+                v-model="trainingForm.samplePromptsJson"
+                type="textarea"
+                :rows="5"
+                maxlength="6000"
+                show-word-limit
+                placeholder='[{"filename":"shot01.mp4","prompt":"Ancient revenge heroine turns back under palace lanterns, real body turn and sleeve motion.","negativePrompt":"no slideshow, no identity drift"}]'
+              />
+              <div class="training-prompt-actions">
+                <el-button :icon="RefreshRight" :loading="trainingPromptPackLoading" @click="buildTrainingPromptPack">
+                  生成外站提示词包
+                </el-button>
+              </div>
             </el-form-item>
 
             <el-form-item label="训练视频素材">
@@ -485,12 +510,17 @@ const showTrainingDialog = ref(false)
 const trainingConfig = ref<any | null>(null)
 const trainingFiles = ref<UploadUserFile[]>([])
 const trainingSubmitting = ref(false)
+const trainingPromptPackLoading = ref(false)
 const trainingTask = ref<any | null>(null)
 let trainingPollTimer: number | undefined
 
 const trainingForm = ref({
   runName: '',
   caption: 'Keep the same actor identity, face, hairstyle, outfit, scene layout and lighting from the first frame. One continuous vertical short-drama shot with natural motion and no cuts.',
+  samplePromptsJson: '',
+  promptTheme: '女频 复仇 古代',
+  promptGenre: '追妻火葬场',
+  promptCount: 20,
   loraRank: 8,
   epochs: 1,
   lowVram: true,
@@ -522,11 +552,11 @@ const selectedComfyUiWorkflow = ref('')
 const showAdvancedExtra = ref<string[]>([])
 
 const tabs = [
-  { type: 'text', label: '文本', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>' },
-  { type: 'image', label: '图像', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>' },
-  { type: 'video', label: '视频', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>' },
-  { type: 'tts', label: '语音', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>' },
-  { type: 'debug', label: '调试', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>' },
+  { type: 'text', label: '文本模型 LLM', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>' },
+  { type: 'image', label: '图像工作流 ComfyUI', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>' },
+  { type: 'video', label: '视频引擎 Wan2.2', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>' },
+  { type: 'tts', label: '语音合成 TTS', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>' },
+  { type: 'debug', label: '诊断调试', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>' },
 ]
 
 const typeOptions = [
@@ -547,7 +577,13 @@ const videoPresets = [
     id: 'wan',
     title: '高质 Wan2.2',
     meta: '主首帧 · 发布质量',
-    desc: '用于 A 档镜头和最终发布生成。',
+    desc: '用于需要更强一致性的备用发布生成。',
+  },
+  {
+    id: 'hunyuan',
+    title: '高质 Hunyuan',
+    meta: '720P · 6 秒 · 表演',
+    desc: '用于正式短剧镜头，优先避免动图化静帧。',
   },
   {
     id: 'expert',
@@ -638,7 +674,7 @@ const form = ref({ id: null as any, configType: 'text', provider: 'deepseek', ba
 const commonModelOptions: Record<string, string[]> = {
   text: ['gpt-4o', 'gpt-4.1', 'deepseek-chat', 'qwen-plus', 'glm-4'],
   image: ['qwen-image-2.0', 'qwen-image-2.0-pro'],
-  video: ['wan2.6-t2v', 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors', 'ltx-2-19b-distilled.safetensors'],
+  video: ['wan2.6-t2v', 'hunyuanvideo1.5_720p_i2v_fp16.safetensors', 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors', 'ltx-2-19b-distilled.safetensors'],
   tts: ['qwen3-tts-instruct-flash', 'qwen3-tts-flash', 'qwen-tts-latest'],
 }
 
@@ -753,20 +789,26 @@ function openVideoPreset(preset: string) {
   }
 
   const isWan = preset === 'wan'
+  const isHunyuan = preset === 'hunyuan'
   editing.value = false
   showAdvancedExtra.value = []
+  const workflowExtra = isHunyuan
+    ? { workflowFile: 'video_hunyuan_video_1.5_720p_i2v.json', qualityMode: 'hunyuan15-i2v-720p', maxFrames: 49, maxSteps: 12, maxReferenceImages: 1 }
+    : isWan
+      ? { workflowFile: 'video_wan2_2_14B_i2v_series_balanced.json', qualityMode: 'wan22-series-balanced', maxFrames: 33, maxSteps: 12, maxReferenceImages: 1, patchWanControlnetStrength: true, bypassWanReferenceEmbeds: false }
+      : { workflowFile: 'video_ltx2_i2v_short_drama_consistency.json', maxReferenceImages: 1 }
   form.value = {
     id: null,
     configType: 'video',
     provider: 'comfyui',
     baseUrl: resolveProviderDefaultUrl('comfyui', 'video'),
     apiKey: '',
-    model: isWan ? 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors' : 'ltx-2-19b-distilled.safetensors',
-    extra: JSON.stringify(isWan
-      ? { workflowFile: 'video_wan2_2_14B_i2v.json', maxReferenceImages: 1, patchWanControlnetStrength: true, bypassWanReferenceEmbeds: true }
-      : { workflowFile: 'video_ltx2_i2v_short_drama_consistency.json', maxReferenceImages: 1 }),
+    model: isHunyuan ? 'hunyuanvideo1.5_720p_i2v_fp16.safetensors'
+      : isWan ? 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors'
+        : 'ltx-2-19b-distilled.safetensors',
+    extra: JSON.stringify(workflowExtra),
   }
-  selectedComfyUiWorkflow.value = isWan ? 'video_wan2_2_14B_i2v.json' : 'video_ltx2_i2v_short_drama_consistency.json'
+  selectedComfyUiWorkflow.value = String(workflowExtra.workflowFile || '')
   isDefault.value = true
   fetchComfyUiWorkflows()
   showDialog.value = true
@@ -850,6 +892,10 @@ function openTrainingDialog(config: any) {
   trainingForm.value = {
     runName: `${trainingWorkflowLabel(config).replace(/\.[^.]+$/, '')} LoRA`,
     caption: 'Keep the same actor identity, face, hairstyle, outfit, scene layout and lighting from the first frame. One continuous vertical short-drama shot with natural motion and no cuts.',
+    samplePromptsJson: '',
+    promptTheme: '女频 复仇 古代',
+    promptGenre: '追妻火葬场',
+    promptCount: 20,
     loraRank: 8,
     epochs: 1,
     lowVram: true,
@@ -860,6 +906,26 @@ function openTrainingDialog(config: any) {
 
 function closeTrainingDialog() {
   showTrainingDialog.value = false
+}
+
+async function buildTrainingPromptPack() {
+  const config = trainingConfig.value
+  if (!config?.id || trainingPromptPackLoading.value) return
+  trainingPromptPackLoading.value = true
+  try {
+    const res = await aiConfigApi.buildWan22PromptPack(config.id, {
+      theme: trainingForm.value.promptTheme,
+      genre: trainingForm.value.promptGenre,
+      count: trainingForm.value.promptCount,
+    })
+    const data = res.data?.data
+    trainingForm.value.samplePromptsJson = data?.samplePromptsJson || ''
+    ElMessage.success('提示词包已生成')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '提示词包生成失败')
+  } finally {
+    trainingPromptPackLoading.value = false
+  }
 }
 
 async function submitTraining() {
@@ -878,6 +944,9 @@ async function submitTraining() {
   formData.append('loraRank', String(trainingForm.value.loraRank))
   formData.append('epochs', String(trainingForm.value.epochs))
   formData.append('lowVram', String(trainingForm.value.lowVram))
+  if (trainingForm.value.samplePromptsJson.trim()) {
+    formData.append('samplePromptsJson', trainingForm.value.samplePromptsJson.trim())
+  }
 
   trainingSubmitting.value = true
   try {
@@ -1017,7 +1086,7 @@ onBeforeUnmount(stopTrainingPolling)
   padding: 32px 40px 40px 112px;
   overflow-x: hidden;
   overflow-y: auto;
-  background: var(--bg-page);
+  background: var(--page-environment);
   color: var(--text-primary);
 }
 .settings-inner {
@@ -1225,7 +1294,7 @@ onBeforeUnmount(stopTrainingPolling)
 .pi-openai { background: rgba(16, 163, 127, 0.15); color: #34d399; }
 .pi-qianwen, .pi-aliyun { background: rgba(251, 146, 60, 0.15); color: #fb923c; }
 .pi-doubao { background: rgba(99, 102, 241, 0.15); color: #818cf8; }
-.pi-comfyui { background: rgba(168, 85, 247, 0.15); color: #a78bfa; }
+.pi-comfyui { background: rgba(139, 124, 255, 0.14); color: var(--secondary-light); }
 .pi-custom { background: var(--bg-muted); color: var(--text-muted); }
 
 .config-info {
@@ -1539,6 +1608,13 @@ onBeforeUnmount(stopTrainingPolling)
   line-height: 1.5;
 }
 
+.training-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  margin-top: 10px;
+}
+
 .training-license {
   margin-top: 2px;
   white-space: normal;
@@ -1579,6 +1655,188 @@ onBeforeUnmount(stopTrainingPolling)
 
   .training-target {
     flex-direction: column;
+  }
+}
+.settings-root {
+  min-height: 100%;
+  overflow: auto;
+  background: var(--page-environment);
+  color: #f7fbff;
+}
+
+.settings-inner {
+  width: min(1500px, calc(100vw - var(--sidebar-width) - 52px));
+  margin: 0 auto;
+  padding: 26px 28px 46px;
+}
+
+.settings-header {
+  align-items: flex-start;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(150, 190, 255, 0.13);
+}
+
+.settings-title {
+  color: #f7fbff;
+  font-size: 30px;
+  letter-spacing: 0;
+}
+
+.settings-desc {
+  color: #b9c4d6;
+}
+
+.settings-header::after {
+  content: "● 全系统运行正常";
+  margin-left: auto;
+  align-self: center;
+  color: var(--primary);
+  text-shadow: 0 0 18px rgba(103, 232, 249, 0.46);
+  font-size: 14px;
+}
+
+.settings-tabs {
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--glass-fill);
+  backdrop-filter: blur(var(--glass-blur)) saturate(145%);
+}
+
+.settings-tab {
+  min-height: 76px;
+  justify-content: center;
+  gap: 12px;
+  border: 0;
+  border-right: 1px solid rgba(150, 190, 255, 0.12);
+  border-radius: 0;
+  background: transparent;
+  color: #aab5c8;
+}
+
+.settings-tab:last-child {
+  border-right: 0;
+}
+
+.settings-tab.active {
+  color: var(--primary);
+  background:
+    linear-gradient(180deg, rgba(103, 232, 249, 0.13), rgba(103, 232, 249, 0.035)),
+    rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 2px 0 var(--primary);
+}
+
+.settings-tab-icon {
+  color: currentColor;
+}
+
+.settings-tab-label {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.settings-tab-badge {
+  background: rgba(139, 92, 246, 0.22);
+  color: #d8ccff;
+}
+
+.config-list,
+.debug-section,
+.preset-section {
+  margin-top: 14px;
+}
+
+.config-card,
+.debug-card,
+.preset-card,
+.empty-state {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  backdrop-filter: blur(var(--glass-blur)) saturate(145%);
+}
+
+.config-card.is-default {
+  border-color: rgba(103, 232, 249, 0.28);
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(103, 232, 249, 0.1) inset;
+}
+
+.config-provider-icon,
+.empty-icon {
+  background: rgba(103, 232, 249, 0.1);
+  color: var(--primary);
+  border: 1px solid rgba(103, 232, 249, 0.22);
+  box-shadow: 0 0 24px rgba(103, 232, 249, 0.12);
+}
+
+.config-provider-name,
+.debug-title,
+.preset-card span,
+.empty-title {
+  color: #f7fbff;
+}
+
+.config-meta,
+.debug-desc,
+.preset-card small,
+.empty-hint {
+  color: #9aa8bd;
+}
+
+.config-default-badge {
+  background: rgba(103, 232, 249, 0.11);
+  color: var(--primary);
+  border-color: rgba(103, 232, 249, 0.22);
+}
+
+.debug-label,
+.dialog-label {
+  color: #dbe8ff;
+}
+
+.debug-row,
+.debug-form,
+.dialog-grid {
+  color: #dbe8ff;
+}
+
+.settings-root :deep(.el-input__wrapper),
+.settings-root :deep(.el-textarea__inner),
+.settings-root :deep(.el-select__wrapper) {
+  border-radius: 8px;
+  background: rgba(3, 7, 15, 0.54) !important;
+  box-shadow: 0 0 0 1px rgba(150, 190, 255, 0.18) inset !important;
+}
+
+.settings-root :deep(.el-input__inner),
+.settings-root :deep(.el-textarea__inner) {
+  color: #f7fbff;
+}
+
+.settings-root :deep(.el-button--primary) {
+  border: 0;
+  background: linear-gradient(100deg, #f7fbff, var(--primary), var(--secondary));
+  color: #03101d;
+  box-shadow: var(--shadow-primary);
+}
+
+@media (max-width: 1100px) {
+  .settings-inner {
+    width: 100%;
+  }
+
+  .settings-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-tab {
+    border-right: 0;
+    border-bottom: 1px solid rgba(150, 190, 255, 0.12);
   }
 }
 </style>

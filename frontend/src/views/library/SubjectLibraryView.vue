@@ -7,7 +7,7 @@
 
     <div v-loading="loading" class="sl-cards-wrap">
       <div v-if="!loading && projects.length === 0" class="sl-empty">
-        暂无项目，请先在「我的空间」创建项目
+        主体库为空，创建项目后管理角色与参考主体
       </div>
       <div v-else class="sl-grid">
         <article

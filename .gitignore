@@ -5,6 +5,7 @@
 
 # Uploads
 uploads/
+output/
 
 # Build outputs
 frontend/dist/

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.ImageAiProvider;
 import com.niren.drama.ai.TtsProvider;
+import com.niren.drama.common.AudioFormatSupport;
 import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.dto.character.CharacterCreateRequest;
 import com.niren.drama.entity.Character;
@@ -109,10 +110,17 @@ public class CharacterService {
             throw new BusinessException("预听失败，TTS 未返回有效音频");
         }
 
-        String filename = "tts_preview_" + characterId + "_" + UUID.randomUUID().toString().replace("-", "") + ".mp3";
+        String filename = AudioFormatSupport.filename(
+                "tts_preview_" + characterId + "_" + UUID.randomUUID().toString().replace("-", ""),
+                audio);
         String url;
         try {
-            url = publicAssetStorageService.storeBytes(audio, "audios/preview", filename, "audio/mpeg", "mp3").publicUrl();
+            url = publicAssetStorageService.storeBytes(
+                    audio,
+                    "audios/preview",
+                    filename,
+                    AudioFormatSupport.contentTypeFor(audio),
+                    AudioFormatSupport.extensionFor(audio)).publicUrl();
         } catch (Exception e) {
             throw new BusinessException("预听音频保存失败: " + e.getMessage());
         }

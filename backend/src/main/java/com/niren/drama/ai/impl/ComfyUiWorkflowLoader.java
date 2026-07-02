@@ -152,6 +152,10 @@ public final class ComfyUiWorkflowLoader {
             }
             return fromCp;
         }
+        ObjectNode fromFs = loadFromComfyUiFs(base, name);
+        if (fromFs != null) {
+            return ensureApiFormat(fromFs, "ComfyUI filesystem");
+        }
         log.debug("未找到工作流模板: {}", name);
         return null;
     }
@@ -749,6 +753,7 @@ public final class ComfyUiWorkflowLoader {
         // 从 apiBaseUrl 推断（不太可靠，但作为 hint）
         // 扫描常见安装位置
         String[] candidates = {
+                "D:\\Projects\\ComfyUI-aki\\ComfyUI",
                 System.getProperty("user.home") + "\\ComfyUI",
                 System.getProperty("user.home") + "\\Desktop\\ComfyUI",
                 "/opt/ComfyUI",

@@ -5,7 +5,7 @@
     </div>
 
     <el-card class="gen-card">
-      <template #header><b>AI 生成分镜</b></template>
+      <template #header><b>智能生成分镜</b></template>
       <el-form :model="genForm" inline>
         <el-form-item label="选择剧本">
           <el-select v-model="genForm.scriptId" placeholder="请选择剧本" style="width: 260px"
@@ -20,7 +20,7 @@
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="previewDialog.generating" :disabled="!genForm.scriptId || previewDialog.saving" @click="handleGenerate">
-            AI 拆解分镜
+            智能拆解分镜
           </el-button>
         </el-form-item>
       </el-form>
@@ -198,12 +198,12 @@
     </div>
 
     <el-empty v-else-if="!genForm.scriptId" description="请先选择剧本" />
-    <el-empty v-else description="该剧本暂无分镜，点击「AI 拆解分镜」生成" />
+    <el-empty v-else description="该剧本暂无分镜，点击「智能拆解分镜」生成" />
 
     <AiPreviewDialog
       v-model="previewDialog.visible"
       title="分镜预览工作台"
-      subtitle="实时接收 AI 拆解的分镜 JSON，允许在确认前手工修正结构与字段。"
+      subtitle="实时接收智能拆解的分镜 JSON，允许在确认前手工修正结构与字段。"
       description="保存时会替换当前剧本已有分镜。建议保留 shots 数组和每个镜头的核心字段，确保 JSON 可解析。"
       :phase-text="previewDialog.generating ? '流式生成中' : '待确认保存'"
       :loading="previewDialog.generating"
@@ -230,7 +230,7 @@
             :loading="previewDialog.repairing"
             @click="repairPreview"
           >
-            AI 修复 JSON
+            智能修复 JSON
           </el-button>
         </div>
       </template>
@@ -242,7 +242,7 @@
         type="textarea"
         :rows="30"
         class="preview-editor"
-        placeholder="AI 生成的分镜 JSON 会实时出现在这里，可直接修改。"
+        placeholder="智能生成的分镜 JSON 会实时出现在这里，可直接修改。"
       />
     </AiPreviewDialog>
   </div>
@@ -252,6 +252,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { ArrowDown, ArrowRight, ChatDotRound, Picture, Reading } from '@element-plus/icons-vue'
 import AiPreviewDialog from '@/components/AiPreviewDialog.vue'
 import { scriptApi } from '@/api/script'
 import { storyboardApi } from '@/api/storyboard'
@@ -306,7 +307,7 @@ const canRepairStoryboardPreview = computed(() => {
 })
 const storyboardRepairHint = computed(() => {
   if (canRepairStoryboardPreview.value) {
-    return '检测到分镜 JSON 结构异常，可尝试 AI 自动修复'
+    return '检测到分镜 JSON 结构异常，可尝试智能修复'
   }
   return ''
 })
@@ -879,5 +880,148 @@ onUnmounted(() => {
   margin-top: 4px;
   font-size: 12px;
   color: var(--text-muted);
+}
+.page-container {
+  min-height: 100%;
+  padding: 24px 28px 44px;
+  overflow: auto;
+  background: var(--page-environment);
+  color: #f7fbff;
+}
+
+.page-header {
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(150, 190, 255, 0.13);
+}
+
+.page-title {
+  color: #f7fbff;
+  font-size: 28px;
+}
+
+.page-title::before {
+  content: "沉浸式剧本分镜画布";
+  display: block;
+  margin-bottom: 7px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.gen-card,
+.recommend-card,
+.shot-card {
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  background: var(--surface-panel) !important;
+  box-shadow: var(--shadow-md) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(145%);
+  color: #f7fbff;
+}
+
+.gen-card :deep(.el-card__header),
+.recommend-card :deep(.el-card__body),
+.gen-card :deep(.el-card__body) {
+  border-color: rgba(150, 190, 255, 0.12) !important;
+  color: #f7fbff;
+}
+
+.form-tip,
+.recommend-sub {
+  color: #9aa8bd;
+}
+
+.recommend-title {
+  color: var(--primary);
+}
+
+.recommend-actions {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.storyboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 18px;
+}
+
+.shot-card {
+  overflow: hidden;
+}
+
+.shot-card.selected,
+.shot-card.recommended {
+  border-color: rgba(103, 232, 249, 0.3) !important;
+}
+
+.shot-media {
+  height: 180px;
+  border-bottom: 1px solid rgba(150, 190, 255, 0.12);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    rgba(255, 255, 255, 0.04);
+  background-size: 32px 32px;
+}
+
+.shot-media img,
+.shot-media video {
+  filter: saturate(0.95) contrast(1.05);
+}
+
+.shot-info {
+  color: #dbe8ff;
+}
+
+.shot-no-badge {
+  background: rgba(139, 92, 246, 0.2);
+  color: #d8ccff;
+  border-color: rgba(139, 92, 246, 0.34);
+}
+
+.shot-camera,
+.shot-duration {
+  color: var(--primary);
+}
+
+.shot-desc,
+.shot-dialogue,
+.shot-narration,
+.dynamic-reason {
+  color: #b9c4d6;
+}
+
+.dynamic-card,
+.shot-text-panel {
+  border-color: rgba(150, 190, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dynamic-badge {
+  border-color: rgba(139, 92, 246, 0.28);
+  background: rgba(139, 92, 246, 0.16);
+  color: #c4b5fd;
+}
+
+.dynamic-badge.recommended,
+.dynamic-badge.selected {
+  border-color: rgba(103, 232, 249, 0.24);
+  background: rgba(103, 232, 249, 0.1);
+  color: #67e8f9;
+}
+
+.page-container :deep(.el-input__wrapper),
+.page-container :deep(.el-textarea__inner),
+.page-container :deep(.el-select__wrapper) {
+  background: rgba(3, 7, 15, 0.54) !important;
+  box-shadow: 0 0 0 1px rgba(150, 190, 255, 0.18) inset !important;
+}
+
+.page-container :deep(.el-button--primary) {
+  border: 0;
+  background: linear-gradient(100deg, #f7fbff, var(--primary), var(--secondary));
+  color: #03101d;
 }
 </style>

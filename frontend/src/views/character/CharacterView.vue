@@ -1,55 +1,103 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <span class="page-title">角色管理</span>
-      <el-button type="primary" :icon="Plus" @click="showCreate = true">添加角色</el-button>
-    </div>
-
-    <div class="card-grid" v-if="characters.length">
-      <div v-for="char in characters" :key="char.id" class="char-card" @click="openGallery(char)">
-        <div class="char-avatar">
-          <img v-if="char.imageUrl" :src="char.imageUrl" :alt="char.name" />
-          <div v-else class="char-placeholder">
-            <el-icon size="40" style="color: var(--text-muted)"><User /></el-icon>
-          </div>
-          <div v-if="charImageCount(char) > 1" class="char-image-badge">{{ charImageCount(char) }} 张</div>
-        </div>
-        <div class="char-info">
-          <div class="char-name">{{ char.name }}</div>
-          <div class="char-meta">
-            <span class="char-gender">{{ char.gender === 'female' ? '♀ 女' : '♂ 男' }}</span>
-            <span class="char-age">{{ char.age }}岁</span>
-          </div>
-          <div class="char-desc" v-if="char.description">{{ char.description }}</div>
-          <div class="char-voice" v-if="char.voiceName">
-            <el-icon size="12"><Microphone /></el-icon> {{ char.voiceName }}
-            <span v-if="char.speechRate" class="char-rate"> · 语速 {{ char.speechRate }}%</span>
-          </div>
-          <div v-if="char.ttsNote" class="char-tts-note">{{ char.ttsNote }}</div>
-          <audio
-            v-if="previewAudio.id === char.id && previewAudio.url"
-            :id="`preview-audio-${char.id}`"
-            :src="previewAudio.url"
-            controls
-            class="char-audio"
-          />
-          <div class="char-actions" @click.stop>
-            <el-button size="small" type="primary" :loading="generatingId === char.id" @click="generateImage(char)">
-              AI生成图像
-            </el-button>
-            <el-button size="small" :loading="previewingId === char.id" @click="previewVoice(char)">
-              预听
-            </el-button>
-            <el-popconfirm title="确认删除？" @confirm="deleteChar(char.id)">
-              <template #reference>
-                <el-button size="small" type="danger" text>删除</el-button>
-              </template>
-            </el-popconfirm>
-          </div>
-        </div>
+  <div class="character-workbench">
+    <section class="character-hero">
+      <div>
+        <p>人物档案台</p>
+        <h1>角色一致性锁定</h1>
+        <span>定妆图、音色、年龄与人物性格在这里合并成可复用的角色资产。</span>
       </div>
-    </div>
-    <el-empty v-else description="暂无角色，请添加剧中角色" />
+      <el-button type="primary" :icon="Plus" @click="showCreate = true">添加角色</el-button>
+    </section>
+
+    <template v-if="characters.length">
+      <section v-if="heroCharacter" class="identity-layout">
+        <article class="portrait-stage" @click="heroCharacter && openGallery(heroCharacter)">
+          <div class="portrait-frame">
+            <img v-if="heroCharacter.imageUrl" :src="heroCharacter.imageUrl" :alt="heroCharacter.name" />
+            <div v-else class="portrait-placeholder">
+              <el-icon size="56"><User /></el-icon>
+            </div>
+            <span class="portrait-badge">主角色</span>
+          </div>
+          <div class="portrait-copy">
+            <p>{{ heroCharacter.gender === 'female' ? '女性角色' : '男性角色' }} · {{ heroCharacter.age || '-' }} 岁</p>
+            <h2>{{ heroCharacter.name }}</h2>
+            <span>{{ heroCharacter.description || heroCharacter.personality || '尚未补充人物小传' }}</span>
+          </div>
+        </article>
+
+        <aside class="lock-panel">
+          <div class="lock-panel-head">
+            <span>一致性状态</span>
+            <b>{{ lockedPortraitCount }}/{{ characters.length }}</b>
+          </div>
+          <div class="lock-row">
+            <span>定妆图</span>
+            <strong>{{ lockedPortraitCount }} 个已锁定</strong>
+          </div>
+          <div class="lock-row">
+            <span>音色</span>
+            <strong>{{ voiceConfiguredCount }} 个已配置</strong>
+          </div>
+          <div class="lock-row">
+            <span>角色总数</span>
+            <strong>{{ characters.length }} 个</strong>
+          </div>
+        </aside>
+      </section>
+
+      <section class="roster-strip">
+        <article v-for="char in characters" :key="char.id" class="char-card" @click="openGallery(char)">
+          <div class="char-avatar">
+            <img v-if="char.imageUrl" :src="char.imageUrl" :alt="char.name" />
+            <div v-else class="char-placeholder">
+              <el-icon size="34"><User /></el-icon>
+            </div>
+            <div v-if="charImageCount(char) > 1" class="char-image-badge">{{ charImageCount(char) }} 张</div>
+          </div>
+          <div class="char-info">
+            <div class="char-name">{{ char.name }}</div>
+            <div class="char-meta">
+              <span>{{ char.gender === 'female' ? '女' : '男' }}</span>
+              <span>{{ char.age || '-' }} 岁</span>
+            </div>
+            <div class="char-desc" v-if="char.description">{{ char.description }}</div>
+            <div class="char-voice" v-if="char.voiceName">
+              <el-icon size="14"><Microphone /></el-icon>
+              {{ char.voiceName }}
+              <span v-if="char.speechRate" class="char-rate">语速 {{ char.speechRate }}%</span>
+            </div>
+            <div v-if="char.ttsNote" class="char-tts-note">{{ char.ttsNote }}</div>
+            <audio
+              v-if="previewAudio.id === char.id && previewAudio.url"
+              :id="`preview-audio-${char.id}`"
+              :src="previewAudio.url"
+              controls
+              class="char-audio"
+            />
+            <div class="char-actions" @click.stop>
+              <el-button size="small" type="primary" :loading="generatingId === char.id" @click="generateImage(char)">
+                生成定妆
+              </el-button>
+              <el-button size="small" :loading="previewingId === char.id" @click="previewVoice(char)">
+                预听
+              </el-button>
+              <el-popconfirm title="确认删除？" @confirm="deleteChar(char.id)">
+                <template #reference>
+                  <el-button size="small" type="danger" text>删除</el-button>
+                </template>
+              </el-popconfirm>
+            </div>
+          </div>
+        </article>
+      </section>
+    </template>
+
+    <section v-else class="empty-panel">
+      <h2>角色档案待建立</h2>
+      <p>人物定妆、音色与身份描述会在这里形成统一档案。</p>
+      <el-button type="primary" :icon="Plus" @click="showCreate = true">添加角色</el-button>
+    </section>
 
     <!-- Image gallery dialog -->
     <el-dialog v-model="galleryVisible" :title="galleryChar?.name + ' — 角色形象'" width="720px" destroy-on-close>
@@ -59,10 +107,10 @@
           <span v-if="idx === 0" class="gallery-main-tag">主图</span>
         </div>
       </div>
-      <el-empty v-else description="暂无角色图片，点击下方按钮生成" />
+      <el-empty v-else description="尚未生成角色定妆图" />
       <template #footer>
         <el-button type="primary" :loading="generatingId === galleryChar?.id" @click="galleryChar && generateImage(galleryChar)">
-          AI生成图像
+          生成图像
         </el-button>
       </template>
     </el-dialog>
@@ -120,7 +168,7 @@
               </div>
             </el-option>
           </el-select>
-          <div class="voice-tip">音色列表会跟随当前默认 TTS 模型变化。若要使用更细的语气描述，请在 AI 配置中心将 TTS 模型设为 qwen3-tts-instruct-flash。</div>
+          <div class="voice-tip">音色列表会跟随当前默认配音模型变化。若要使用更细的语气描述，请在模型配置中将配音模型设为 qwen3-tts-instruct-flash。</div>
         </el-form-item>
         <el-form-item label="语速">
           <el-input-number v-model="form.speechRate" :min="50" :max="200" :step="5" placeholder="100=正常" />
@@ -139,10 +187,10 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Microphone, Plus, User } from '@element-plus/icons-vue'
 import { characterApi } from '@/api/character'
 import { taskApi } from '@/api/task'
 
@@ -174,6 +222,10 @@ const form = ref({
   name: '', gender: 'male', age: '', personality: '', appearance: '', description: '', voiceId: '', voiceName: '',
   speechRate: undefined as number | undefined, ttsNote: '',
 })
+
+const heroCharacter = computed(() => characters.value[0] || null)
+const lockedPortraitCount = computed(() => characters.value.filter((char: any) => char.imageUrl || charImageCount(char) > 0).length)
+const voiceConfiguredCount = computed(() => characters.value.filter((char: any) => char.voiceName).length)
 
 function onVoiceChange(val: string) {
   const voice = voices.value.find(v => v.voiceId === val)
@@ -302,61 +354,256 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.page-container { padding: 24px; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.page-title { font-size: 20px; font-weight: 600; }
+.character-workbench {
+  min-height: 100%;
+  padding: 30px;
+  background: var(--page-environment);
+}
 
-.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+.character-hero,
+.identity-layout,
+.roster-strip,
+.empty-panel {
+  max-width: 1220px;
+  margin: 0 auto;
+}
 
-.char-card {
-  background: var(--bg-card);
-  border-radius: var(--radius-md);
+.character-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 22px;
+}
+
+.character-hero p {
+  margin: 0 0 8px;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.character-hero h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: clamp(30px, 4vw, 46px);
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+.character-hero span {
+  display: block;
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 16px;
+}
+
+.identity-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.portrait-stage,
+.lock-panel,
+.char-card,
+.empty-panel {
+  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  backdrop-filter: blur(var(--glass-blur)) saturate(145%);
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+.portrait-stage {
+  display: grid;
+  grid-template-columns: minmax(280px, 430px) minmax(0, 1fr);
+  gap: 28px;
+  min-height: 390px;
+  padding: 18px;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.portrait-frame {
+  position: relative;
+  min-height: 350px;
   overflow: hidden;
-  box-shadow: var(--shadow-sm);
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(circle at 24% 16%, rgba(91, 208, 255, 0.14), transparent 34%),
+    radial-gradient(circle at 82% 78%, rgba(255, 208, 138, 0.11), transparent 38%),
+    rgba(255, 255, 255, 0.045);
+}
+
+.portrait-frame img,
+.char-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.portrait-placeholder,
+.char-placeholder {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+
+.portrait-badge {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(5, 9, 13, 0.54);
+  color: #f7fbff;
+  font-size: 14px;
+  backdrop-filter: blur(24px);
+}
+
+.portrait-copy {
+  align-self: end;
+  padding: 0 14px 12px 0;
+}
+
+.portrait-copy p,
+.lock-panel-head span,
+.lock-row span {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.portrait-copy h2 {
+  margin: 10px 0 12px;
+  color: var(--text-primary);
+  font-size: clamp(34px, 5vw, 58px);
+  line-height: 1.04;
+  letter-spacing: 0;
+}
+
+.portrait-copy span {
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.lock-panel {
   display: flex;
   flex-direction: column;
+  gap: 16px;
+  padding: 22px;
+  border-radius: 20px;
+}
+
+.lock-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: auto;
+}
+
+.lock-panel-head b {
+  color: var(--primary);
+  font-size: 30px;
+}
+
+.lock-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.lock-row strong {
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.roster-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 16px;
+}
+
+.char-card {
+  overflow: hidden;
+  border-radius: 18px;
+  cursor: pointer;
+  transition: transform 0.18s, border-color 0.18s, background 0.18s;
+}
+
+.char-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  background: var(--surface-panel-strong);
 }
 
 .char-avatar {
-  height: 200px;
-  background: linear-gradient(135deg, var(--primary-glow), rgba(236, 72, 153, 0.1));
+  position: relative;
+  height: 190px;
   overflow: hidden;
+  background:
+    radial-gradient(circle at 24% 18%, rgba(91, 208, 255, 0.13), transparent 36%),
+    radial-gradient(circle at 80% 80%, rgba(180, 142, 255, 0.1), transparent 42%),
+    rgba(255, 255, 255, 0.04);
 }
-.char-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.char-placeholder { height: 100%; display: flex; align-items: center; justify-content: center; }
 
-.char-info { padding: 16px; flex: 1; }
-.char-name { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; }
-.char-meta { display: flex; gap: 8px; margin-bottom: 8px; }
-.char-gender, .char-age { font-size: 12px; color: var(--text-muted); background: var(--bg-muted); padding: 2px 8px; border-radius: var(--radius-sm); }
-.char-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.char-voice { font-size: 12px; color: var(--primary); display: flex; align-items: center; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
-.char-rate { color: var(--text-muted); font-weight: 500; }
-.char-tts-note { font-size: 11px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; }
+.char-info { padding: 16px; }
+.char-name { margin-bottom: 8px; color: var(--text-primary); font-size: 18px; font-weight: 800; }
+.char-meta { display: flex; gap: 8px; margin-bottom: 10px; }
+.char-meta span { color: var(--text-secondary); background: var(--bg-muted); padding: 4px 9px; border-radius: 999px; font-size: 14px; }
+.char-desc { color: var(--text-secondary); margin-bottom: 10px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.char-voice { color: var(--primary); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.char-rate { color: var(--text-muted); font-weight: 600; }
+.char-tts-note { color: var(--text-muted); margin-bottom: 12px; line-height: 1.45; }
 .char-audio { width: 100%; margin-bottom: 10px; }
-.field-hint { margin-left: 8px; font-size: 12px; color: var(--text-muted); }
-.char-actions { display: flex; gap: 8px; }
-.voice-tip { margin-top: 8px; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+.field-hint { margin-left: 8px; color: var(--text-muted); }
+.char-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.voice-tip { margin-top: 8px; line-height: 1.5; color: var(--text-muted); }
 .voice-option { display: flex; flex-direction: column; gap: 4px; padding: 2px 0; }
 .voice-option-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.voice-option-name { font-weight: 600; color: var(--text-primary); }
-.voice-option-id { font-size: 12px; color: var(--text-muted); }
-.voice-option-desc { font-size: 12px; line-height: 1.4; color: var(--text-secondary); white-space: normal; }
-
-.char-card { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
-.char-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.voice-option-name { font-weight: 700; color: var(--text-primary); }
+.voice-option-id { color: var(--text-muted); }
+.voice-option-desc { line-height: 1.4; color: var(--text-secondary); white-space: normal; }
 
 .char-image-badge {
   position: absolute;
   bottom: 8px;
   right: 8px;
-  background: rgba(0,0,0,0.6);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(5, 9, 13, 0.58);
   color: #fff;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  backdrop-filter: blur(24px);
 }
-.char-avatar { position: relative; }
+
+.empty-panel {
+  min-height: 420px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  border-radius: 20px;
+  padding: 34px;
+}
+
+.empty-panel h2 {
+  margin: 0 0 10px;
+  font-size: 28px;
+}
+
+.empty-panel p {
+  margin: 0 0 20px;
+  color: var(--text-secondary);
+  font-size: 16px;
+}
 
 .gallery-grid {
   display: grid;
@@ -382,8 +629,8 @@ onMounted(async () => {
   position: absolute;
   top: 6px;
   left: 6px;
-  background: var(--primary);
-  color: #fff;
+  background: linear-gradient(100deg, var(--primary), var(--secondary));
+  color: #03101d;
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 4px;
@@ -408,5 +655,23 @@ onMounted(async () => {
   margin-top: 12px;
   font-size: 14px;
   color: var(--text-secondary);
+}
+
+@media (max-width: 980px) {
+  .identity-layout,
+  .portrait-stage {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .character-workbench {
+    padding: 20px;
+  }
+
+  .character-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

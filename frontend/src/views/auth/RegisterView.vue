@@ -1,10 +1,16 @@
 <template>
-  <AuthShell title="创建账号">
+  <AuthShell title="泥人剧场" :show-heading="false" variant="register">
+    <div class="register-head">
+      <p>泥人剧场</p>
+      <h1>创建账号</h1>
+    </div>
+
     <el-form ref="formRef" :model="form" :rules="rules" size="large" class="auth-form" @submit.prevent="handleRegister">
       <el-form-item prop="username">
+        <label class="field-label">账号</label>
         <el-input
           v-model="form.username"
-          placeholder="用户名"
+          placeholder="3-30 位用户名"
           :prefix-icon="User"
           autocomplete="username"
           clearable
@@ -12,18 +18,20 @@
       </el-form-item>
 
       <el-form-item prop="nickname">
+        <label class="field-label">昵称</label>
         <el-input
           v-model="form.nickname"
-          placeholder="昵称（选填）"
+          placeholder="创作空间显示名，可选"
           :prefix-icon="Star"
           clearable
         />
       </el-form-item>
 
       <el-form-item prop="email">
+        <label class="field-label">邮箱</label>
         <el-input
           v-model="form.email"
-          placeholder="邮箱（选填）"
+          placeholder="用于找回账号，可选"
           :prefix-icon="Message"
           autocomplete="email"
           clearable
@@ -31,10 +39,11 @@
       </el-form-item>
 
       <el-form-item prop="password">
+        <label class="field-label">密码</label>
         <el-input
           v-model="form.password"
           type="password"
-          placeholder="密码"
+          placeholder="6-30 位登录密码"
           :prefix-icon="Lock"
           show-password
           autocomplete="new-password"
@@ -42,7 +51,7 @@
       </el-form-item>
 
       <el-button native-type="submit" type="primary" :loading="loading" class="primary-btn">
-        创建并登录
+        创建账号
       </el-button>
     </el-form>
 
@@ -115,55 +124,80 @@ function goToLogin() {
 </script>
 
 <style scoped>
+.register-head {
+  margin-bottom: 26px;
+}
+
+.register-head p {
+  margin: 0 0 12px;
+  color: rgba(232, 246, 255, 0.76);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.register-head h1 {
+  margin: 0;
+  color: #f8fbff;
+  font-size: 30px;
+  font-weight: 850;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
 .auth-form {
   margin: 0;
 }
 
 :deep(.el-form-item) {
-  margin-bottom: 16px;
-}
-
-:deep(.el-input__wrapper) {
-  min-height: 50px;
-  border-radius: 8px;
-  padding: 0 14px;
-  background: #ffffff;
-  box-shadow: 0 0 0 1px #d9e1ee inset;
-}
-
-:deep(.el-input__wrapper:hover) {
-  box-shadow: 0 0 0 1px #b8c4d8 inset;
-}
-
-:deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18), 0 0 0 1px #2563eb inset;
+  display: block;
+  margin-bottom: 17px;
 }
 
 :deep(.el-form-item.is-error .el-input__wrapper) {
-  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.72) inset, 0 0 0 2px rgba(239, 68, 68, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(255, 126, 151, 0.78) inset,
+    0 0 0 5px rgba(255, 126, 151, 0.08) !important;
 }
 
 :deep(.el-form-item__error) {
-  margin-top: 6px;
-  font-size: 12px;
+  position: static;
+  inset: auto;
+  display: block;
+  margin-top: 7px;
+  color: #ffd1dc;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 9px;
+  color: rgba(232, 246, 255, 0.82);
+  font-size: 14px;
+  font-weight: 760;
 }
 
 .primary-btn {
   width: 100%;
-  height: 50px;
-  margin-top: 4px;
-  border: none;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #2563eb, #0891b2);
-  font-size: 15px;
-  font-weight: 700;
-  color: #fff;
-  box-shadow: 0 14px 32px rgba(37, 99, 235, 0.24);
+  height: 56px;
+  margin-top: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 19px;
+  background:
+    linear-gradient(100deg, rgba(247, 251, 255, 0.96) 0%, rgba(80, 224, 255, 0.94) 48%, rgba(123, 92, 255, 0.96) 100%);
+  color: #03101d;
+  font-size: 16px;
+  font-weight: 850;
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.2),
+    0 0 38px rgba(79, 224, 255, 0.18);
 }
 
 .primary-btn:hover {
-  box-shadow: 0 18px 38px rgba(8, 145, 178, 0.3);
   transform: translateY(-1px);
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.22),
+    0 0 46px rgba(103, 232, 249, 0.26);
 }
 
 .auth-footer {
@@ -173,7 +207,7 @@ function goToLogin() {
   justify-content: center;
   gap: 6px;
   font-size: 14px;
-  color: #64748b;
+  color: rgba(226, 236, 248, 0.72);
 }
 
 .text-link {
@@ -183,10 +217,20 @@ function goToLogin() {
   cursor: pointer;
   font-size: 14px;
   font-weight: 700;
-  color: #0f172a;
+  color: #eaf6ff;
 }
 
 .text-link:hover {
-  color: #2563eb;
+  color: #67e8f9;
+}
+
+@media (max-width: 520px) {
+  .register-head {
+    margin-bottom: 22px;
+  }
+
+  .register-head h1 {
+    font-size: 28px;
+  }
 }
 </style>

@@ -16,8 +16,12 @@ export interface RegisterParams {
 
 export interface CaptchaData {
   captchaId: string
-  image: string
+  image?: string | null
   expiresIn: number
+  mode: 'PASSIVE' | 'SLIDER'
+  sliderTarget: number
+  sliderTolerance: number
+  scene: string
 }
 
 export const authApi = {

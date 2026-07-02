@@ -4,7 +4,7 @@ export type ProductionRepairPayload = {
   action: string
   shotIds?: Array<number | string>
   mode?: 'preview' | 'publish'
-  workflowPreset?: 'ltx' | 'wan' | 'custom'
+  workflowPreset?: 'ltx' | 'wan' | 'hunyuan' | 'custom'
   retryPolicy?: Record<string, any>
   platformProfile?: 'douyin' | 'hongguo'
 }

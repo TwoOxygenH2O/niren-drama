@@ -18,10 +18,10 @@ export function normalizeApiErrorMessage(message: unknown, requestUrl = '') {
 
   if (isTimeoutError(normalizedMessage)) {
     if (requestUrl.includes('/storyboards/preview/repair')) {
-      return '分镜 AI 修复超时，请稍后重试；如果内容很长，建议先删掉无关说明再修复'
+      return '分镜智能修复超时，请稍后重试；如果内容很长，建议先删掉无关说明再修复'
     }
     if (requestUrl.includes('/scripts/preview/outline/repair')) {
-      return '大纲 AI 修复超时，请稍后重试'
+      return '大纲智能修复超时，请稍后重试'
     }
     if (requestUrl.includes('/immersive-chat')) {
       return '导演助手请求超时，可缩短说明后重试'

@@ -3,7 +3,7 @@
     <header class="immersive-top">
       <div class="immersive-top-left">
       <button type="button" class="top-logo" title="返回剧集列表" aria-label="返回剧集列表" @click="goProjectEpisodes">
-        <img class="top-logo-img" src="/logo.svg" alt="" aria-hidden="true" />
+        <img class="top-logo-img" src="/favicon.svg" alt="" aria-hidden="true" />
       </button>
       <span v-if="project?.name" class="top-project-title">{{ project.name }}</span>
       </div>
@@ -167,7 +167,7 @@
           <header class="plan-head">
             <span class="plan-ep-badge">第 {{ String(activeEpisode).padStart(2, '0') }} 集</span>
             <h2 class="plan-title">{{ activePlanScript?.title || '—' }}</h2>
-            <p class="plan-ai-note">内容由 AI 生成</p>
+            <p class="plan-ai-note">内容由智能生成</p>
             <button type="button" class="plan-close-btn" title="收起策划栏" aria-label="收起策划栏" @click="workflowPhase = 'outline'">✕</button>
           </header>
 
@@ -424,7 +424,7 @@ const composerPlaceholder = computed(() => {
     return '补充说明以调整大纲；发送「确认分镜大纲」进入剧本阶段。Enter 换行，Cmd/Ctrl + Enter 发送'
   }
   if (workflowPhase.value === 'plan_ready') {
-    return '例如：重新生成分镜、重写本集剧本；会用 AI 结合项目信息处理。Cmd/Ctrl + Enter 发送'
+    return '例如：重新生成分镜、重写本集剧本；会结合项目信息处理。Cmd/Ctrl + Enter 发送'
   }
   return '输入你的问题，Enter 换行，Cmd/Ctrl + Enter 发送'
 })
@@ -606,9 +606,16 @@ async function loadProject() {
   project.value = res.data?.data ?? res.data
 }
 
+function projectInspirationKey() {
+  return `${INSPIRATION_KEY}:${projectId.value}`
+}
+
 function readSeedFromStorage() {
   try {
-    const s = sessionStorage.getItem(INSPIRATION_KEY) || ''
+    const key = projectInspirationKey()
+    const s = sessionStorage.getItem(key) || ''
+    sessionStorage.removeItem(key)
+    sessionStorage.removeItem(INSPIRATION_KEY)
     userPrompt.value = s.trim()
   } catch {
     userPrompt.value = ''
@@ -1360,7 +1367,7 @@ onUnmounted(() => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--bg-page);
+  background: var(--page-environment);
   color: var(--text-primary);
   animation: immersive-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -1751,10 +1758,10 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   padding: 14px;
-  background: rgba(99,102,241,0.06);
-  border: 1px solid rgba(99,102,241,0.2);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: inherit;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(24px) saturate(140%);
   transition: border-color 0.2s, background 0.2s;
 }
 .video-workbench-entry:hover .vwe-card {
@@ -1840,8 +1847,8 @@ onUnmounted(() => {
   opacity: 0.88;
 }
 .btn-plan-video:hover:not(:disabled) {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(103, 232, 249, 0.16);
 }
 .btn-plan-video:disabled {
   opacity: 0.45;
@@ -1880,7 +1887,7 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   height: 100%;
-  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  background: linear-gradient(90deg, var(--primary), var(--secondary));
   border-radius: 10px;
   transition: width 0.4s ease;
 }
@@ -2106,7 +2113,7 @@ onUnmounted(() => {
 /* 流式阶段：纯文本，避免 Markdown 每帧全量解析阻塞渲染 */
 .outline-plain {
   margin: 0;
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.65;
   white-space: pre-wrap;
@@ -2421,6 +2428,158 @@ onUnmounted(() => {
 .send-round:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+.immersive-root {
+  background: var(--page-environment);
+  color: #f7fbff;
+}
+
+.immersive-top {
+  height: 74px;
+  border-bottom: 1px solid rgba(150, 190, 255, 0.14);
+  background: rgba(11, 20, 27, 0.68);
+  backdrop-filter: blur(28px) saturate(145%);
+}
+
+.top-logo,
+.icon-btn,
+.episode-add {
+  border-radius: 8px;
+  border: 1px solid rgba(150, 190, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+  color: #dbe8ff;
+}
+
+.top-project-title {
+  color: #f7fbff;
+  font-weight: 800;
+}
+
+.vip-link,
+.top-compose-btn,
+.btn-confirm-step {
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(100deg, #f7fbff, var(--primary), var(--secondary));
+  color: #03101d;
+  box-shadow: var(--shadow-primary);
+}
+
+.immersive-body {
+  background: transparent;
+}
+
+.episode-rail {
+  border-right: 1px solid rgba(150, 190, 255, 0.14);
+  background: rgba(11, 20, 27, 0.58);
+}
+
+.episode-rail-label {
+  color: #9aa8bd;
+}
+
+.episode-dot {
+  border-color: rgba(150, 190, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: #dbe8ff;
+}
+
+.episode-dot.active {
+  border-color: rgba(139, 92, 246, 0.6);
+  color: #fff;
+  box-shadow: 0 0 22px rgba(139, 92, 246, 0.46);
+}
+
+.immersive-main,
+.immersive-plan {
+  background: transparent;
+}
+
+.chat-scroll {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 72px 72px;
+}
+
+.outline-card,
+.continuation-seko,
+.ai-line,
+.composer-inner,
+.plan-scroll {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(var(--glass-blur)) saturate(145%);
+}
+
+.bubble-user {
+  border-radius: 8px;
+  background: linear-gradient(100deg, rgba(103, 232, 249, 0.16), rgba(139, 124, 255, 0.14));
+  border: 1px solid rgba(103, 232, 249, 0.22);
+  color: #f7fbff;
+}
+
+.ai-brand,
+.plan-ep-badge {
+  color: var(--primary);
+}
+
+.ai-brand-dot {
+  background: var(--primary);
+  box-shadow: 0 0 14px rgba(103, 232, 249, 0.7);
+}
+
+.outline-md,
+.outline-plain,
+.ai-text,
+.plan-block-body,
+.plan-script-body {
+  color: #dbe8ff;
+}
+
+.composer-bottom {
+  background: rgba(11, 20, 27, 0.68);
+  border-top: 1px solid rgba(150, 190, 255, 0.14);
+  backdrop-filter: blur(28px) saturate(145%);
+}
+
+.bottom-textarea {
+  color: #f7fbff;
+}
+
+.bottom-textarea::placeholder {
+  color: #8897ae;
+}
+
+.send-round {
+  border: 0;
+  background: linear-gradient(100deg, #f7fbff, var(--primary), var(--secondary));
+  color: #03101d;
+}
+
+.immersive-plan {
+  border-left: 1px solid rgba(150, 190, 255, 0.14);
+}
+
+.plan-title,
+.plan-block-title,
+.continuation-title {
+  color: #f7fbff;
+}
+
+.plan-ai-note,
+.plan-muted,
+.continuation-desc,
+.continuation-lead {
+  color: #9aa8bd;
+}
+
+.plan-subject-item,
+.video-workbench-entry .vwe-card {
+  border-color: rgba(150, 190, 255, 0.14);
+  background: rgba(255, 255, 255, 0.045);
 }
 </style>
 

@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Slf4j
 public class ComfyUiImageProvider implements ImageAiProvider {
@@ -179,12 +180,12 @@ public class ComfyUiImageProvider implements ImageAiProvider {
             return inlineWorkflow;
         }
 
-        // Try loading workflow template: explicit name → loadWorkflow; no name → loadDefaultWorkflow (user's ComfyUI first)
+        // Image generation must be deterministic for project first frames: use user workflows only when explicitly configured.
         ObjectNode template;
         if (hasText(workflowFile)) {
             template = ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, workflowFile);
         } else {
-            template = ComfyUiWorkflowLoader.loadDefaultWorkflow(apiBaseUrl, httpClient, "image_z_image_turbo.json", "image");
+            template = ComfyUiWorkflowLoader.loadWorkflow(apiBaseUrl, httpClient, "image_z_image_turbo.json");
         }
         if (template != null) {
             ComfyUiWorkflowLoader.injectPrompt(template, fullPrompt);
@@ -230,6 +231,39 @@ public class ComfyUiImageProvider implements ImageAiProvider {
             if (inputs.has("negative_prompt") && inputs.path("negative_prompt").isTextual()) {
                 inputs.put("negative_prompt", negativePrompt);
             }
+            if ("ConditioningZeroOut".equals(classType)) {
+                injectNegativePromptConditioning(workflow, (ObjectNode) node, inputs, negativePrompt);
+            }
+            randomizeSamplerSeed(inputs);
+        }
+    }
+
+    private void injectNegativePromptConditioning(ObjectNode workflow, ObjectNode node,
+                                                   ObjectNode inputs, String negativePrompt) {
+        JsonNode conditioning = inputs.path("conditioning");
+        if (!conditioning.isArray() || conditioning.isEmpty()) {
+            return;
+        }
+        String positiveNodeId = conditioning.get(0).asText("");
+        JsonNode positiveInputs = workflow.path(positiveNodeId).path("inputs");
+        JsonNode clip = positiveInputs.path("clip");
+        if (!clip.isArray()) {
+            return;
+        }
+
+        node.put("class_type", "CLIPTextEncode");
+        inputs.removeAll();
+        inputs.put("text", negativePrompt);
+        inputs.set("clip", clip.deepCopy());
+    }
+
+    private void randomizeSamplerSeed(ObjectNode inputs) {
+        int seed = ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE);
+        if (inputs.has("seed") && inputs.path("seed").canConvertToLong()) {
+            inputs.put("seed", seed);
+        }
+        if (inputs.has("noise_seed") && inputs.path("noise_seed").canConvertToLong()) {
+            inputs.put("noise_seed", seed);
         }
     }
 
@@ -362,6 +396,10 @@ public class ComfyUiImageProvider implements ImageAiProvider {
                     String msg = messages.isArray() && messages.size() > 0
                             ? messages.toString() : "未知错误";
                     throw new RuntimeException("ComfyUI 任务执行失败: " + msg);
+                }
+                if (status.path("completed").asBoolean(false)
+                        && ("success".equalsIgnoreCase(statusStr) || "completed".equalsIgnoreCase(statusStr))) {
+                    throw new RuntimeException("ComfyUI 图片生成成功但没有输出图片 (prompt_id=" + promptId + ")");
                 }
             }
         }

@@ -1,24 +1,15 @@
 <template>
-  <div class="auth-page notranslate" translate="no">
+  <div :class="['auth-page', `auth-page--${variant}`, 'notranslate']" translate="no">
     <div class="auth-bg" aria-hidden="true" />
 
-    <main class="auth-shell">
-      <section class="auth-story" aria-label="泥人剧场">
-        <div class="auth-brand">
-          <div class="brand-icon" aria-hidden="true">
-            <img src="/logo.svg" alt="" aria-hidden="true" />
-          </div>
-          <span>{{ brandName }}</span>
+    <main class="auth-shell" aria-label="账号表单">
+      <section :class="['auth-card', { 'auth-card--login': !showHeading }]">
+        <div v-if="showHeading" class="brand-logo" aria-hidden="true">
+          <img src="/logo.svg" alt="" aria-hidden="true" />
         </div>
-
-      </section>
-
-      <section class="auth-panel" aria-label="账号表单">
-        <div class="auth-card">
-          <p class="auth-value">安全访问</p>
-          <h1 class="auth-title">{{ title }}</h1>
-          <slot></slot>
-        </div>
+        <h1 v-if="showHeading" class="auth-title">{{ title }}</h1>
+        <p v-if="showHeading" class="auth-subtitle">登录后继续创作竖屏短剧</p>
+        <slot></slot>
       </section>
     </main>
   </div>
@@ -29,9 +20,13 @@ withDefaults(
   defineProps<{
     title: string
     brandName?: string
+    showHeading?: boolean
+    variant?: 'login' | 'register'
   }>(),
   {
     brandName: '泥人剧场',
+    showHeading: true,
+    variant: 'login',
   },
 )
 </script>
@@ -43,8 +38,8 @@ withDefaults(
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px;
-  background: #080b12;
+  padding: clamp(20px, 5vw, 72px);
+  background: #03060b;
   overflow: hidden;
 }
 
@@ -52,137 +47,170 @@ withDefaults(
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, rgba(8, 11, 18, 0.96) 0%, rgba(8, 11, 18, 0.78) 46%, rgba(8, 11, 18, 0.9) 100%),
-    linear-gradient(180deg, rgba(12, 22, 38, 0.1), rgba(12, 22, 38, 0.82)),
+    radial-gradient(circle at 50% 48%, rgba(141, 238, 255, 0.14), transparent 24%),
+    radial-gradient(circle at 56% 22%, rgba(185, 167, 255, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(3, 8, 14, 0.02), rgba(3, 8, 14, 0.42)),
+    url("/background/auth-login-bg.png") center / cover no-repeat,
     url("/background/background1.png") center / cover no-repeat;
   pointer-events: none;
+}
+
+.auth-page--register .auth-bg {
+  background:
+    radial-gradient(circle at 50% 46%, rgba(103, 232, 249, 0.08), transparent 24%),
+    radial-gradient(circle at 82% 72%, rgba(255, 208, 138, 0.065), transparent 32%),
+    linear-gradient(180deg, rgba(3, 8, 14, 0.02), rgba(3, 8, 14, 0.42)),
+    url("/background/auth-register-bg.png") center / cover no-repeat,
+    url("/background/background1.png") center / cover no-repeat;
+}
+
+.auth-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 52%, transparent 0%, rgba(3, 8, 14, 0.08) 42%, rgba(3, 8, 14, 0.5) 100%),
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.016) 1px, transparent 1px);
+  background-size: auto, 72px 72px, 72px 72px;
 }
 
 .auth-shell {
   position: relative;
   z-index: 1;
-  width: min(1120px, 100%);
-  min-height: min(720px, calc(100vh - 64px));
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 432px;
-  gap: 40px;
-  align-items: stretch;
-}
-
-.auth-story {
-  min-width: 0;
+  width: min(430px, 100%);
   display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  padding: 18px 0;
-  color: #f8fafc;
-}
-
-.auth-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  width: fit-content;
-  color: #f8fafc;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0;
-}
-
-.brand-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 8px;
-  display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #2563eb, #0891b2);
-  color: #fff;
-  box-shadow: 0 16px 38px rgba(8, 145, 178, 0.28);
 }
 
-.brand-icon img {
-  height: 30px;
-  object-fit: contain;
-  width: 30px;
+.auth-shell::before {
+  content: none;
 }
 
-.auth-value {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.4;
-  letter-spacing: 0;
-  text-transform: uppercase;
-  color: #67e8f9;
-}
-
-.auth-panel {
+.brand-logo {
+  width: min(312px, 74vw);
+  height: 88px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
+  justify-content: center;
+  margin: 0 auto 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.05)),
+    rgba(11, 16, 31, 0.42);
+  color: #fff;
+  border: 1px solid rgba(151, 178, 255, 0.2);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35), 0 0 34px rgba(139, 92, 246, 0.18);
+}
+
+.brand-logo img {
+  width: min(248px, 82%);
+  max-height: 62px;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0 22px rgba(139, 92, 246, 0.55));
 }
 
 .auth-card {
+  position: relative;
+  z-index: 1;
   width: 100%;
-  padding: 34px 32px 30px;
-  border: 1px solid rgba(226, 232, 240, 0.16);
-  border-radius: 8px;
-  background: rgba(248, 250, 252, 0.94);
-  box-shadow: 0 28px 80px rgba(2, 6, 23, 0.42);
-  color: #0f172a;
+  padding: 34px 58px 30px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.072), rgba(255, 255, 255, 0.018)),
+    rgba(5, 12, 20, 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.035);
+  color: #f7fbff;
+  text-shadow: 0 1px 18px rgba(0, 0, 0, 0.42);
+}
+
+.auth-card--login {
+  padding: 40px 40px 34px;
+  border-radius: 20px;
+  border-color: rgba(255, 255, 255, 0.2);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.072), rgba(255, 255, 255, 0.018)),
+    rgba(5, 12, 20, 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.035);
 }
 
 .auth-title {
-  margin: 8px 0 26px;
-  font-size: 30px;
-  line-height: 1.2;
+  margin: 0;
+  text-align: center;
+  font-size: 38px;
+  line-height: 1.12;
   letter-spacing: 0;
-  color: #0f172a;
+  color: #f7fbff;
+}
+
+.auth-subtitle {
+  margin: 10px 0 24px;
+  text-align: center;
+  color: #cbd6e8;
+  font-size: 17px;
 }
 
 :global(.auth-card .el-input__wrapper) {
-  min-height: 50px;
-  border-radius: 8px;
-  padding: 0 14px;
-  background: #ffffff !important;
-  box-shadow: 0 0 0 1px #d9e1ee inset !important;
+  min-height: 56px;
+  border-radius: 18px;
+  padding: 0 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.035)),
+    rgba(7, 17, 27, 0.38) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.34) inset,
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(4, 11, 19, 0.28) !important;
+  backdrop-filter: blur(30px) saturate(150%);
 }
 
 :global(.auth-card .el-input__wrapper:hover) {
-  box-shadow: 0 0 0 1px #b8c4d8 inset !important;
+  box-shadow:
+    0 0 0 1px rgba(103, 232, 249, 0.46) inset,
+    0 0 24px rgba(103, 232, 249, 0.08) !important;
 }
 
 :global(.auth-card .el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18), 0 0 0 1px #2563eb inset !important;
+  box-shadow:
+    0 0 0 1px rgba(103, 232, 249, 0.88) inset,
+    0 0 0 5px rgba(103, 232, 249, 0.1),
+    0 0 32px rgba(103, 232, 249, 0.14) !important;
 }
 
 :global(.auth-card .el-input__inner) {
-  color: #0f172a;
+  color: #f7fbff;
+  font-size: 16px;
 }
 
 :global(.auth-card .el-input__inner::placeholder) {
-  color: #7c8aa3;
+  color: #d0d9e8;
+}
+
+:global(.auth-card .el-input__prefix),
+:global(.auth-card .el-input__suffix) {
+  color: #d3deef;
 }
 
 @media (max-width: 900px) {
   .auth-page {
-    align-items: flex-start;
-    padding: 22px;
+    padding: 24px;
+    justify-content: center;
     overflow-y: auto;
   }
 
   .auth-shell {
     min-height: auto;
-    grid-template-columns: 1fr;
-    gap: 22px;
   }
 
-  .auth-story {
-    padding: 0;
-  }
-
-  .auth-panel {
-    align-items: flex-start;
+  .auth-shell::before {
+    inset: -34px -24px;
   }
 }
 
@@ -192,11 +220,30 @@ withDefaults(
   }
 
   .auth-card {
-    padding: 28px 20px 24px;
+    padding: 34px 22px 28px;
+  }
+
+  .auth-card--login {
+    padding: 34px 22px 28px;
+    border-radius: 18px;
   }
 
   .auth-title {
-    font-size: 26px;
+    font-size: 30px;
   }
+
+  .auth-subtitle {
+    font-size: 14px;
+  }
+
+  .brand-logo {
+    height: 74px;
+  }
+
+  .brand-logo img {
+    width: min(218px, 84%);
+    max-height: 50px;
+  }
+
 }
 </style>

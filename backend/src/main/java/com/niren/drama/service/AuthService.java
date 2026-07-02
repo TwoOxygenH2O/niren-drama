@@ -28,7 +28,7 @@ public class AuthService {
 
     public LoginResponse login(LoginRequest request) {
         if (!captchaService.validateCaptcha(request.getCaptchaId(), request.getCaptchaCode())) {
-            throw new BusinessException(400, "验证码错误或已过期");
+            throw new BusinessException(400, "安全验证失败或已过期");
         }
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));

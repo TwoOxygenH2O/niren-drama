@@ -1,66 +1,72 @@
 <template>
-  <div class="page-container">
-    <div class="project-nav">
+  <div class="project-flow">
+    <header class="flow-header">
       <el-button text @click="$router.push('/projects')">
-        <el-icon><ArrowLeft /></el-icon> 返回列表
+        <el-icon><ArrowLeft /></el-icon> 返回项目中心
       </el-button>
-      <span class="project-name">{{ project?.name }}</span>
-      <span v-if="project" :class="`status-badge status-${project.status}`">
-        {{ statusLabel(project.status) }}
-      </span>
-    </div>
+      <span v-if="project" :class="`status-badge status-${project.status}`">{{ statusLabel(project.status) }}</span>
+    </header>
 
-    <div v-if="project" class="workflow-nav">
-      <div
-        v-for="step in workflowSteps"
-        :key="step.routeEnd"
-        class="workflow-step"
-        :class="{ active: isStepActive(step) }"
-        @click="openWorkflowStep(step)"
-      >
-        <span class="wf-icon" v-html="step.icon"></span>
-        <span class="wf-label">{{ step.label }}</span>
-      </div>
-    </div>
+    <template v-if="project">
+      <section class="production-hero">
+        <div class="production-copy">
+          <p>项目生产流</p>
+          <h1>{{ project.name }}</h1>
+          <span>{{ project.description || '项目描述待补充' }}</span>
+          <div class="production-actions">
+            <el-button type="primary" @click="openEpisodeWorkbench">进入剧集生产</el-button>
+            <el-button @click="openWorkflowStep(workflowSteps[0])">编辑剧本</el-button>
+          </div>
+        </div>
+        <div class="production-metrics">
+          <div v-for="item in projectInfoCards" :key="item.label">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
+      </section>
 
-    <div class="project-info-cards" v-if="project">
-      <div class="info-card">
-        <div class="info-label">类型</div>
-        <div class="info-value">{{ formatProjectTypeLabel(project.projectType) }}</div>
-      </div>
-      <div class="info-card">
-        <div class="info-label">题材</div>
-        <div class="info-value">{{ formatGenreLabel(project.genre) || '未设置' }}</div>
-      </div>
-      <div class="info-card">
-        <div class="info-label">集数</div>
-        <div class="info-value">{{ project.episodes }} 集</div>
-      </div>
-      <div class="info-card">
-        <div class="info-label">单集时长</div>
-        <div class="info-value">{{ project.episodeDuration }} 秒</div>
-      </div>
-      <div class="info-card">
-        <div class="info-label">创建时间</div>
-        <div class="info-value">{{ project.createTime?.substring(0, 10) }}</div>
-      </div>
-    </div>
+      <section class="production-lane">
+        <article
+          v-for="(step, index) in workflowSteps"
+          :key="step.routeEnd"
+          class="workflow-step"
+          :class="{ active: isStepActive(step) }"
+          @click="openWorkflowStep(step)"
+        >
+          <b>{{ String(index + 1).padStart(2, '0') }}</b>
+          <span class="wf-icon" v-html="step.icon"></span>
+          <strong>{{ step.label }}</strong>
+          <i />
+        </article>
+      </section>
 
-    <div v-if="project?.description" class="project-desc">
-      <strong>项目描述：</strong>{{ project.description }}
-    </div>
+      <section class="project-notes">
+        <article>
+          <span>题材与规格</span>
+          <dl>
+            <div v-for="item in projectInfoCards" :key="item.label">
+              <dt>{{ item.label }}</dt>
+              <dd>{{ item.value }}</dd>
+            </div>
+          </dl>
+        </article>
+        <article>
+          <span>项目通用信息</span>
+          <pre>{{ project.commonInfo || '暂无通用信息' }}</pre>
+        </article>
+      </section>
+    </template>
 
-    <div v-if="project?.commonInfo" class="project-desc project-common-info">
-      <strong>项目通用信息：</strong>
-      <pre>{{ project.commonInfo }}</pre>
-    </div>
+    <section v-else class="project-loading">项目加载中</section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { ArrowLeft } from '@element-plus/icons-vue'
 import { projectApi } from '@/api/project'
 import { formatGenreLabel, formatProjectTypeLabel } from '@/constants/project'
 
@@ -78,6 +84,16 @@ const workflowSteps = [
 ]
 
 const statusLabel = (s: string) => ({ draft: '草稿', generating: '生成中', completed: '已完成', failed: '失败' }[s] || s)
+const projectInfoCards = computed(() => {
+  if (!project.value) return []
+  return [
+    { label: '类型', value: formatProjectTypeLabel(project.value.projectType) },
+    { label: '题材', value: formatGenreLabel(project.value.genre) || '未设置' },
+    { label: '集数', value: `${project.value.episodes} 集` },
+    { label: '单集时长', value: `${project.value.episodeDuration} 秒` },
+    { label: '创建时间', value: project.value.createTime?.substring(0, 10) || '-' },
+  ]
+})
 
 function openWorkflowStep(step: any) {
   if (!project.value?.id) return
@@ -94,6 +110,11 @@ function isStepActive(step: any) {
   return route.path.endsWith(step.routeEnd)
 }
 
+function openEpisodeWorkbench() {
+  if (!project.value?.id) return
+  router.push(`/projects/${project.value.id}/episodes`)
+}
+
 onMounted(async () => {
   try {
     const res = await projectApi.get(route.params.id as string)
@@ -105,73 +126,241 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.page-container { padding: 24px; }
+.project-flow {
+  min-height: 100%;
+  padding: 30px;
+  background: var(--page-environment);
+}
 
-.project-nav {
+.flow-header,
+.production-hero,
+.production-lane,
+.project-notes,
+.project-loading {
+  max-width: 1220px;
+  margin: 0 auto;
+}
+
+.flow-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
+  justify-content: space-between;
+  margin-bottom: 18px;
 }
-.project-name { font-size: 20px; font-weight: 600; color: var(--text-primary); }
 
-.workflow-nav {
+.production-hero,
+.production-lane,
+.project-notes article,
+.project-loading {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface-panel);
+  backdrop-filter: blur(var(--glass-blur)) saturate(145%);
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+.production-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 28px;
+  min-height: 320px;
+  padding: 30px;
+  margin-bottom: 18px;
+}
+
+.production-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: end;
+}
+
+.production-copy p {
+  margin: 0 0 10px;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.production-copy h1 {
+  margin: 0;
+  font-size: clamp(34px, 5vw, 62px);
+  line-height: 1.02;
+  letter-spacing: 0;
+}
+
+.production-copy > span {
+  max-width: 720px;
+  margin-top: 16px;
+  color: var(--text-secondary);
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.production-actions {
   display: flex;
   gap: 12px;
-  margin-bottom: 24px;
-  background: var(--bg-card);
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+
+.production-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-self: end;
+}
+
+.production-metrics div {
+  min-height: 96px;
   padding: 16px;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.production-metrics span,
+.project-notes span,
+.project-notes dt {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.production-metrics strong {
+  display: block;
+  margin-top: 10px;
+  color: var(--text-primary);
+  font-size: 22px;
+}
+
+.production-lane {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 10px;
+  padding: 14px;
+  margin-bottom: 18px;
+  overflow-x: auto;
 }
 
 .workflow-step {
+  position: relative;
+  min-height: 150px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 20px;
-  border-radius: var(--radius-sm);
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid transparent;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.038);
   cursor: pointer;
-  transition: background 0.2s;
-  min-width: 80px;
+  transition: transform 0.18s, border-color 0.18s, background 0.18s;
 }
-.workflow-step:hover { background: var(--bg-muted); }
-.workflow-step.active { background: var(--primary); color: #fff; }
-.workflow-step.active .wf-icon { opacity: 1; }
-.wf-icon { font-size: 22px; }
-.wf-label { font-size: 13px; font-weight: 500; }
 
-.project-info-cards {
-  display: flex;
-  gap: 16px;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
+.workflow-step:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
 }
-.info-card {
-  background: var(--bg-card);
-  border-radius: var(--radius-md);
-  padding: 16px 24px;
-  box-shadow: var(--shadow-sm);
-  min-width: 120px;
-}
-.info-label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
-.info-value { font-size: 18px; font-weight: 600; color: var(--text-primary); }
 
-.project-desc {
-  background: var(--bg-card);
-  border-radius: var(--radius-md);
-  padding: 16px 20px;
-  box-shadow: var(--shadow-sm);
-  color: var(--text-secondary);
+.workflow-step.active {
+  border-color: var(--border-strong);
+  background: var(--surface-panel-strong);
+}
+
+.workflow-step b {
+  color: var(--primary);
   font-size: 14px;
+}
+
+.workflow-step strong {
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.wf-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background:
+    radial-gradient(circle at 22% 20%, rgba(103, 232, 249, 0.12), transparent 54%),
+    rgba(255, 255, 255, 0.06);
+  color: var(--primary);
+}
+
+.workflow-step i {
+  display: block;
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), var(--secondary), rgba(255, 255, 255, 0.12));
+}
+
+.project-notes {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: 18px;
+}
+
+.project-notes article {
+  padding: 22px;
+}
+
+.project-notes dl {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0 0;
+}
+
+.project-notes dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.project-notes dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 800;
+  text-align: right;
+}
+
+.project-notes pre {
+  margin: 18px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+  font-family: inherit;
   line-height: 1.6;
 }
 
-.project-common-info pre {
-  margin: 12px 0 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: inherit;
+.project-loading {
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 1020px) {
+  .production-hero,
+  .project-notes {
+    grid-template-columns: 1fr;
+  }
+
+  .production-lane {
+    grid-template-columns: repeat(6, 150px);
+  }
+}
+
+@media (max-width: 680px) {
+  .project-flow {
+    padding: 20px;
+  }
+
+  .production-metrics {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

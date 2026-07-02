@@ -1,9 +1,43 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+import {
+  ElAlert,
+  ElButton,
+  ElCard,
+  ElCheckbox,
+  ElCheckboxGroup,
+  ElCollapse,
+  ElCollapseItem,
+  ElConfigProvider,
+  ElDialog,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
+  ElEmpty,
+  ElForm,
+  ElFormItem,
+  ElIcon,
+  ElInput,
+  ElInputNumber,
+  ElLoading,
+  ElOption,
+  ElOptionGroup,
+  ElPagination,
+  ElPopconfirm,
+  ElPopover,
+  ElProgress,
+  ElRadio,
+  ElRadioGroup,
+  ElSelect,
+  ElSwitch,
+  ElTable,
+  ElTableColumn,
+  ElUpload,
+} from 'element-plus'
+import '@fontsource/noto-sans-sc/400.css'
+import '@fontsource/noto-sans-sc/600.css'
+import '@fontsource/noto-sans-sc/800.css'
 import 'element-plus/dist/index.css'
-import zhCn from 'element-plus/es/locale/lang/zh-cn'
 
 import App from './App.vue'
 import router from './router'
@@ -11,14 +45,46 @@ import './style.css'
 
 const app = createApp(App)
 const pinia = createPinia()
+const elementComponents = [
+  ElAlert,
+  ElButton,
+  ElCard,
+  ElCheckbox,
+  ElCheckboxGroup,
+  ElCollapse,
+  ElCollapseItem,
+  ElConfigProvider,
+  ElDialog,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
+  ElEmpty,
+  ElForm,
+  ElFormItem,
+  ElIcon,
+  ElInput,
+  ElInputNumber,
+  ElOption,
+  ElOptionGroup,
+  ElPagination,
+  ElPopconfirm,
+  ElPopover,
+  ElProgress,
+  ElRadio,
+  ElRadioGroup,
+  ElSelect,
+  ElSwitch,
+  ElTable,
+  ElTableColumn,
+  ElUpload,
+]
 
-// Register all Element Plus icons
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
+for (const component of elementComponents) {
+  app.use(component)
 }
 
 app.use(pinia)
 app.use(router)
-app.use(ElementPlus, { locale: zhCn })
+app.use(ElLoading)
 
 app.mount('#app')

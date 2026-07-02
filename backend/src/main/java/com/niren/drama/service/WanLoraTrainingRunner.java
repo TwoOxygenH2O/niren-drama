@@ -136,8 +136,10 @@ public class WanLoraTrainingRunner {
                     "train",
                     datasetBase.relativize(frameTarget).toString().replace('\\', '/'),
                     datasetBase.relativize(videoTarget).toString().replace('\\', '/'),
-                    context.caption(),
-                    "no cuts, no new people, no wardrobe change, no scene jump, no face morphing",
+                    hasText(sample.prompt()) ? sample.prompt() : context.caption(),
+                    hasText(sample.negativePrompt())
+                            ? sample.negativePrompt()
+                            : "no cuts, no new people, no wardrobe change, no scene jump, no face morphing, no slideshow",
                     context.workflowFile(),
                     context.baseModel() == null ? "" : context.baseModel()));
             updateTask(context.taskId(), "RUNNING", Math.min(28, 10 + index * 18 / Math.max(1, context.samples().size())),

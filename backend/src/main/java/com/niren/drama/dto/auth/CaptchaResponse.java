@@ -11,4 +11,8 @@ public class CaptchaResponse {
     private String captchaId;
     private String image;
     private long expiresIn;
+    private String mode;
+    private Integer sliderTarget;
+    private Integer sliderTolerance;
+    private String scene;
 }

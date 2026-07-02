@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>泥人剧场驾驶舱 UI</title>
+  <link rel="icon" href="../../frontend/public/favicon.svg" type="image/svg+xml" />
+  <style>
+    :root {
+      --bg-image: url("./assets/niren-sci-fi-cockpit-bg.png");
+      --page: #03060b;
+      --panel: rgba(7, 12, 20, .72);
+      --panel-strong: rgba(10, 17, 28, .9);
+      --glass: rgba(255,255,255,.065);
+      --line: rgba(157, 220, 255, .18);
+      --line-strong: rgba(96, 226, 255, .42);
+      --text: #f7fbff;
+      --soft: #bbcadb;
+      --muted: #6f8195;
+      --cyan: #32e6d2;
+      --blue: #4d8dff;
+      --violet: #8f6bff;
+      --amber: #f2bf66;
+      --red: #ff6f86;
+      --green: #40d28f;
+      --radius: 8px;
+      --shadow: 0 28px 90px rgba(0,0,0,.46);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 18% 0%, rgba(50,230,210,.13), transparent 28%),
+        radial-gradient(circle at 88% 8%, rgba(143,107,255,.12), transparent 25%),
+        var(--page);
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      letter-spacing: 0;
+    }
+    button, input, textarea { font: inherit; }
+    button { cursor: pointer; }
+    .page { min-height: 100vh; padding: 22px; }
+    .shell {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      min-height: 72px;
+      display: grid;
+      grid-template-columns: 280px 1fr 260px;
+      gap: 18px;
+      align-items: center;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(3, 7, 12, .82);
+      backdrop-filter: blur(24px);
+      box-shadow: var(--shadow);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+    .mark {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+      flex: 0 0 auto;
+    }
+    .mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .wordmark {
+      width: 138px;
+      height: 30px;
+      object-fit: contain;
+      display: block;
+    }
+    .brand small,
+    .meta,
+    .muted { color: var(--muted); font-size: 12px; }
+    .tabs {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .tabs button {
+      height: 38px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.045);
+      color: var(--soft);
+      padding: 0 14px;
+    }
+    .tabs button.active {
+      background: linear-gradient(135deg, var(--cyan), #69f7ff);
+      color: #041012;
+      border-color: transparent;
+      font-weight: 800;
+      box-shadow: 0 12px 30px rgba(50,230,210,.26);
+    }
+    .meta { text-align: right; line-height: 1.55; }
+
+    .view { display: none; padding-top: 28px; }
+    .view.active { display: block; }
+    .hero {
+      min-height: 560px;
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--bg-image) center/cover no-repeat;
+      box-shadow: var(--shadow);
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(180deg, rgba(3,6,11,.28), rgba(3,6,11,.88)),
+        linear-gradient(90deg, rgba(3,6,11,.42), transparent 36%, rgba(3,6,11,.35));
+      pointer-events: none;
+    }
+    .hero-ui {
+      position: relative;
+      z-index: 1;
+      min-height: 560px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 18px;
+      padding: 24px;
+    }
+    .hero-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+    }
+    .hero-title h1 {
+      margin: 0;
+      font-size: 38px;
+      line-height: 1.08;
+    }
+    .hero-title p {
+      margin: 10px 0 0;
+      max-width: 760px;
+      color: var(--soft);
+      line-height: 1.6;
+    }
+    .tag-row,
+    .chip-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .tag-row { justify-content: flex-end; }
+    .tag,
+    .chip,
+    .status {
+      min-height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0 9px;
+      color: var(--soft);
+      background: rgba(255,255,255,.045);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .status.ok, .chip.ok { color: #a7f8ce; border-color: rgba(64,210,143,.36); background: rgba(64,210,143,.12); }
+    .status.warn, .chip.warn { color: #ffe0a1; border-color: rgba(242,191,102,.38); background: rgba(242,191,102,.12); }
+    .status.bad, .chip.bad { color: #ffc1cb; border-color: rgba(255,111,134,.38); background: rgba(255,111,134,.12); }
+
+    .cockpit-grid {
+      display: grid;
+      grid-template-columns: 310px minmax(360px, 1fr) 330px;
+      gap: 16px;
+      align-items: stretch;
+    }
+    .glass {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: linear-gradient(180deg, rgba(11,19,31,.76), rgba(5,9,15,.64));
+      backdrop-filter: blur(18px);
+      box-shadow: 0 24px 70px rgba(0,0,0,.32);
+      min-width: 0;
+    }
+    .glass-head {
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+    }
+    .glass-body { padding: 14px; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap: 10px;
+    }
+    .metric {
+      min-height: 96px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.052);
+      padding: 12px;
+    }
+    .metric span { color: var(--muted); font-size: 12px; }
+    .metric b { display: block; margin-top: 8px; font-size: 28px; }
+    .barline {
+      height: 6px;
+      margin-top: 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.1);
+      overflow: hidden;
+    }
+    .barline i {
+      display: block;
+      height: 100%;
+      width: var(--v, 60%);
+      background: linear-gradient(90deg, var(--cyan), var(--violet));
+      border-radius: inherit;
+    }
+    .preview-stack {
+      display: grid;
+      justify-items: center;
+      align-content: center;
+      gap: 14px;
+      min-height: 360px;
+    }
+    .phone {
+      width: 230px;
+      aspect-ratio: 9 / 16;
+      border: 8px solid #030506;
+      border-radius: 22px;
+      background:
+        linear-gradient(180deg, rgba(8,15,26,.18), rgba(8,15,26,.68)),
+        var(--bg-image) 55% 46%/320% auto no-repeat;
+      position: relative;
+      overflow: hidden;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.18),
+        0 28px 80px rgba(0,0,0,.48),
+        0 0 70px rgba(50,230,210,.16);
+    }
+    .phone::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, transparent 52%, rgba(0,0,0,.72));
+    }
+    .caption {
+      position: absolute;
+      z-index: 1;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .radar {
+      width: 108px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      border: 1px solid rgba(50,230,210,.38);
+      background:
+        radial-gradient(circle, rgba(50,230,210,.18), transparent 32%),
+        conic-gradient(from 210deg, rgba(50,230,210,.52), transparent 24%, rgba(143,107,255,.2) 34%, transparent 64%);
+      box-shadow: 0 0 40px rgba(50,230,210,.18);
+    }
+    .row-list { display: grid; gap: 8px; }
+    .row {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.052);
+      padding: 10px;
+      color: var(--soft);
+      font-size: 12px;
+    }
+    .row strong { display: block; color: var(--text); font-size: 13px; margin-bottom: 4px; }
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0,1fr));
+      gap: 8px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(3,7,12,.58);
+      backdrop-filter: blur(16px);
+    }
+    .shot {
+      aspect-ratio: 9 / 16;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, rgba(50,230,210,.08), rgba(143,107,255,.18)),
+        var(--bg-image) center/360% auto no-repeat;
+      position: relative;
+      overflow: hidden;
+    }
+    .shot:nth-child(2n) { background-position: 58% 54%; }
+    .shot:nth-child(3n) { background-position: 42% 45%; }
+    .shot span {
+      position: absolute;
+      left: 7px;
+      bottom: 7px;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .btn {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0 12px;
+      color: var(--text);
+      background: rgba(255,255,255,.06);
+      white-space: nowrap;
+    }
+    .btn.primary {
+      color: #031012;
+      background: linear-gradient(135deg, var(--cyan), #77f4ff);
+      border-color: transparent;
+      font-weight: 800;
+    }
+    .btn.amber { color: #1d1306; background: var(--amber); border-color: transparent; font-weight: 800; }
+    .btn.violet { color: #fff; background: var(--violet); border-color: transparent; font-weight: 800; }
+    .field {
+      min-height: 38px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.06);
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      padding: 0 11px;
+    }
+    .kit {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0,1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .kit-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(5,10,17,.72);
+      backdrop-filter: blur(16px);
+      padding: 12px;
+      min-height: 110px;
+    }
+    .kit-card h3 { margin: 0 0 10px; font-size: 13px; }
+    .logo-lockup {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 54px;
+    }
+    .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+    .swatch {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+    }
+    .screens {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .screen {
+      min-height: 430px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(3,6,11,.18), rgba(3,6,11,.88)),
+        var(--bg-image) center/cover no-repeat;
+      box-shadow: var(--shadow);
+    }
+    .screen.wide { grid-column: 1 / -1; min-height: 540px; }
+    .screen-label {
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(3,7,12,.72);
+      font-size: 13px;
+    }
+    .screen-label span { color: var(--muted); font-size: 12px; }
+    .screen-body { padding: 14px; min-height: 392px; }
+    .app {
+      min-height: 392px;
+      display: grid;
+      grid-template-columns: 70px minmax(0,1fr);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: rgba(5,10,17,.7);
+      backdrop-filter: blur(16px);
+    }
+    .rail {
+      border-right: 1px solid var(--line);
+      background: rgba(255,255,255,.035);
+      padding: 12px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .rail .mark { width: 34px; height: 34px; margin-bottom: 8px; }
+    .rail-btn {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 13px;
+    }
+    .rail-btn.on { color: var(--cyan); border-color: rgba(50,230,210,.36); background: rgba(50,230,210,.12); }
+    .main { padding: 16px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+    .bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .bar h2, .bar h3 { margin: 0; font-size: 20px; line-height: 1.2; }
+    .bar p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .table th, .table td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 8px;
+      text-align: left;
+      color: var(--soft);
+    }
+    .table th { color: var(--muted); font-weight: 500; }
+    .asset-grid, .model-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0,1fr));
+      gap: 10px;
+    }
+    .asset, .model {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: rgba(255,255,255,.052);
+    }
+    .asset-thumb {
+      width: 56px;
+      height: 56px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--bg-image) center/320% auto no-repeat;
+      margin-bottom: 10px;
+    }
+    .asset h4, .model h4 { margin: 0 0 6px; font-size: 14px; }
+    .asset p, .model p { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .login {
+      min-height: 392px;
+      display: grid;
+      grid-template-columns: 1fr 350px;
+      gap: 22px;
+      align-items: center;
+    }
+    .login-copy { align-self: end; padding: 22px; }
+    .login-copy h2 { margin: 18px 0 8px; font-size: 30px; }
+    .login-copy p { margin: 0; color: var(--soft); line-height: 1.6; }
+    .login-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(238,246,255,.94);
+      color: #0f172a;
+      padding: 22px;
+      box-shadow: 0 24px 70px rgba(0,0,0,.32);
+    }
+    .login-card h3 { margin: 8px 0 16px; font-size: 22px; }
+    .login-card .field {
+      border-color: #cfd8e6;
+      background: #f7faff;
+      color: #64748b;
+      margin-bottom: 10px;
+    }
+    .executive { --accent: var(--cyan); }
+    .director { --cyan: #f2bf66; --violet: #a071ff; --line-strong: rgba(242,191,102,.45); }
+    .director .tabs button.active,
+    .director .btn.primary { background: linear-gradient(135deg, #f2bf66, #ffe39c); color: #1d1306; }
+    .pipeline { --cyan: #8f6bff; --violet: #32e6d2; --line-strong: rgba(143,107,255,.46); }
+    .pipeline .tabs button.active,
+    .pipeline .btn.primary { background: linear-gradient(135deg, #8f6bff, #32e6d2); color: #fff; }
+    .pipeline .btn.primary { color: #fff; }
+
+    @media (max-width: 1180px) {
+      .shell { grid-template-columns: 1fr; }
+      .meta { text-align: left; }
+      .cockpit-grid { grid-template-columns: 1fr; }
+      .kit { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .screens { grid-template-columns: 1fr; }
+      .timeline { grid-template-columns: repeat(4, minmax(0,1fr)); }
+    }
+    @media (max-width: 720px) {
+      .page { padding: 14px; }
+      .hero-ui { padding: 16px; }
+      .hero-head { display: block; }
+      .tag-row { justify-content: flex-start; margin-top: 12px; }
+      .kit, .metrics, .asset-grid, .model-grid { grid-template-columns: 1fr; }
+      .login { grid-template-columns: 1fr; }
+      .app { grid-template-columns: 1fr; }
+      .rail { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--line); }
+      .phone { width: min(220px, 72vw); }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="shell">
+      <div class="brand">
+        <div class="mark"><img src="../../frontend/public/favicon.svg" alt="泥人剧场"></div>
+        <div>
+          <img class="wordmark" src="../../frontend/public/logo.svg" alt="泥人剧场">
+          <div><small>AI 短剧生产驾驶舱</small></div>
+        </div>
+      </div>
+      <nav class="tabs" aria-label="选择驾驶舱方案">
+        <button class="active" data-view="executive">A 监制驾驶舱</button>
+        <button data-view="director">B 导演驾驶舱</button>
+        <button data-view="pipeline">C 流水线驾驶舱</button>
+      </nav>
+      <div class="meta">背景：niren-sci-fi-cockpit-bg.png<br>图标：favicon.svg · 长标：logo.svg</div>
+    </header>
+
+    <main id="executive" class="view executive active">
+      <section class="hero">
+        <div class="hero-ui">
+          <div class="hero-head">
+            <div class="hero-title">
+              <h1>A. 监制驾驶舱</h1>
+              <p>面向项目总览、预算、交付、风险和跨集生产状态。</p>
+            </div>
+            <div class="tag-row"><span class="tag">总览</span><span class="tag">风险</span><span class="tag">交付</span></div>
+          </div>
+          <div class="cockpit-grid">
+            <aside class="glass"><div class="glass-head"><b>Production</b><span>Live</span></div><div class="glass-body"><div class="metrics"><div class="metric"><span>项目</span><b>12</b><div class="barline" style="--v:70%"><i></i></div></div><div class="metric"><span>待生成</span><b>42</b><div class="barline" style="--v:63%"><i></i></div></div><div class="metric"><span>风险</span><b>7</b><div class="barline" style="--v:28%"><i></i></div></div><div class="metric"><span>预算</span><b>¥312</b><div class="barline" style="--v:48%"><i></i></div></div></div></div></aside>
+            <section class="glass preview-stack"><div class="phone"><div class="caption"><span>第 01 集</span><span>9:16</span></div></div><div class="chip-row"><span class="chip ok">身份锁定</span><span class="chip warn">2 项待修</span><span class="chip">Wan2.2</span></div></section>
+            <aside class="glass"><div class="glass-head"><b>Risk Queue</b><span>CASR</span></div><div class="glass-body"><div class="row-list"><div class="row"><strong>镜头 09</strong>角色锚点偏移</div><div class="row"><strong>镜头 12</strong>礼服袖口不一致</div><div class="row"><strong>第 02 集</strong>配音待确认</div><div class="row"><strong>合成</strong>字幕等待校对</div></div></div></aside>
+          </div>
+          <div class="timeline"><div class="shot"><span>01</span></div><div class="shot"><span>02</span></div><div class="shot"><span>03</span></div><div class="shot"><span>04</span></div><div class="shot"><span>05</span></div><div class="shot"><span>06</span></div><div class="shot"><span>07</span></div><div class="shot"><span>08</span></div></div>
+        </div>
+      </section>
+
+      <section class="kit">
+        <div class="kit-card"><h3>Logo</h3><div class="logo-lockup"><div class="mark"><img src="../../frontend/public/favicon.svg" alt=""></div><img class="wordmark" src="../../frontend/public/logo.svg" alt=""></div></div>
+        <div class="kit-card"><h3>Color</h3><div class="swatches"><div class="swatch" style="background:#03060b"></div><div class="swatch" style="background:#32e6d2"></div><div class="swatch" style="background:#4d8dff"></div><div class="swatch" style="background:#f2bf66"></div></div></div>
+        <div class="kit-card"><h3>Controls</h3><div class="chip-row"><button class="btn primary">生成</button><button class="btn">审看</button><button class="btn amber">修复</button></div></div>
+        <div class="kit-card"><h3>Status</h3><div class="chip-row"><span class="status ok">正常</span><span class="status warn">待办</span><span class="status bad">异常</span></div></div>
+      </section>
+
+      <section class="screens">
+        <div class="screen"><div class="screen-label"><b>登录</b><span>入口</span></div><div class="screen-body login"><div class="login-copy"><div class="logo-lockup"><div class="mark"><img src="../../frontend/public/favicon.svg" alt=""></div><img class="wordmark" src="../../frontend/public/logo.svg" alt=""></div><h2>生产驾驶舱</h2><p>项目、镜头、任务、质检、合成。</p></div><div class="login-card"><span class="muted">Team</span><h3>登录</h3><div class="field">邮箱 / 手机号</div><div class="field">密码</div><div class="field">验证码</div><button class="btn primary" style="width:100%">进入</button></div></div></div>
+        <div class="screen"><div class="screen-label"><b>首页</b><span>监制视图</span></div><div class="screen-body"><div class="app"><nav class="rail"><div class="mark"><img src="../../frontend/public/favicon.svg" alt=""></div><div class="rail-btn on">总</div><div class="rail-btn">剧</div><div class="rail-btn">镜</div><div class="rail-btn">设</div></nav><main class="main"><div class="bar"><div><h2>今日生产</h2><p>按风险和交付排序</p></div><button class="btn primary">新建项目</button></div><div class="metrics"><div class="metric"><span>待生成</span><b>42</b></div><div class="metric"><span>待修复</span><b>7</b></div><div class="metric"><span>队列</span><b>13</b></div><div class="metric"><span>成本</span><b>¥86</b></div></div></main></div></div></div>
+        <div class="screen"><div class="screen-label"><b>项目</b><span>片单</span></div><div class="screen-body"><div class="app"><nav class="rail"><div class="mark"><img src="../../frontend/public/favicon.svg" alt=""></div><div class="rail-btn on">片</div><div class="rail-btn">任</div><div class="rail-btn">库</div><div class="rail-btn">AI</div></nav><main class="main"><div class="bar"><div><h2>片单</h2><p>12 个项目 · 4 个待处理</p></div><button class="btn primary">新建</button></div><table class="table"><thead><tr><th>项目</th><th>阶段</th><th>进度</th><th>状态</th></tr></thead><tbody><tr><td>逆光重生</td><td>视频生成</td><td>75%</td><td><span class="status warn">待修</span></td></tr><tr><td>长安夜雨</td><td>分镜确认</td><td>45%</td><td><span class="status ok">正常</span></td></tr><tr><td>总裁的秘密</td><td>待发布</td><td>100%</td><td><span class="status ok">可发布</span></td></tr></tbody></table></main></div></div></div>
+        <div class="screen wide"><div class="screen-label"><b>生产</b><span>镜头控制台</span></div><div class="screen-body"><div class="cockpit-grid"><aside class="glass"><div class="glass-head"><b>分集</b><span>Episode</span></div><div class="glass-body"><div class="row-list"><div class="row"><strong>第 01 集</strong>24 个镜头</div><div class="row"><strong>第 02 集</strong>20 个镜头</div><div class="row"><strong>第 03 集</strong>剧本确认</div></div></div></aside><section class="glass preview-stack"><div class="phone"><div class="caption"><span>镜头 08</span><span>审看</span></div></div><div class="timeline" style="width:100%;grid-template-columns:repeat(6,1fr)"><div class="shot"><span>01</span></div><div class="shot"><span>02</span></div><div class="shot"><span>03</span></div><div class="shot"><span>04</span></div><div class="shot"><span>05</span></div><div class="shot"><span>06</span></div></div></section><aside class="glass"><div class="glass-head"><b>质检</b><span>CASR</span></div><div class="glass-body"><div class="row-list"><div class="row"><strong>身份</strong>94% 通过</div><div class="row"><strong>服装</strong>袖口待修</div><div class="row"><strong>场景</strong>光照一致</div></div><button class="btn primary" style="width:100%;margin-top:12px">执行修复</button></div></aside></div></div></div>
+        <div class="screen"><div class="screen-label"><b>素材</b><span>主体库</span></div><div class="screen-body"><div class="app"><main class="main" style="grid-column:1/-1"><div class="bar"><div><h2>主体资产</h2><p>角色、场景、服装、声音</p></div><button class="btn primary">新增</button></div><div class="asset-grid"><div class="asset"><div class="asset-thumb"></div><h4>林晚</h4><p>角色锚点</p><span class="status ok">锁定</span></div><div class="asset"><div class="asset-thumb"></div><h4>顾承</h4><p>声线待补</p><span class="status warn">待补</span></div><div class="asset"><div class="asset-thumb"></div><h4>婚礼厅</h4><p>主场景</p><span class="status ok">可用</span></div><div class="asset"><div class="asset-thumb"></div><h4>礼服</h4><p>服装参考</p><span class="status ok">可用</span></div></div></main></div></div></div>
+        <div class="screen"><div class="screen-label"><b>配置</b><span>AI 工作流</span></div><div class="screen-body"><div class="app"><main class="main" style="grid-column:1/-1"><div class="bar"><div><h2>模型配置</h2><p>文本、首帧、I2V、TTS、合成</p></div><button class="btn primary">测试</button></div><div class="model-grid"><div class="model"><h4>Text</h4><p>剧本和提示词</p><span class="status ok">在线</span></div><div class="model"><h4>First Frame</h4><p>主体参考图</p><span class="status ok">在线</span></div><div class="model"><h4>Wan2.2 I2V</h4><p>发布版</p><span class="status ok">默认</span></div><div class="model"><h4>Compose</h4><p>字幕、配音、BGM</p><span class="status ok">在线</span></div></div></main></div></div></div>
+      </section>
+    </main>
+
+    <main id="director" class="view director">
+      <section class="hero">
+        <div class="hero-ui">
+          <div class="hero-head"><div class="hero-title"><h1>B. 导演驾驶舱</h1><p>面向分镜、审看、连续性和镜头修复。</p></div><div class="tag-row"><span class="tag">分镜</span><span class="tag">审看</span><span class="tag">连续性</span></div></div>
+          <div class="cockpit-grid"><aside class="glass"><div class="glass-head"><b>Storyboard</b><span>24 shots</span></div><div class="glass-body"><div class="row-list"><div class="row"><strong>镜头 06</strong>通过</div><div class="row"><strong>镜头 07</strong>待审</div><div class="row"><strong>镜头 08</strong>当前</div><div class="row"><strong>镜头 09</strong>待修</div></div></div></aside><section class="glass preview-stack"><div class="phone"><div class="caption"><span>镜头 08</span><span>导演审看</span></div></div><div class="chip-row"><span class="chip ok">角色 94%</span><span class="chip warn">服装 88%</span><span class="chip">轻推镜</span></div></section><aside class="glass"><div class="glass-head"><b>Direction</b><span>Live</span></div><div class="glass-body"><div class="radar" style="margin:0 auto 14px"></div><div class="row-list"><div class="row"><strong>动作</strong>单镜连续，不切镜</div><div class="row"><strong>环境</strong>灯光与背景固定</div><div class="row"><strong>人物</strong>面部锚点锁定</div></div></div></aside></div>
+          <div class="timeline"><div class="shot"><span>06</span></div><div class="shot"><span>07</span></div><div class="shot"><span>08</span></div><div class="shot"><span>09</span></div><div class="shot"><span>10</span></div><div class="shot"><span>11</span></div><div class="shot"><span>12</span></div><div class="shot"><span>13</span></div></div>
+        </div>
+      </section>
+      <section class="kit">
+        <div class="kit-card"><h3>Logo</h3><div class="logo-lockup"><div class="mark"><img src="../../frontend/public/favicon.svg" alt=""></div><img class="wordmark" src="../../frontend/public/logo.svg" alt=""></div></div>
+        <div class="kit-card"><h3>Color</h3><div class="swatches"><div class="swatch" style="background:#03060b"></div><div class="swatch" style="background:#f2bf66"></div><div class="swatch" style="background:#a071ff"></div><div class="swatch" style="background:#32e6d2"></div></div></div>
+        <div class="kit-card"><h3>Controls</h3><div class="chip-row"><button class="btn primary">审看</button><button class="btn">锁定</button><button class="btn violet">重跑</button></div></div>
+        <div class="kit-card"><h3>Status</h3><div class="chip-row"><span class="status ok">通过</span><span class="status warn">待修</span><span class="status bad">漂移</span></div></div>
+      </section>
+      <section class="screens">
+        <div class="screen"><div class="screen-label"><b>登录</b><span>导演入口</span></div><div class="screen-body login"><div class="login-copy"><div class="logo-lockup"><div class="mark"><img src="../../frontend/public/favicon.svg" alt=""></div><img class="wordmark" src="../../frontend/public/logo.svg" alt=""></div><h2>导演台</h2><p>分镜、预览、审看、修复。</p></div><div class="login-card"><span class="muted">Director</span><h3>登录</h3><div class="field">邮箱 / 手机号</div><div class="field">密码</div><div class="field">验证码</div><button class="btn primary" style="width:100%">进入</button></div></div></div>
+        <div class="screen"><div class="screen-label"><b>首页</b><span>镜头审看</span></div><div class="screen-body"><div class="app"><nav class="rail"><div class="mark"><img src="../../frontend/public/favicon.svg" alt=""></div><div class="rail-btn on">审</div><div class="rail-btn">镜</div><div class="rail-btn">人</div><div class="rail-btn">修</div></nav><main class="main"><div class="bar"><div><h2>审看队列</h2><p>第 01 集 · 24 个镜头</p></div><button class="btn primary">打开镜头</button></div><div class="metrics"><div class="metric"><span>已审</span><b>15</b></div><div class="metric"><span>待审</span><b>6</b></div><div class="metric"><span>待修</span><b>3</b></div><div class="metric"><span>通过率</span><b>92%</b></div></div></main></div></div></div>
+        <div class="screen"><div class="screen-label"><b>项目</b><span>剧场</span></div><div class="screen-body"><div class="app"><nav class="rail"><div class="mark"><img src="../../frontend/public/favicon.svg" alt=""></div><div class="rail-btn on">剧</div><div class="rail-btn">镜</div><div class="rail-btn">人</div><div class="rail-btn">修</div></nav><main class="main"><div class="bar"><div><h2>剧场</h2><p>按镜头状态浏览</p></div><button class="btn primary">新建</button></div><table class="table"><tbody><tr><td>逆光重生</td><td><span class="status warn">需修复</span></td></tr><tr><td>长安夜雨</td><td><span class="status ok">正常</span></td></tr><tr><td>总裁的秘密</td><td><span class="status ok">可预览</span></td></tr></tbody></table></main></div></div></div>
+        <div class="screen wide"><div class="screen-label"><b>生产</b><span>导演席</span></div><div class="screen-body"><div class="cockpit-grid"><aside class="glass"><div class="glass-head"><b>镜头板</b><span>Shot</span></div><div class="glass-body"><div class="row-list"><div class="row"><strong>06</strong>通过</div><div class="row"><strong>07</strong>待审</div><div class="row"><strong>08</strong>当前</div><div class="row"><strong>09</strong>待修</div></div></div></aside><section class="glass preview-stack"><div class="phone"><div class="caption"><span>镜头 08</span><span>9:16</span></div></div><div class="chip-row"><span class="chip ok">身份 94%</span><span class="chip warn">服装 88%</span><span class="chip">单镜</span></div></section><aside class="glass"><div class="glass-head"><b>连续性</b><span>Lock</span></div><div class="glass-body"><div class="row-list"><div class="row"><strong>角色</strong>脸部锚点正常</div><div class="row"><strong>服装</strong>袖口待修复</div><div class="row"><strong>动作</strong>保持轻推</div></div><button class="btn primary" style="width:100%;margin-top:12px">生成修复</button></div></aside></div></div></div>
+        <div class="screen"><div class="screen-label"><b>素材</b><span>演员卡</span></div><div class="screen-body"><div class="app"><main class="main" style="grid-column:1/-1"><div class="bar"><div><h2>演员与场景</h2><p>连续性资产</p></div><button class="btn primary">创建</button></div><div class="asset-grid"><div class="asset"><div class="asset-thumb"></div><h4>林晚</h4><p>演员卡完整</p><span class="status ok">锁定</span></div><div class="asset"><div class="asset-thumb"></div><h4>顾承</h4><p>待补首帧</p><span class="status warn">待补</span></div><div class="asset"><div class="asset-thumb"></div><h4>婚礼大厅</h4><p>主场景</p><span class="status ok">可用</span></div><div class="asset"><div class="asset-thumb"></div><h4>雨夜街口</h4><p>备用场景</p><span class="status ok">可用</span></div></div></main></div></div></div>
+        <div class="screen"><div class="screen-label"><b>配置</b><span>导演工作流</span></div><div class="screen-body"><div class="app"><main class="main" style="grid-column:1/-1"><div class="bar"><div><h2>生成设备</h2><p>按创作阶段绑定</p></div><button class="btn primary">校准</button></div><div class="model-grid"><div class="model"><h4>剧本引擎</h4><p>剧情、对白、节奏</p><span class="status ok">在线</span></div><div class="model"><h4>首帧棚</h4><p>角色和场景</p><span class="status ok">在线</span></div><div class="model"><h4>Wan2.2</h4><p>连续单镜</p><span class="status ok">默认</span></div><div class="model"><h4>合成器</h4><p>字幕和配音</p><span class="status ok">在线</span></div></div></main></div></div></div>
+      </section>
+    </main>
+
+    <main id="pipeline" class="view pipeline">
+      <section class="hero">
+        <div class="hero-ui">
+          <div class="hero-head"><div class="hero-title"><h1>C. 流水线驾驶舱</h1><p>面向模型、任务、日志、成本和工作流调度。</p></div><div class="tag-row"><span class="tag">Pipeline</span><span class="tag">Models</span><span class="tag">Logs</span></div></div>
+          <div class="cockpit-grid"><aside class="glass"><div class="glass-head"><b>Workflow</b><span>Running</span></div><div class="glass-body"><div class="row-list"><div class="row"><strong>script</strong>complete</div><div class="row"><strong>first-frame</strong>18 / 24</div><div class="row"><strong>i2v</strong>9 / 24</div><div class="row"><strong>compose</strong>queued</div></div></div></aside><section class="glass preview-stack"><div class="phone"><div class="caption"><span>shot.08</span><span>build</span></div></div><div class="chip-row"><span class="chip ok">online</span><span class="chip warn">queued</span><span class="chip">9:16</span></div></section><aside class="glass"><div class="glass-head"><b>Diagnostics</b><span>AI</span></div><div class="glass-body"><div class="metrics"><div class="metric"><span>GPU</span><b>82%</b></div><div class="metric"><span>Queue</span><b>13</b></div><div class="metric"><span>Error</span><b>2</b></div><div class="metric"><span>Cost</span><b>¥86</b></div></div></div></aside></div>
+          <div class="timeline"><div class="shot"><span>txt</span></div><div class="shot"><span>sb</span></div><div class="shot"><span>ref</span></div><div class="shot"><span>i2v</span></div><div class="shot"><span>tts</span></div><div class="shot"><span>mix</span></div><div class="shot"><span>qc</span></div><div class="shot"><span>out</span></div></div>
+        </div>
+      </section>
+      <section class="kit">
+        <div class="kit-card"><h3>Logo</h3><div class="logo-lockup"><div class="mark"><img src="../../frontend/public/favicon.svg" alt=""></div><img class="wordmark" src="../../frontend/public/logo.svg" alt=""></div></div>
+        <div class="kit-card"><h3>Color</h3><div class="swatches"><div class="swatch" style="background:#03060b"></div><div class="swatch" style="background:#8f6bff"></div><div class="swatch" style="background:#32e6d2"></div><div class="swatch" style="background:#ff6f86"></div></div></div>
+        <div class="kit-card"><h3>Controls</h3><div class="chip-row"><button class="btn primary">Run</button><button class="btn">Inspect</button><button class="btn violet">Deploy</button></div></div>
+        <div class="kit-card"><h3>Status</h3><div class="chip-row"><span class="status ok">online</span><span class="status warn">queued</span><span class="status bad">failed</span></div></div>
+      </section>
+      <section class="screens">
+        <div class="screen"><div class="screen-label"><b>登录</b><span>Console</span></div><div class="screen-body login"><div class="login-copy"><div class="logo-lockup"><div class="mark"><img src="../../frontend/public/favicon.svg" alt=""></div><img class="wordmark" src="../../frontend/public/logo.svg" alt=""></div><h2>Pipeline Console</h2><p>workflow、provider、queue、log。</p></div><div class="login-card"><span class="muted">Workspace</span><h3>登录</h3><div class="field">workspace</div><div class="field">password</div><div class="field">code</div><button class="btn primary" style="width:100%">Enter</button></div></div></div>
+        <div class="screen"><div class="screen-label"><b>首页</b><span>Build queue</span></div><div class="screen-body"><div class="app"><nav class="rail"><div class="mark"><img src="../../frontend/public/favicon.svg" alt=""></div><div class="rail-btn on">WF</div><div class="rail-btn">AI</div><div class="rail-btn">DB</div><div class="rail-btn">Log</div></nav><main class="main"><div class="bar"><div><h2>Build Queue</h2><p>inverse-light / episode01</p></div><button class="btn primary">Run</button></div><div class="metrics"><div class="metric"><span>script</span><b>ok</b></div><div class="metric"><span>frame</span><b>18</b></div><div class="metric"><span>i2v</span><b>9</b></div><div class="metric"><span>queue</span><b>13</b></div></div></main></div></div></div>
+        <div class="screen"><div class="screen-label"><b>项目</b><span>Repository</span></div><div class="screen-body"><div class="app"><nav class="rail"><div class="mark"><img src="../../frontend/public/favicon.svg" alt=""></div><div class="rail-btn on">PR</div><div class="rail-btn">WF</div><div class="rail-btn">AI</div><div class="rail-btn">Cfg</div></nav><main class="main"><div class="bar"><div><h2>Projects</h2><p>active workflows</p></div><button class="btn primary">New</button></div><table class="table"><thead><tr><th>id</th><th>stage</th><th>queue</th><th>status</th></tr></thead><tbody><tr><td>inverse-light</td><td>i2v</td><td>13</td><td><span class="status warn">queued</span></td></tr><tr><td>changan-rain</td><td>script</td><td>2</td><td><span class="status ok">ok</span></td></tr><tr><td>ceo-secret</td><td>compose</td><td>0</td><td><span class="status ok">ready</span></td></tr></tbody></table></main></div></div></div>
+        <div class="screen wide"><div class="screen-label"><b>生产</b><span>Workflow</span></div><div class="screen-body"><div class="cockpit-grid"><aside class="glass"><div class="glass-head"><b>Nodes</b><span>6</span></div><div class="glass-body"><div class="row-list"><div class="row"><strong>text.ai</strong>complete</div><div class="row"><strong>frame.ai</strong>running</div><div class="row"><strong>wan2.2</strong>queued</div><div class="row"><strong>compose</strong>waiting</div></div></div></aside><section class="glass preview-stack"><div class="phone"><div class="caption"><span>preview</span><span>9:16</span></div></div><div class="chip-row"><span class="chip ok">identity 94%</span><span class="chip warn">outfit 88%</span></div></section><aside class="glass"><div class="glass-head"><b>Logs</b><span>tail</span></div><div class="glass-body"><div class="row-list"><div class="row"><strong>ratio</strong>9:16 locked</div><div class="row"><strong>motion</strong>slow push</div><div class="row"><strong>negative</strong>cuts, drift, morph</div></div><button class="btn primary" style="width:100%;margin-top:12px">Run i2v</button></div></aside></div></div></div>
+        <div class="screen"><div class="screen-label"><b>素材</b><span>Registry</span></div><div class="screen-body"><div class="app"><main class="main" style="grid-column:1/-1"><div class="bar"><div><h2>Asset Registry</h2><p>subjects and references</p></div><button class="btn primary">Add</button></div><div class="asset-grid"><div class="asset"><div class="asset-thumb"></div><h4>actor.linwan</h4><p>identity lock</p><span class="status ok">valid</span></div><div class="asset"><div class="asset-thumb"></div><h4>actor.gucheng</h4><p>voice missing</p><span class="status warn">patch</span></div><div class="asset"><div class="asset-thumb"></div><h4>scene.wedding</h4><p>light fixed</p><span class="status ok">valid</span></div><div class="asset"><div class="asset-thumb"></div><h4>costume.dress</h4><p>reference</p><span class="status ok">valid</span></div></div></main></div></div></div>
+        <div class="screen"><div class="screen-label"><b>配置</b><span>Providers</span></div><div class="screen-body"><div class="app"><main class="main" style="grid-column:1/-1"><div class="bar"><div><h2>Providers</h2><p>text, frame, video, audio</p></div><button class="btn primary">Test</button></div><div class="model-grid"><div class="model"><h4>text.ai</h4><p>script prompts</p><span class="status ok">online</span></div><div class="model"><h4>frame.ai</h4><p>first frame</p><span class="status ok">online</span></div><div class="model"><h4>wan2.2</h4><p>i2v publish</p><span class="status ok">default</span></div><div class="model"><h4>compose</h4><p>ffmpeg</p><span class="status ok">online</span></div></div></main></div></div></div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll(".tabs button");
+    const views = document.querySelectorAll(".view");
+    function activate(view, syncUrl = true) {
+      const target = document.getElementById(view) ? view : "executive";
+      tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.view === target));
+      views.forEach((item) => item.classList.toggle("active", item.id === target));
+      if (syncUrl) {
+        const url = new URL(location.href);
+        url.searchParams.set("view", target);
+        history.replaceState(null, "", url);
+      }
+      window.scrollTo({ top: 0, behavior: "auto" });
+    }
+    tabs.forEach((tab) => tab.addEventListener("click", () => activate(tab.dataset.view)));
+    activate(new URLSearchParams(location.search).get("view") || location.hash.slice(1), false);
+  </script>
+</body>
+</html>
