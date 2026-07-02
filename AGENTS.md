@@ -127,3 +127,14 @@ Use these tools instead of reading files directly to save tokens:
 2. Use `semantic_search` to find relevant code before reading files
 3. Use `smart_read filepath` to see a file's outline before fetching specific sections
 4. Re-index after large changes: `ccto index --incremental`
+
+## Cursor Cloud specific instructions
+
+Toolchain present in the VM snapshot: Java 21 (compiles the project's Java 17 target fine), Maven 3.8.7, Node 22, MySQL 8.0, and ffmpeg 6.1. Redis is not needed at runtime. The startup update script only runs `npm install` in `frontend/`; everything below must be started/verified manually each session.
+
+- **`casr-engine` dependency (critical):** The backend depends on `com.twooxygen.casr:casr-engine:0.1.0-SNAPSHOT`, which is NOT on Maven Central. It is prebuilt into the local Maven repo (`~/.m2`) from `https://github.com/TwoOxygenH2O/casr-core`. If a backend build fails with "Could not find artifact com.twooxygen.casr:casr-engine", rebuild it: `git clone https://github.com/TwoOxygenH2O/casr-core /tmp/casr-core && cd /tmp/casr-core && mvn clean install -DskipTests`.
+- **MySQL:** start with `sudo service mysql start` (not auto-started on boot). The `root` user has an empty password with `mysql_native_password` auth and is reachable over TCP at `127.0.0.1:3306`, matching the app defaults (`DB_USER=root`, empty `DB_PASSWORD`). The `niren_drama` DB is already seeded from `backend/src/main/resources/db/init.sql`; to reseed run `mysql -u root -h 127.0.0.1 < backend/src/main/resources/db/init.sql`. `SchemaMigrationRunner` adds newer tables/columns on startup.
+- **Run backend:** `cd backend && mvn spring-boot:run` → `http://localhost:8080` (context path `/api`, Swagger at `/api/doc.html`). Boots and does CRUD without any AI keys; AI keys are only needed to exercise generation. TTS has a mock fallback.
+- **Run frontend:** `cd frontend && npm run dev` → `http://localhost:5173`, proxying `/api` to the backend.
+- **Known pre-existing test failure:** `mvn test` runs 29 tests; `CasrPolicySearchServiceTest.planPrioritizesWanRepairForBlockingContinuityFailures` fails on a reward-threshold assertion (unrelated to environment setup). The other 28 pass.
+- **Auth note:** the login page captcha works, but the registration form may not render its captcha field; you can register directly via `POST /api/auth/register` with `{username, password, email}`.

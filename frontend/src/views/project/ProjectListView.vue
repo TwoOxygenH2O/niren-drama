@@ -52,7 +52,7 @@
             </div>
             <el-popconfirm title="确认删除该项目？" @confirm.stop="handleDelete(row.id)">
               <template #reference>
-                <button type="button" class="proj-card-del" title="删除" @click.stop>···</button>
+                <button type="button" class="proj-card-del" title="删除" aria-label="删除项目" @click.stop>···</button>
               </template>
             </el-popconfirm>
           </div>

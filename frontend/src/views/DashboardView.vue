@@ -115,7 +115,23 @@
             <span v-if="metric.total">/ {{ metric.total }}</span>
           </div>
           <p>{{ metric.description }}</p>
-          <div class="metric-track"><span :style="{ width: `${metric.progress}%` }" /></div>
+          <div class="metric-viz">
+            <div class="metric-track"><span :style="{ width: `${metric.progress}%` }" /></div>
+            <div
+              v-if="sparks[metric.id]"
+              class="metric-spark"
+              :class="sparks[metric.id].trend < 0 ? 'is-down' : 'is-up'"
+            >
+              <svg viewBox="0 0 116 34" preserveAspectRatio="none" aria-hidden="true">
+                <path class="spark-area" :d="sparks[metric.id].area" />
+                <path class="spark-line" :d="sparks[metric.id].line" />
+                <circle class="spark-dot" :cx="sparks[metric.id].lastX" :cy="sparks[metric.id].lastY" r="2.2" />
+              </svg>
+            </div>
+            <div v-else class="metric-spark metric-spark--empty" aria-hidden="true">
+              <span>趋势累积中</span>
+            </div>
+          </div>
           <footer><span>{{ metric.footerLabel }}</span><b>{{ metric.footerValue }}</b></footer>
         </article>
         <article v-if="!dashboardLoading && metricCards.length === 0" class="metric-card metric-card--empty">
@@ -201,6 +217,72 @@ const videoModelLabel = computed(() => {
 })
 
 const metricCards = computed<DashboardMetric[]>(() => dashboardOverview.value?.metrics || [])
+
+/* 指标趋势迷你图：记录每次真实加载时观测到的数值，形成本地滚动历史，
+   据此画 sparkline；数据是真实累积的，不做任何虚构。 */
+const METRIC_HISTORY_KEY = 'niren.dashboard.metricHistory'
+const SPARK_W = 116
+const SPARK_H = 34
+const metricHistory = ref<Record<string, number[]>>({})
+
+function loadMetricHistory() {
+  try {
+    const raw = localStorage.getItem(METRIC_HISTORY_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    metricHistory.value = parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    metricHistory.value = {}
+  }
+}
+
+function numericValue(value: string): number {
+  const cleaned = String(value ?? '').replace(/[^0-9.]/g, '')
+  const parsed = parseFloat(cleaned)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function recordMetricHistory(metrics: DashboardMetric[]) {
+  const next: Record<string, number[]> = { ...metricHistory.value }
+  for (const metric of metrics) {
+    const series = Array.isArray(next[metric.id]) ? next[metric.id].slice() : []
+    series.push(numericValue(metric.value))
+    if (series.length > 16) series.splice(0, series.length - 16)
+    next[metric.id] = series
+  }
+  metricHistory.value = next
+  try {
+    localStorage.setItem(METRIC_HISTORY_KEY, JSON.stringify(next))
+  } catch {
+    /* ignore */
+  }
+}
+
+const sparks = computed(() => {
+  const map: Record<string, { line: string; area: string; lastX: number; lastY: number; trend: number }> = {}
+  for (const [id, points] of Object.entries(metricHistory.value)) {
+    if (!Array.isArray(points) || points.length < 2) continue
+    const max = Math.max(...points)
+    const min = Math.min(...points)
+    const span = max - min || 1
+    const stepX = SPARK_W / (points.length - 1)
+    const coords = points.map((v, i) => {
+      const x = i * stepX
+      const y = SPARK_H - 4 - ((v - min) / span) * (SPARK_H - 8)
+      return [x, y] as [number, number]
+    })
+    const line = coords.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ')
+    const area = `${line} L${SPARK_W} ${SPARK_H} L0 ${SPARK_H} Z`
+    const last = coords[coords.length - 1]
+    map[id] = {
+      line,
+      area,
+      lastX: last[0],
+      lastY: last[1],
+      trend: points[points.length - 1] - points[0],
+    }
+  }
+  return map
+})
 const recentRows = computed<DashboardRecentRow[]>(() => dashboardOverview.value?.recentRows || [])
 const dashboardBadge = computed(() => {
   const production = dashboardOverview.value?.productionSummary || {}
@@ -225,6 +307,7 @@ async function loadDefaultVideoModel() {
 }
 
 onMounted(() => {
+  loadMetricHistory()
   loadDefaultVideoModel()
   loadDashboardOverview()
   try {
@@ -253,6 +336,9 @@ async function loadDashboardOverview() {
   try {
     const res = await dashboardApi.getOverview()
     dashboardOverview.value = res.data?.data || null
+    if (dashboardOverview.value?.metrics?.length) {
+      recordMetricHistory(dashboardOverview.value.metrics)
+    }
   } catch {
     dashboardOverview.value = null
     ElMessage.warning('工作台真实数据加载失败')
@@ -504,8 +590,9 @@ function goToRecentTarget() {
   height: 22px;
   appearance: none;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--primary), var(--secondary));
+  background: var(--primary);
   position: relative;
+  cursor: pointer;
 }
 
 .auto-enhance input::after {
@@ -579,11 +666,17 @@ function goToRecentTarget() {
   min-width: 190px;
   border: 0;
   border-radius: 8px;
-  background: linear-gradient(100deg, #f7fbff, var(--primary), var(--secondary));
-  color: #03101d;
+  background: var(--primary);
+  color: #fff;
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 700;
   box-shadow: var(--shadow-primary);
+  transition: background 0.18s, transform 0.18s;
+}
+
+.generate-btn:hover {
+  background: var(--primary-dark);
+  transform: translateY(-1px);
 }
 
 .creation-controls {
@@ -687,9 +780,66 @@ function goToRecentTarget() {
   color: #aab5c8;
 }
 
+.metric-viz {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.metric-viz .metric-track {
+  flex: 1;
+  margin: 0;
+}
+
+.metric-spark {
+  flex-shrink: 0;
+  width: 116px;
+  height: 34px;
+  color: var(--primary);
+}
+
+.metric-spark.is-down {
+  color: var(--color-warning);
+}
+
+.metric-spark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.spark-area {
+  fill: currentColor;
+  opacity: 0.12;
+  stroke: none;
+}
+
+.spark-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark-dot {
+  fill: currentColor;
+}
+
+.metric-spark--empty {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
 .metric-track {
   height: 7px;
-  margin: 18px 0;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   overflow: hidden;

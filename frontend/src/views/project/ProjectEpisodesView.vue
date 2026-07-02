@@ -9,6 +9,13 @@
 
     <div v-if="project" class="ep-hero">
       <h1 class="ep-title">{{ project.name || '未命名项目' }}</h1>
+      <div class="ep-summary">
+        <span class="ep-summary-item"><b>{{ episodeSlots.length }}</b> 集</span>
+        <span class="ep-summary-dot" aria-hidden="true">·</span>
+        <span class="ep-summary-item">剧本就绪 <b>{{ scriptedCount }}</b> / {{ episodeSlots.length }}</span>
+        <span class="ep-summary-dot" aria-hidden="true">·</span>
+        <span class="ep-summary-item">单集 {{ durationLabel }}</span>
+      </div>
     </div>
 
     <div v-loading="loading" class="ep-grid-wrap">
@@ -20,9 +27,11 @@
           class="ep-card"
           @click="openEpisode(ep.no)"
         >
-          <div class="ep-card-visual" aria-hidden="true">
-            <span class="ep-doc-bg" />
-            <span class="ep-doc-ico">第{{ ep.no }}集</span>
+          <div class="ep-card-visual">
+            <span class="ep-doc-bg" aria-hidden="true" />
+            <span class="ep-doc-no" aria-hidden="true">{{ String(ep.no).padStart(2, '0') }}</span>
+            <span class="ep-doc-ico" aria-hidden="true">第{{ ep.no }}集</span>
+            <span :class="`ep-status ep-status--${ep.status}`">{{ ep.statusText }}</span>
           </div>
           <div class="ep-card-meta">
             <span class="ep-doc-pin" aria-hidden="true">
@@ -33,7 +42,10 @@
             </span>
             <div class="ep-card-text">
               <span class="ep-card-name">{{ ep.label }}</span>
-              <span class="ep-card-time">{{ ep.time }}</span>
+              <span class="ep-card-foot">
+                <span class="ep-card-time">{{ ep.time }}</span>
+                <span class="ep-card-dur">{{ ep.duration }}</span>
+              </span>
             </div>
           </div>
         </button>
@@ -57,9 +69,23 @@ const project = ref<any>(null)
 const scripts = ref<any[]>([])
 const loading = ref(false)
 
+type EpisodeStatus = 'scripted' | 'outlined' | 'empty'
+
+const durationLabel = computed(() => {
+  const d = Number(project.value?.episodeDuration)
+  return Number.isFinite(d) && d > 0 ? `${d} 秒` : '—'
+})
+
 const episodeSlots = computed(() => {
   const n = typeof project.value?.episodes === 'number' && project.value.episodes > 0 ? project.value.episodes : 1
-  const list: { no: number; label: string; time: string }[] = []
+  const list: {
+    no: number
+    label: string
+    time: string
+    status: EpisodeStatus
+    statusText: string
+    duration: string
+  }[] = []
   for (let i = 1; i <= n; i++) {
     const sc = scripts.value.find((s) => Number(s.episodeNo) === i)
     const title = (sc?.title as string | undefined)?.trim()
@@ -67,7 +93,7 @@ const episodeSlots = computed(() => {
       ? `第${i}集：${title.replace(/^第\d+集[：:]\s*/i, '')}`
       : `第${i}集`
     const raw = sc?.updateTime ?? sc?.createTime
-    let time = '—'
+    let time = '尚未创作'
     if (raw) {
       const d = new Date(String(raw))
       if (!Number.isNaN(d.getTime())) {
@@ -79,10 +105,23 @@ const episodeSlots = computed(() => {
         time = `${y}/${m}/${day} ${hh}:${mm}`
       }
     }
-    list.push({ no: i, label, time })
+    const hasContent = typeof sc?.content === 'string' ? sc.content.trim().length > 0 : Boolean(sc?.content)
+    const hasSummary = typeof sc?.summary === 'string' ? sc.summary.trim().length > 0 : false
+    let status: EpisodeStatus = 'empty'
+    let statusText = '待创作'
+    if (hasContent) {
+      status = 'scripted'
+      statusText = '剧本就绪'
+    } else if (hasSummary) {
+      status = 'outlined'
+      statusText = '大纲已备'
+    }
+    list.push({ no: i, label, time, status, statusText, duration: durationLabel.value })
   }
   return list
 })
+
+const scriptedCount = computed(() => episodeSlots.value.filter((e) => e.status === 'scripted').length)
 
 function openEpisode(episodeNo: number) {
   router.push({
@@ -155,6 +194,21 @@ onMounted(async () => {
   letter-spacing: -0.02em;
   color: var(--text-primary);
 }
+.ep-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.ep-summary-item b {
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+.ep-summary-dot {
+  color: var(--border-strong);
+}
 
 .ep-grid-wrap {
   flex: 1;
@@ -199,8 +253,19 @@ onMounted(async () => {
 .ep-doc-bg {
   position: absolute;
   inset: 0;
-  opacity: 0.35;
-  background: radial-gradient(circle at 30% 30%, var(--primary-glow), transparent 55%);
+  opacity: 0.5;
+  background: radial-gradient(circle at 30% 26%, var(--primary-glow), transparent 60%);
+}
+
+.ep-doc-no {
+  position: absolute;
+  left: 16px;
+  bottom: 12px;
+  font-size: 46px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: rgba(255, 255, 255, 0.14);
 }
 
 .ep-doc-ico {
@@ -213,6 +278,20 @@ onMounted(async () => {
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid var(--border);
 }
+
+.ep-status {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+.ep-status--scripted { background: var(--success-soft); color: var(--color-success); border-color: var(--success-soft); }
+.ep-status--outlined { background: var(--warning-soft); color: var(--color-warning); border-color: var(--warning-soft); }
+.ep-status--empty    { background: var(--muted-soft);   color: var(--text-secondary); border-color: var(--border); }
 
 .ep-card-meta {
   display: flex;
@@ -245,8 +324,24 @@ onMounted(async () => {
   overflow: hidden;
 }
 
+.ep-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .ep-card-time {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.ep-card-dur {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
 }
 </style>
