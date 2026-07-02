@@ -4,6 +4,7 @@
       <span class="page-title">剧本生成</span>
     </div>
 
+    <div class="script-top">
     <el-card class="gen-card">
       <template #header><b>智能生成剧本</b></template>
       <el-form :model="genForm" label-width="100px">
@@ -74,6 +75,30 @@
         title="项目已存在分集大纲和项目通用信息，可直接生成剧本。"
       />
     </el-card>
+
+      <aside class="script-aside">
+        <div class="aside-block">
+          <span class="aside-title">项目规格</span>
+          <dl class="aside-spec">
+            <div><dt>类型</dt><dd>{{ projectTypeLabel }}</dd></div>
+            <div><dt>题材</dt><dd>{{ projectGenreLabel }}</dd></div>
+            <div><dt>集数</dt><dd>{{ projectInfo?.episodes || '—' }} 集</dd></div>
+            <div><dt>单集时长</dt><dd>{{ projectInfo?.episodeDuration || '—' }} 秒</dd></div>
+          </dl>
+        </div>
+        <div class="aside-block">
+          <span class="aside-title">创作进度</span>
+          <div class="aside-step" :class="{ done: hasGeneratedOutline }">
+            <span class="aside-step-ico" aria-hidden="true">{{ hasGeneratedOutline ? '✓' : '1' }}</span>
+            <div><b>分集大纲 · 人物小传</b><em>{{ hasGeneratedOutline ? '已就绪' : '待生成' }}</em></div>
+          </div>
+          <div class="aside-step" :class="{ done: hasGeneratedScript }">
+            <span class="aside-step-ico" aria-hidden="true">{{ hasGeneratedScript ? '✓' : '2' }}</span>
+            <div><b>剧本正文</b><em>{{ readyScriptCount }} / {{ totalEpisodeLabel }} 集就绪</em></div>
+          </div>
+        </div>
+      </aside>
+    </div>
 
     <el-card v-if="projectInfo?.commonInfo" class="common-card">
       <template #header><b>项目通用信息</b></template>
@@ -315,6 +340,11 @@ const hasGeneratedScript = computed(() => scripts.value.some((script) => {
   const content = script?.content
   return typeof content === 'string' ? content.trim().length > 0 : Boolean(content)
 }))
+const readyScriptCount = computed(() => scripts.value.filter((script) => {
+  const content = script?.content
+  return typeof content === 'string' ? content.trim().length > 0 : Boolean(content)
+}).length)
+const totalEpisodeLabel = computed(() => projectInfo.value?.episodes || scripts.value.length || '—')
 const canGenerateOutline = computed(() => Boolean(outlineSeed.value) && !outlinePreview.value.generating && !outlinePreview.value.saving)
 const canGenerateScript = computed(() => hasEpisodeSelection.value && hasGeneratedOutline.value && !scriptPreview.value.generating && !scriptPreview.value.saving)
 const projectTypeLabel = computed(() => formatProjectTypeLabel(projectInfo.value?.projectType))
@@ -690,7 +720,109 @@ onMounted(async () => {
 .page-header { margin-bottom: 20px; }
 .page-title { font-size: 20px; font-weight: 600; }
 
-.gen-card { margin-bottom: 20px; }
+.script-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 20px;
+  margin-bottom: 20px;
+  align-items: start;
+}
+
+.gen-card { margin-bottom: 0; }
+
+.script-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.aside-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  padding: 18px;
+}
+
+.aside-title {
+  display: block;
+  margin-bottom: 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.aside-spec {
+  display: grid;
+  gap: 12px;
+}
+
+.aside-spec div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aside-spec dt {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.aside-spec dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 13px;
+  text-align: right;
+}
+
+.aside-step {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0;
+}
+
+.aside-step + .aside-step {
+  border-top: 1px solid var(--border);
+}
+
+.aside-step-ico {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.aside-step.done .aside-step-ico {
+  background: var(--success-soft);
+  border-color: var(--success-soft);
+  color: var(--color-success);
+}
+
+.aside-step b {
+  display: block;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.aside-step em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 900px) {
+  .script-top {
+    grid-template-columns: 1fr;
+  }
+}
 
 .action-row {
   display: flex;
