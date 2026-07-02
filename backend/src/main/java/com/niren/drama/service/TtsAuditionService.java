@@ -21,6 +21,7 @@ import com.niren.drama.service.storage.StoredAsset;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -44,6 +45,15 @@ public class TtsAuditionService {
     private final ObjectProvider<TtsAuditionService> selfProvider;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Value("${niren.ai.tts.audition.candidate-count:3}")
+    private int defaultCandidateCount = 3;
+
+    @Value("${niren.ai.tts.audition.max-roles:4}")
+    private int maxRoles = 4;
+
+    @Value("${niren.ai.tts.audition.max-text-chars:80}")
+    private int maxTextChars = 80;
 
     public TaskRecord startAudition(Long userId, Long projectId, TtsAuditionRequest request) {
         projectService.getProject(userId, projectId);
@@ -167,12 +177,15 @@ public class TtsAuditionService {
             String key = character.getId() != null ? String.valueOf(character.getId()) : character.getName();
             roles.add(new RoleSlot(key, character.getId(), character.getName(), character.getGender(), character.getTtsNote()));
         }
+        if (maxRoles > 0 && roles.size() > maxRoles) {
+            return roles.subList(0, maxRoles);
+        }
         return roles;
     }
 
     private int resolveCandidateCount(TtsAuditionRequest request) {
-        Integer requested = request.getCandidateCount();
-        return requested != null && requested > 0 ? requested : 3;
+        int requested = request.getCandidateCount() != null ? request.getCandidateCount() : defaultCandidateCount;
+        return Math.max(1, Math.min(3, requested));
     }
 
     private TtsAuditionGenerationRequest buildGenerationRequest(RoleSlot role,
@@ -180,7 +193,7 @@ public class TtsAuditionService {
                                                                 int candidateNo,
                                                                 Project project) {
         TtsAuditionRoleOverride override = resolveOverride(role, request);
-        String text = hasText(request.getSampleText()) ? request.getSampleText().trim() : defaultSampleText(role, project);
+        String text = truncate(hasText(request.getSampleText()) ? request.getSampleText().trim() : defaultSampleText(role, project));
         String filenamePrefix = "tts_audition_" + project.getId() + "_" + role.roleKey() + "_" + candidateNo;
         return new TtsAuditionGenerationRequest(
                 role.roleName(),
@@ -232,6 +245,13 @@ public class TtsAuditionService {
             return "这件事到此为止，别再追问了。";
         }
         return "这一刻，所有秘密都浮出了水面。";
+    }
+
+    private String truncate(String value) {
+        if (!hasText(value) || maxTextChars <= 0 || value.length() <= maxTextChars) {
+            return value;
+        }
+        return value.substring(0, maxTextChars);
     }
 
     private void finishTask(TaskRecord task, Long projectId, ArrayNode roleResults, int generated, int failed) {

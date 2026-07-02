@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
@@ -27,6 +28,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -93,6 +95,31 @@ class TtsAuditionServiceTest {
         assertThat(finalUpdate.getMessage()).contains("成功1条", "失败1条");
         assertThat(finalUpdate.getResult()).contains("http://files/audition-1.wav", "ComfyUI 节点失败");
         verify(storyboardMapper, never()).updateById(any());
+    }
+
+    @Test
+    void clampsRequestedCandidateCountToThree() throws Exception {
+        ReflectionTestUtils.setField(service, "defaultCandidateCount", 3);
+        ReflectionTestUtils.setField(service, "maxRoles", 4);
+        ReflectionTestUtils.setField(service, "maxTextChars", 80);
+        Character daughter = character(1L, "女儿", "female");
+        when(characterMapper.selectList(any())).thenReturn(List.of(daughter));
+        byte[] wav = new MockTtsProvider().synthesize("试听", "narrator", 1.0f, 1.0f);
+        TtsAuditionAudioGenerator generator = mock(TtsAuditionAudioGenerator.class);
+        when(providerFactory.create(7L)).thenReturn(generator);
+        when(generator.generate(any()))
+                .thenReturn(new TtsAuditionGenerationResult(wav, "prompt-1", "http://comfy/view?filename=1.wav", "inline", 1.2d));
+        when(storageService.storeBytes(eq(wav), eq("audios/audition/9/101"), any(), eq("audio/wav"), eq("wav")))
+                .thenReturn(new StoredAsset("http://files/audition.wav", "local", "audition.wav", wav.length, "audio/wav", "audition.wav"));
+
+        TtsAuditionRequest request = new TtsAuditionRequest();
+        request.setCharacterIds(List.of(1L));
+        request.setIncludeNarrator(false);
+        request.setCandidateCount(20);
+        TaskRecord task = service.startAudition(7L, 9L, request);
+        service.generateAuditionAsync(7L, 9L, task.getId(), request);
+
+        verify(generator, times(3)).generate(any());
     }
 
     private Project project() {

@@ -89,6 +89,13 @@ niren:
       api-key: ${AI_TTS_API_KEY:}
       model: ${AI_TTS_MODEL:qwen3-tts-instruct-flash}
       voice: ${AI_TTS_VOICE:Cherry}
+      workflow-file: ${AI_TTS_WORKFLOW_FILE:tts_indextts2_audition.json}
+      audition:
+        candidate-count: ${AI_TTS_AUDITION_CANDIDATE_COUNT:3}
+        max-roles: ${AI_TTS_AUDITION_MAX_ROLES:4}
+        max-text-chars: ${AI_TTS_AUDITION_MAX_TEXT_CHARS:80}
+        poll-interval-ms: ${AI_TTS_AUDITION_POLL_INTERVAL_MS:2000}
+        max-poll-attempts: ${AI_TTS_AUDITION_MAX_POLL_ATTEMPTS:900}
   cost:
     image-reuse-enabled: ${COST_IMAGE_REUSE:true}
     quality-tier: ${COST_QUALITY_TIER:standard}
