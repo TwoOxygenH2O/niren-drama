@@ -13,7 +13,7 @@ import java.util.Map;
 public class TaskRecord extends BaseEntity {
     private Long projectId;
     private Long userId;
-    /** SCRIPT_GEN | STORYBOARD_GEN | IMAGE_GEN | VIDEO_GEN | AUDIO_GEN | VIDEO_COMPOSE | CHARACTER_GEN */
+    /** SCRIPT_GEN | STORYBOARD_GEN | IMAGE_GEN | VIDEO_GEN | AUDIO_GEN | VIDEO_COMPOSE | CHARACTER_GEN | TTS_AUDITION */
     private String taskType;
     /** PENDING | RUNNING | SUCCESS | FAILED */
     private String status;
