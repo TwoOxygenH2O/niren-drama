@@ -42,7 +42,7 @@
         <div class="asset-grid" v-if="assets.length">
           <article v-for="asset in assets" :key="asset.id" class="asset-card">
             <div class="asset-preview">
-              <img v-if="asset.type === 'image'" :src="asset.url" :alt="asset.name" />
+              <img v-if="asset.type === 'image'" :src="asset.url" :alt="asset.name" loading="lazy" decoding="async" />
               <video v-else-if="asset.type === 'video'" :src="asset.url" controls />
               <div v-else class="asset-placeholder">
                 <el-icon size="32"><Document /></el-icon>

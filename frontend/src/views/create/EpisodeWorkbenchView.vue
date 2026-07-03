@@ -135,7 +135,13 @@
               >
                 <div class="shot-thumb">
                   <video v-if="shot.videoUrl" :src="shot.videoUrl" muted preload="metadata" />
-                  <img v-else-if="shot.imageUrl" :src="shot.imageUrl" alt="" />
+                  <img
+                    v-else-if="shot.imageUrl"
+                    :src="shot.imageUrl"
+                    :alt="`镜头 ${shot.shotNo || '-'} 首帧缩略图`"
+                    loading="lazy"
+                    decoding="async"
+                  />
                   <span v-else>待首帧</span>
                 </div>
                 <div class="shot-meta">
@@ -377,13 +383,25 @@
           <div class="compare-grid">
             <div class="compare-cell">
               <span>首帧</span>
-              <img v-if="selectedShot.imageUrl" :src="selectedShot.imageUrl" alt="" />
+              <img
+                v-if="selectedShot.imageUrl"
+                :src="selectedShot.imageUrl"
+                :alt="`镜头 ${selectedShot.shotNo || '-'} 首帧`"
+                loading="lazy"
+                decoding="async"
+              />
               <b v-else>待生成</b>
             </div>
             <div class="compare-cell">
               <span>视频</span>
               <video v-if="selectedShot.videoUrl" :src="selectedShot.videoUrl" controls playsinline />
-              <img v-else-if="selectedShot.imageUrl" :src="selectedShot.imageUrl" alt="" />
+              <img
+                v-else-if="selectedShot.imageUrl"
+                :src="selectedShot.imageUrl"
+                :alt="`镜头 ${selectedShot.shotNo || '-'} 视频替代首帧`"
+                loading="lazy"
+                decoding="async"
+              />
               <b v-else>待生成</b>
             </div>
             <div class="compare-cell">
@@ -670,6 +688,7 @@ function executePrimaryAction() {
   if (!action?.id) return
   if (action.id === 'qualityCheck') return runQualityCheck()
   if (action.id === 'export') return exportPackage()
+  if (action.id === 'runEpisodePipeline') return runRepair(action.id, [])
   if (action.type === 'route') return goStoryboard()
   if (action.id === 'retryVideo' || action.id === 'switchLtx' || action.id === 'switchWan' || action.id === 'switchHunyuan') return generateVideos()
   if (action.id === 'generateImages') return generateFirstFrames()

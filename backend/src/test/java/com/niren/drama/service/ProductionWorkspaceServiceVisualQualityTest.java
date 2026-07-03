@@ -3,7 +3,9 @@ package com.niren.drama.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.niren.drama.entity.ProductionIssue;
 import com.niren.drama.entity.Project;
+import com.niren.drama.entity.Script;
 import com.niren.drama.entity.Storyboard;
+import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.mapper.AssetSnapshotMapper;
 import com.niren.drama.mapper.CharacterMapper;
 import com.niren.drama.mapper.ConsistencyBibleMapper;
@@ -26,6 +28,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.ZipFile;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -312,5 +315,137 @@ class ProductionWorkspaceServiceVisualQualityTest {
         assertThat(issueCaptor.getValue().getIssueType()).isEqualTo("identity_drift");
         assertThat(issueCaptor.getValue().getSeverity()).isEqualTo("blocking");
         assertThat(issueCaptor.getValue().getMetadata()).contains("vlm", "identityConsistency");
+    }
+
+    @Test
+    void exportPackageCreatesZipWithManifestAndLocalAssets() throws Exception {
+        Path video = tempDir.resolve("videos").resolve("final.mp4");
+        Path frame = tempDir.resolve("generated-images").resolve("frame.png");
+        Path audio = tempDir.resolve("audios").resolve("voice.wav");
+        Files.createDirectories(video.getParent());
+        Files.createDirectories(frame.getParent());
+        Files.createDirectories(audio.getParent());
+        Files.write(video, new byte[]{0, 1, 2});
+        Files.write(frame, new byte[]{3, 4, 5});
+        Files.write(audio, new byte[]{6, 7, 8});
+
+        Project project = new Project();
+        project.setId(15L);
+        project.setUserId(7L);
+        project.setName("Exportable");
+        when(projectService.getProject(7L, 15L)).thenReturn(project);
+
+        Storyboard shot = new Storyboard();
+        shot.setId(151L);
+        shot.setProjectId(15L);
+        shot.setShotNo(1);
+        shot.setImageUrl("http://localhost:8080/api/files/generated-images/frame.png");
+        shot.setAudioUrl("http://localhost:8080/api/files/audios/voice.wav");
+        when(storyboardService.listByProject(15L)).thenReturn(List.of(shot));
+        when(productionIssueMapper.selectList(any())).thenReturn(List.of());
+
+        TaskRecord composeTask = new TaskRecord();
+        composeTask.setStatus("SUCCESS");
+        composeTask.setResult("{\"videoUrl\":\"http://localhost:8080/api/files/videos/final.mp4\"}");
+        when(videoCompositionService.getLatestVideoTask(15L)).thenReturn(composeTask);
+        when(videoCompositionService.extractVideoUrl(composeTask.getResult()))
+                .thenReturn("http://localhost:8080/api/files/videos/final.mp4");
+
+        ProductionWorkspaceService service = new ProductionWorkspaceService(
+                projectService,
+                storyboardService,
+                videoCompositionService,
+                aiConfigService,
+                storyboardMapper,
+                scriptMapper,
+                taskRecordMapper,
+                assetSnapshotMapper,
+                productionIssueMapper,
+                consistencyBibleMapper,
+                characterMapper,
+                sceneMapper,
+                new ObjectMapper(),
+                visualQualityAnalyzer,
+                visualReviewService
+        );
+        ReflectionTestUtils.setField(service, "uploadPath", tempDir.toString());
+        ReflectionTestUtils.setField(service, "uploadBaseUrl", "http://localhost:8080/api/files");
+
+        Map<String, Object> manifest = service.exportPackage(7L, 15L, Map.of("platformProfile", "douyin"));
+
+        assertThat(manifest.get("ready")).isEqualTo(true);
+        assertThat(manifest.get("packageUrl")).asString().contains("/exports/15/").endsWith(".zip");
+        Path packagePath = Path.of(String.valueOf(manifest.get("packagePath")));
+        assertThat(Files.exists(packagePath)).isTrue();
+        try (ZipFile zip = new ZipFile(packagePath.toFile())) {
+            assertThat(zip.getEntry("manifest.json")).isNotNull();
+            assertThat(zip.getEntry("video/final.mp4")).isNotNull();
+            assertThat(zip.getEntry("images/shot-1-frame.png")).isNotNull();
+            assertThat(zip.getEntry("audio/shot-1-voice.wav")).isNotNull();
+        }
+    }
+
+    @Test
+    void runEpisodePipelineStartsNextMissingFirstFrameTask() {
+        Project project = new Project();
+        project.setId(16L);
+        project.setUserId(7L);
+        project.setName("Pipeline");
+        when(projectService.getProject(7L, 16L)).thenReturn(project);
+
+        Script script = new Script();
+        script.setProjectId(16L);
+        script.setEpisodeNo(1);
+        script.setContent("第1集剧本");
+        when(scriptMapper.selectList(any())).thenReturn(List.of(script));
+
+        Storyboard missing = new Storyboard();
+        missing.setId(161L);
+        missing.setProjectId(16L);
+        missing.setShotNo(1);
+        Storyboard ready = new Storyboard();
+        ready.setId(162L);
+        ready.setProjectId(16L);
+        ready.setShotNo(2);
+        ready.setImageUrl("http://localhost:8080/api/files/generated-images/ready.png");
+        when(storyboardService.listByProject(16L)).thenReturn(List.of(missing, ready));
+
+        TaskRecord imageTask = new TaskRecord();
+        imageTask.setId(700L);
+        imageTask.setTaskType("IMAGE_GEN");
+        imageTask.setStatus("PENDING");
+        imageTask.setProgress(0);
+        when(storyboardService.startGenerateStoryboardImages(7L, 16L, List.of(161L))).thenReturn(imageTask);
+        when(taskRecordMapper.selectList(any())).thenReturn(List.of());
+        when(assetSnapshotMapper.selectList(any())).thenReturn(List.of());
+        when(productionIssueMapper.selectList(any())).thenReturn(List.of());
+        when(consistencyBibleMapper.selectList(any())).thenReturn(List.of());
+        when(videoCompositionService.getLatestVideoTask(16L)).thenReturn(null);
+
+        ProductionWorkspaceService service = new ProductionWorkspaceService(
+                projectService,
+                storyboardService,
+                videoCompositionService,
+                aiConfigService,
+                storyboardMapper,
+                scriptMapper,
+                taskRecordMapper,
+                assetSnapshotMapper,
+                productionIssueMapper,
+                consistencyBibleMapper,
+                characterMapper,
+                sceneMapper,
+                new ObjectMapper(),
+                visualQualityAnalyzer,
+                visualReviewService
+        );
+        ReflectionTestUtils.setField(service, "uploadPath", tempDir.toString());
+        ReflectionTestUtils.setField(service, "uploadBaseUrl", "http://localhost:8080/api/files");
+
+        Map<String, Object> result = service.repair(7L, 16L, Map.of("action", "runEpisodePipeline"));
+
+        assertThat(result.get("pipeline")).asString().contains("firstFrames");
+        assertThat(result).containsKey("task");
+        verify(storyboardService).startGenerateStoryboardImages(7L, 16L, List.of(161L));
     }
 }

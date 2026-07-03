@@ -93,7 +93,13 @@
       >
         <div class="shot-media">
           <video v-if="shot.videoUrl" :src="shot.videoUrl" controls preload="metadata" />
-          <img v-else-if="shot.imageUrl" :src="shot.imageUrl" alt="reference" />
+          <img
+            v-else-if="shot.imageUrl"
+            :src="shot.imageUrl"
+            :alt="`第${shot.shotNo || '-'}镜参考图`"
+            loading="lazy"
+            decoding="async"
+          />
           <div v-else class="shot-placeholder">
             <el-icon size="32" color="#a0aec0"><Picture /></el-icon>
             <div class="shot-no">镜头 {{ shot.shotNo }} 待生成视频</div>

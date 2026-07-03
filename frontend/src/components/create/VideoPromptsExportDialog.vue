@@ -29,7 +29,13 @@
           <div v-if="resolveImgUrl(s.imageUrl)" class="vp-ref-img-wrap">
             <span class="vp-label">参考图（分镜关键帧）</span>
             <div class="vp-ref-img-inner">
-              <img class="vp-ref-img" :src="resolveImgUrl(s.imageUrl)!" alt="" />
+              <img
+                class="vp-ref-img"
+                :src="resolveImgUrl(s.imageUrl)!"
+                :alt="`镜头 ${s.shotNo || '-'} 参考图`"
+                loading="lazy"
+                decoding="async"
+              />
             </div>
           </div>
 

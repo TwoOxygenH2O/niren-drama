@@ -48,6 +48,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 @Slf4j
 @Service
@@ -184,6 +186,7 @@ public class ProductionWorkspaceService {
             case "clearStaleTasks" -> result.put("updatedTasks", clearStaleDynamicTasks(projectId));
             case "composePreview", "composePublish" -> task = videoCompositionService.startCompose(userId, projectId, emptyToNull(shotIds), composeOptionsFor(action));
             case "snapshot" -> result.put("snapshots", createShotSnapshots(userId, projectId, shotIds));
+            case "runEpisodePipeline" -> task = runEpisodePipeline(userId, projectId, body, result);
             default -> throw new BusinessException("不支持的修复动作: " + action);
         }
 
@@ -193,6 +196,90 @@ public class ProductionWorkspaceService {
         }
         result.put("workspace", getWorkspace(userId, projectId));
         return result;
+    }
+
+    private TaskRecord runEpisodePipeline(Long userId, Long projectId, Map<String, Object> body, Map<String, Object> result) {
+        List<Script> scripts = listScripts(projectId);
+        List<Storyboard> shots = storyboardService.listByProject(projectId);
+        String mode = textOr(body.get("mode"), "preview");
+
+        if (scripts.stream().noneMatch(script -> hasText(script.getContent()))) {
+            result.put("pipeline", pipelineState("script", "needRoute", "请先完善剧本，再生成分镜。", 0));
+            return null;
+        }
+        if (shots.isEmpty()) {
+            result.put("pipeline", pipelineState("storyboard", "needRoute", "请先生成分镜。", 0));
+            return null;
+        }
+
+        List<Long> missingImageShotIds = shots.stream()
+                .filter(shot -> !hasText(shot.getImageUrl()))
+                .map(Storyboard::getId)
+                .filter(id -> id != null)
+                .toList();
+        if (!missingImageShotIds.isEmpty()) {
+            result.put("pipeline", pipelineState("firstFrames", "taskSubmitted", "正在补齐参考首帧。", missingImageShotIds.size()));
+            return storyboardService.startGenerateStoryboardImages(userId, projectId, missingImageShotIds);
+        }
+
+        List<Long> missingVideoShotIds = shots.stream()
+                .filter(this::needsPipelineVideo)
+                .filter(shot -> !hasText(shot.getVideoUrl()))
+                .map(Storyboard::getId)
+                .filter(id -> id != null)
+                .toList();
+        if (!missingVideoShotIds.isEmpty()) {
+            result.put("pipeline", pipelineState("videos", "taskSubmitted", "正在补齐分镜视频。", missingVideoShotIds.size()));
+            return videoCompositionService.startGenerateDynamicVideos(userId, projectId, missingVideoShotIds);
+        }
+
+        List<Long> missingAudioShotIds = shots.stream()
+                .filter(shot -> !hasText(shot.getAudioUrl()))
+                .map(Storyboard::getId)
+                .filter(id -> id != null)
+                .toList();
+        if (!missingAudioShotIds.isEmpty()) {
+            result.put("pipeline", pipelineState("audio", "taskSubmitted", "正在补齐配音。", missingAudioShotIds.size()));
+            return storyboardService.startGenerateStoryboardAudio(userId, projectId, missingAudioShotIds);
+        }
+
+        TaskRecord latestComposeTask = videoCompositionService.getLatestVideoTask(projectId);
+        String finalVideoUrl = latestComposeTask != null && "SUCCESS".equals(latestComposeTask.getStatus())
+                ? videoCompositionService.extractVideoUrl(latestComposeTask.getResult())
+                : "";
+        if (!hasText(finalVideoUrl)) {
+            String composeAction = "publish".equalsIgnoreCase(mode) ? "composePublish" : "composePreview";
+            result.put("pipeline", pipelineState("compose", "taskSubmitted", "正在合成成片。", shots.size()));
+            return videoCompositionService.startCompose(userId, projectId, null, composeOptionsFor(composeAction));
+        }
+
+        if (!listOpenIssues(projectId).isEmpty()) {
+            result.put("pipeline", pipelineState("quality", "needsReview", "仍有质检问题需要处理。", 0));
+            return null;
+        }
+
+        result.put("pipeline", pipelineState("export", "ready", "素材已齐，可生成发布包。", shots.size()));
+        result.put("export", exportPackage(userId, projectId, Map.of("platformProfile", textOr(body.get("platformProfile"), "douyin"))));
+        return null;
+    }
+
+    private boolean needsPipelineVideo(Storyboard shot) {
+        if (shot == null) {
+            return false;
+        }
+        return "video".equalsIgnoreCase(shot.getRenderMode())
+                || Boolean.TRUE.equals(shot.getDynamicSelected())
+                || hasText(shot.getVideoPrompt())
+                || hasText(shot.getDescription());
+    }
+
+    private Map<String, Object> pipelineState(String nextStage, String status, String message, int count) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("nextStage", nextStage);
+        map.put("status", status);
+        map.put("message", message);
+        map.put("count", count);
+        return map;
     }
 
     public Map<String, Object> runQualityCheck(Long userId, Long projectId, Map<String, Object> body) {
@@ -278,7 +365,115 @@ public class ProductionWorkspaceService {
         ));
         manifest.put("checks", checks);
         manifest.put("ready", checks.isEmpty());
+        attachExportPackage(projectId, shots, finalVideoUrl, manifest, checks);
+        manifest.put("ready", checks.isEmpty());
         return manifest;
+    }
+
+    private void attachExportPackage(Long projectId,
+                                     List<Storyboard> shots,
+                                     String finalVideoUrl,
+                                     Map<String, Object> manifest,
+                                     List<String> checks) {
+        try {
+            Path exportDir = Paths.get(uploadPath, "exports", String.valueOf(projectId)).normalize();
+            Files.createDirectories(exportDir);
+            String fileName = "niren-drama-" + projectId + "-" + System.currentTimeMillis() + ".zip";
+            Path packagePath = exportDir.resolve(fileName).normalize();
+            String relativeUrl = "exports/" + projectId + "/" + fileName;
+            manifest.put("packageUrl", buildUploadUrl(relativeUrl));
+            manifest.put("packagePath", packagePath.toString());
+
+            try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(packagePath))) {
+                addZipBytes(zip, "manifest.json",
+                        objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(manifest));
+                Set<String> entries = new java.util.LinkedHashSet<>();
+                addLocalAssetToZip(zip, entries, finalVideoUrl, "video/" + safeFileName(fileNameOf(finalVideoUrl, "final.mp4")));
+                List<Storyboard> orderedShots = shots == null ? List.of() : shots.stream()
+                        .sorted(Comparator.comparing(Storyboard::getEpisodeNo, Comparator.nullsLast(Integer::compareTo))
+                                .thenComparing(Storyboard::getShotNo, Comparator.nullsLast(Integer::compareTo))
+                                .thenComparing(Storyboard::getId, Comparator.nullsLast(Long::compareTo)))
+                        .toList();
+                for (Storyboard shot : orderedShots) {
+                    String label = safeFileName("shot-" + (shot.getShotNo() != null ? shot.getShotNo() : shot.getId()));
+                    addLocalAssetToZip(zip, entries, shot.getImageUrl(),
+                            "images/" + label + "-" + safeFileName(fileNameOf(shot.getImageUrl(), "frame.png")));
+                    addLocalAssetToZip(zip, entries, shot.getAudioUrl(),
+                            "audio/" + label + "-" + safeFileName(fileNameOf(shot.getAudioUrl(), "audio.wav")));
+                    addLocalAssetToZip(zip, entries, shot.getVideoUrl(),
+                            "shots/" + label + "-" + safeFileName(fileNameOf(shot.getVideoUrl(), "video.mp4")));
+                }
+            }
+        } catch (Exception e) {
+            checks.add("导出包生成失败: " + (hasText(e.getMessage()) ? e.getMessage() : e.getClass().getSimpleName()));
+            log.warn("导出包生成失败: projectId={}", projectId, e);
+        }
+    }
+
+    private void addLocalAssetToZip(ZipOutputStream zip,
+                                    Set<String> entries,
+                                    String assetUrl,
+                                    String entryName) throws Exception {
+        Path path = resolveLocalAsset(assetUrl);
+        if (path == null || !Files.exists(path) || !Files.isRegularFile(path)) {
+            return;
+        }
+        String uniqueEntryName = uniqueZipEntryName(entries, entryName);
+        zip.putNextEntry(new ZipEntry(uniqueEntryName));
+        Files.copy(path, zip);
+        zip.closeEntry();
+    }
+
+    private void addZipBytes(ZipOutputStream zip, String entryName, byte[] bytes) throws Exception {
+        zip.putNextEntry(new ZipEntry(entryName));
+        zip.write(bytes);
+        zip.closeEntry();
+    }
+
+    private String uniqueZipEntryName(Set<String> entries, String entryName) {
+        String safe = entryName.replace('\\', '/');
+        if (entries.add(safe)) {
+            return safe;
+        }
+        int slash = safe.lastIndexOf('/');
+        String dir = slash >= 0 ? safe.substring(0, slash + 1) : "";
+        String name = slash >= 0 ? safe.substring(slash + 1) : safe;
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        String ext = dot > 0 ? name.substring(dot) : "";
+        int index = 2;
+        while (true) {
+            String candidate = dir + base + "-" + index + ext;
+            if (entries.add(candidate)) {
+                return candidate;
+            }
+            index++;
+        }
+    }
+
+    private String buildUploadUrl(String relativePath) {
+        String base = uploadBaseUrl == null ? "" : uploadBaseUrl.replaceAll("/+$", "");
+        return base + "/" + relativePath.replace('\\', '/').replaceAll("^/+", "");
+    }
+
+    private String fileNameOf(String assetUrl, String fallback) {
+        if (!hasText(assetUrl)) {
+            return fallback;
+        }
+        String clean = assetUrl.trim();
+        int query = clean.indexOf('?');
+        if (query >= 0) clean = clean.substring(0, query);
+        int hash = clean.indexOf('#');
+        if (hash >= 0) clean = clean.substring(0, hash);
+        int slash = Math.max(clean.lastIndexOf('/'), clean.lastIndexOf('\\'));
+        String name = slash >= 0 ? clean.substring(slash + 1) : clean;
+        return hasText(name) ? name : fallback;
+    }
+
+    private String safeFileName(String value) {
+        String safe = hasText(value) ? value.trim() : "asset";
+        safe = safe.replaceAll("[^A-Za-z0-9._-]", "_");
+        return hasText(safe) ? safe : "asset";
     }
 
     public Map<String, Object> upsertBible(Long userId, Long projectId, Map<String, Object> body) {
@@ -386,6 +581,10 @@ public class ProductionWorkspaceService {
         int videoReady = count(shots, Storyboard::getVideoUrl);
         int audioReady = count(shots, Storyboard::getAudioUrl);
         int issueCount = openIssues.size() + derivedIssues.size();
+
+        if (totalShots > 0) {
+            actions.add(nextAction("runEpisodePipeline", "一键推进生产线", "自动从当前缺口继续：首帧、视频、配音、合成或导出。", "pipeline", true));
+        }
 
         if (scripts.stream().noneMatch(s -> hasText(s.getContent()))) {
             actions.add(nextAction("script", "完善剧本", "先确认本集文本，再进入分镜拆解。", "route", true));
@@ -1333,6 +1532,7 @@ public class ProductionWorkspaceService {
             case "missing_first_frame" -> scope + "问题：缺少参考首帧，无法稳定生成分镜视频。";
             case "missing_media" -> scope + "问题：缺少可合成素材，无法进入预览或发布。";
             case "missing_video" -> scope + "问题：视频镜头缺少动态视频，不能用静态首帧替代发布。";
+            case "missing_tts_text" -> scope + "问题：镜头没有对白或旁白文本，配音任务已跳过该镜头。";
             case "video_task_failed" -> scope + "问题：分镜视频失败，当前镜头不会进入成片。";
             case "stale_task" -> scope + "问题：任务长时间卡住，可能阻塞后续重新提交。";
             case "wrong_aspect_ratio" -> scope + "问题：视频不是 9:16，阻塞平台发布。";
@@ -1370,6 +1570,7 @@ public class ProductionWorkspaceService {
                     "low_visual_detail", "unwatchable_visual", "weak_motion", "animated_still", "motion_smear",
                     "first_frame_drift_risk", "identity_drift", "wardrobe_inconsistent", "face_broken",
                     "action_mismatch", "unpublishable_frame", "storyboard_mismatch", "reference_mismatch" -> 8;
+            case "missing_tts_text" -> 1;
             case "duration_out_of_range", "probe_failed" -> 4;
             default -> 3;
         };
@@ -1381,6 +1582,7 @@ public class ProductionWorkspaceService {
         }
         return switch (action) {
             case "generateImages" -> "补齐参考首帧";
+            case "runEpisodePipeline" -> "一键推进生产线";
             case "regenerateFirstFrame" -> "重生首帧";
             case "retryVideo", "retry" -> "重试视频";
             case "generateAudio" -> "补齐配音";

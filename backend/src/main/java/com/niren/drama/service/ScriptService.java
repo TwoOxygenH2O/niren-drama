@@ -3,6 +3,7 @@ package com.niren.drama.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.niren.drama.ai.AiOutputTruncatedException;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.ChatMessage;
 import com.niren.drama.ai.TextAiProvider;
@@ -555,7 +556,7 @@ public class ScriptService {
             String userPrompt = buildScriptUserPrompt(request, materials, episodeNo);
 
             updateTask(task, "RUNNING", 30, "AI正在生成剧本内容...");
-            String scriptContent = textProvider.chat(systemPrompt, userPrompt);
+            String scriptContent = generateScriptContentWithContinuation(textProvider, systemPrompt, userPrompt, episodeNo);
                 log.debug("异步单集剧本已生成: taskId={}, projectId={}, episodeNo={}, contentLength={}",
                     taskId, request.getProjectId(), episodeNo, StringUtils.length(scriptContent));
 
@@ -574,6 +575,58 @@ public class ScriptService {
             task.setMessage("剧本生成失败: " + e.getMessage());
             taskRecordMapper.updateById(task);
         }
+    }
+
+    private String generateScriptContentWithContinuation(TextAiProvider textProvider,
+                                                         String systemPrompt,
+                                                         String userPrompt,
+                                                         int episodeNo) {
+        try {
+            return textProvider.chat(systemPrompt, userPrompt);
+        } catch (AiOutputTruncatedException e) {
+            String partial = StringUtils.trimToEmpty(e.getPartialContent());
+            if (partial.isBlank()) {
+                throw e;
+            }
+            log.warn("单集剧本输出被截断，准备续写: episodeNo={}, partialLength={}",
+                    episodeNo, partial.length());
+            String continuationPrompt = buildScriptContinuationPrompt(userPrompt, partial, episodeNo);
+            String continuation = StringUtils.trimToEmpty(textProvider.chat(systemPrompt, continuationPrompt));
+            if (continuation.isBlank()) {
+                return partial;
+            }
+            return mergeTruncatedScriptContent(partial, continuation);
+        }
+    }
+
+    private String buildScriptContinuationPrompt(String originalPrompt, String partialContent, int episodeNo) {
+        String tail = partialContent.length() > 1200
+                ? partialContent.substring(partialContent.length() - 1200)
+                : partialContent;
+        return """
+                下面是原始剧本生成任务和已经生成但被截断的第 %d 集剧本片段。
+                请从已生成片段的最后一句之后继续补完这一集，只输出续写正文。
+                不要重复已有内容，不要输出解释，不要重新开始，不要输出其他集。
+
+                ## 原始任务
+                %s
+
+                ## 已有片段末尾
+                %s
+                """.formatted(episodeNo, originalPrompt, tail);
+    }
+
+    private String mergeTruncatedScriptContent(String partialContent, String continuation) {
+        String partial = StringUtils.trimToEmpty(partialContent);
+        String suffix = StringUtils.trimToEmpty(continuation);
+        if (suffix.startsWith(partial)) {
+            return suffix;
+        }
+        String partialTail = partial.length() > 80 ? partial.substring(partial.length() - 80) : partial;
+        if (suffix.startsWith(partialTail)) {
+            suffix = suffix.substring(partialTail.length()).trim();
+        }
+        return partial + "\n" + suffix;
     }
 
     public Script getScript(Long id) {

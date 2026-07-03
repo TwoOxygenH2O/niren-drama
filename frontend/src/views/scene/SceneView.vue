@@ -13,7 +13,7 @@
       <section v-if="heroScene" class="space-board">
         <article class="space-preview">
           <div class="scene-image-large">
-            <img v-if="heroScene.imageUrl" :src="heroScene.imageUrl" :alt="heroScene.name" />
+            <img v-if="heroScene.imageUrl" :src="heroScene.imageUrl" :alt="heroScene.name" loading="lazy" />
             <div v-else class="scene-placeholder">
               <el-icon size="56"><Sunny /></el-icon>
             </div>
@@ -47,7 +47,7 @@
       <section class="scene-timeline">
         <article v-for="scene in scenes" :key="scene.id" class="scene-card">
           <div class="scene-thumb">
-            <img v-if="scene.imageUrl" :src="scene.imageUrl" :alt="scene.name" />
+            <img v-if="scene.imageUrl" :src="scene.imageUrl" :alt="scene.name" loading="lazy" />
             <div v-else class="scene-placeholder">
               <el-icon size="34"><Sunny /></el-icon>
             </div>
@@ -110,12 +110,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus, Sunny } from '@element-plus/icons-vue'
 import request from '@/api/request'
-import { taskApi } from '@/api/task'
+import { useTaskPolling } from '@/composables/useTaskPolling'
 
 const route = useRoute()
 const projectId = route.params.id
@@ -123,9 +123,13 @@ const projectId = route.params.id
 const scenes = ref<any[]>([])
 const showCreate = ref(false)
 const submitting = ref(false)
-const sceneTaskTimer = ref<number | null>(null)
 const form = ref({ name: '', description: '', timeOfDay: 'day', location: 'indoor' })
 const heroScene = computed(() => scenes.value[0] || null)
+const sceneTaskPolling = useTaskPolling({
+  onTimeout: () => {
+    ElMessage.warning('生成任务仍在后台执行，可稍后刷新查看')
+  },
+})
 
 const timeLabel = (t: string) => ({ day: '白天', night: '夜晚', dawn: '清晨', dusk: '黄昏' }[t] || t)
 const locationLabel = (l: string) => ({ indoor: '室内', outdoor: '室外' }[l] || l)
@@ -148,39 +152,19 @@ async function handleCreate() {
   }
 }
 
-function stopSceneTaskPolling() {
-  if (sceneTaskTimer.value !== null) {
-    window.clearInterval(sceneTaskTimer.value)
-    sceneTaskTimer.value = null
-  }
-}
-
 async function generateImage(scene: any) {
   const res = await request.post(`/scenes/${scene.id}/generate-image`)
   const taskId = res.data.data.id
   ElMessage.info('后台生成中，请稍候...')
-  stopSceneTaskPolling()
-  let attempts = 0
-  sceneTaskTimer.value = window.setInterval(async () => {
-    attempts += 1
-    if (attempts > 150) {
-      stopSceneTaskPolling()
-      ElMessage.warning('生成任务仍在后台执行，可稍后刷新查看')
-      return
-    }
-    try {
-      const r = await taskApi.get(taskId)
-      const task = r.data.data
-      if (task.status === 'SUCCESS') {
-        stopSceneTaskPolling()
-        ElMessage.success('场景图生成成功')
-        await load()
-      } else if (task.status === 'FAILED') {
-        stopSceneTaskPolling()
-        ElMessage.error(task.message || '场景图生成失败')
-      }
-    } catch { /* 单次查询失败不中断轮询，由 attempts 上限兜底 */ }
-  }, 2000)
+  sceneTaskPolling.start(taskId, {
+    onSuccess: async () => {
+      ElMessage.success('场景图生成成功')
+      await load()
+    },
+    onFailure: (task) => {
+      ElMessage.error(String(task.message || '场景图生成失败'))
+    },
+  })
 }
 
 async function deleteScene(id: number) {
@@ -190,7 +174,6 @@ async function deleteScene(id: number) {
 }
 
 onMounted(load)
-onUnmounted(stopSceneTaskPolling)
 </script>
 
 <style scoped>

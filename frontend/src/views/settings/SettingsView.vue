@@ -72,7 +72,7 @@
               <span>预览</span>
               <el-button text type="primary" size="small" @click="copyImageDebugUrl">复制 URL</el-button>
             </div>
-            <img :src="imageDebugResultUrl" alt="调试预览" class="debug-img" />
+            <img :src="imageDebugResultUrl" alt="调试预览" class="debug-img" loading="lazy" decoding="async" />
             <p class="debug-url">{{ imageDebugResultUrl }}</p>
           </div>
         </div>

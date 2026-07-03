@@ -896,8 +896,8 @@ function goToRecentTarget() {
 
 .cyan { color: var(--primary); }
 .violet { color: var(--secondary-light); }
-.green { color: #40d28f; }
-.red { color: #f87171; }
+.green { color: var(--color-success); }
+.red { color: var(--color-danger); }
 
 @media (max-width: 1180px) {
   .metric-grid {

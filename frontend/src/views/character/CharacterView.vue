@@ -13,7 +13,7 @@
       <section v-if="heroCharacter" class="identity-layout">
         <article class="portrait-stage" @click="heroCharacter && openGallery(heroCharacter)">
           <div class="portrait-frame">
-            <img v-if="heroCharacter.imageUrl" :src="heroCharacter.imageUrl" :alt="heroCharacter.name" />
+            <img v-if="heroCharacter.imageUrl" :src="heroCharacter.imageUrl" :alt="heroCharacter.name" loading="lazy" />
             <div v-else class="portrait-placeholder">
               <el-icon size="56"><User /></el-icon>
             </div>
@@ -49,7 +49,7 @@
       <section class="roster-strip">
         <article v-for="char in characters" :key="char.id" class="char-card" @click="openGallery(char)">
           <div class="char-avatar">
-            <img v-if="char.imageUrl" :src="char.imageUrl" :alt="char.name" />
+            <img v-if="char.imageUrl" :src="char.imageUrl" :alt="char.name" loading="lazy" />
             <div v-else class="char-placeholder">
               <el-icon size="34"><User /></el-icon>
             </div>
@@ -103,7 +103,7 @@
     <el-dialog v-model="galleryVisible" :title="galleryChar?.name + ' — 角色形象'" width="720px" destroy-on-close>
       <div v-if="galleryImages.length" class="gallery-grid">
         <div v-for="(url, idx) in galleryImages" :key="idx" class="gallery-item" @click="openPreview(idx)">
-          <img :src="url" :alt="`${galleryChar?.name} 形象 ${idx + 1}`" />
+          <img :src="url" :alt="`${galleryChar?.name} 形象 ${idx + 1}`" loading="lazy" />
           <span v-if="idx === 0" class="gallery-main-tag">主图</span>
         </div>
       </div>
@@ -118,7 +118,7 @@
     <!-- Fullscreen image preview -->
     <el-dialog v-model="previewImageVisible" width="90vw" destroy-on-close append-to-body>
       <div class="preview-image-wrap">
-        <img :src="galleryImages[previewImageIdx]" :alt="`${galleryChar?.name} 形象`" />
+        <img :src="galleryImages[previewImageIdx]" :alt="`${galleryChar?.name} 形象`" loading="lazy" />
       </div>
       <div class="preview-nav">
         <el-button :disabled="previewImageIdx <= 0" @click="previewImageIdx--">上一张</el-button>
@@ -187,12 +187,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Microphone, Plus, User } from '@element-plus/icons-vue'
 import { characterApi } from '@/api/character'
 import { taskApi } from '@/api/task'
+import { useTaskPolling } from '@/composables/useTaskPolling'
 
 interface VoiceOption {
   voiceId: string
@@ -210,7 +211,6 @@ const voices = ref<VoiceOption[]>([])
 const showCreate = ref(false)
 const submitting = ref(false)
 const generatingId = ref<any>(null)
-const imageTaskTimer = ref<number | null>(null)
 const previewingId = ref<any>(null)
 const previewAudio = ref<{ id: number | null; url: string; text: string }>({ id: null, url: '', text: '' })
 const galleryVisible = ref(false)
@@ -227,6 +227,12 @@ const form = ref({
 const heroCharacter = computed(() => characters.value[0] || null)
 const lockedPortraitCount = computed(() => characters.value.filter((char: any) => char.imageUrl || charImageCount(char) > 0).length)
 const voiceConfiguredCount = computed(() => characters.value.filter((char: any) => char.voiceName).length)
+const imageTaskPolling = useTaskPolling({
+  onTimeout: () => {
+    generatingId.value = null
+    ElMessage.warning('生成任务仍在后台执行，可稍后刷新页面查看结果')
+  },
+})
 
 function onVoiceChange(val: string) {
   const voice = voices.value.find(v => v.voiceId === val)
@@ -281,52 +287,30 @@ async function handleCreate() {
   }
 }
 
-function stopImageTaskPolling() {
-  if (imageTaskTimer.value !== null) {
-    window.clearInterval(imageTaskTimer.value)
-    imageTaskTimer.value = null
-  }
-}
-
 async function generateImage(char: any) {
   generatingId.value = char.id
   try {
     const res = await characterApi.generateImage(char.id)
     const taskId = res.data.data.id
-    stopImageTaskPolling()
-    let attempts = 0
-    imageTaskTimer.value = window.setInterval(async () => {
-      attempts += 1
-      if (attempts > 150) {
-        stopImageTaskPolling()
+    imageTaskPolling.start(taskId, {
+      onSuccess: async (task) => {
         generatingId.value = null
-        ElMessage.warning('生成任务仍在后台执行，可稍后刷新页面查看结果')
-        return
-      }
-      try {
-        const r = await taskApi.get(taskId)
-        const task = r.data.data
-        if (task.status === 'SUCCESS') {
-          stopImageTaskPolling()
-          generatingId.value = null
-          ElMessage.success(task.message || '角色图像生成成功')
-          await load()
-          // 如果画廊正在展示该角色，刷新画廊数据
-          if (galleryVisible.value && galleryChar.value?.id === char.id) {
-            const updated = characters.value.find((c: any) => c.id === char.id)
-            if (updated) {
-              galleryChar.value = updated
-              const urls = parseImageUrls(updated.imageUrls)
-              galleryImages.value = urls.length > 0 ? urls : (updated.imageUrl ? [updated.imageUrl] : [])
-            }
+        ElMessage.success(String(task.message || '角色图像生成成功'))
+        await load()
+        if (galleryVisible.value && galleryChar.value?.id === char.id) {
+          const updated = characters.value.find((c: any) => c.id === char.id)
+          if (updated) {
+            galleryChar.value = updated
+            const urls = parseImageUrls(updated.imageUrls)
+            galleryImages.value = urls.length > 0 ? urls : (updated.imageUrl ? [updated.imageUrl] : [])
           }
-        } else if (task.status === 'FAILED') {
-          stopImageTaskPolling()
-          generatingId.value = null
-          ElMessage.error(task.message || '角色图像生成失败')
         }
-      } catch { /* 单次查询失败不中断轮询，由 attempts 上限兜底 */ }
-    }, 2000)
+      },
+      onFailure: (task) => {
+        generatingId.value = null
+        ElMessage.error(String(task.message || '角色图像生成失败'))
+      },
+    })
   } catch {
     generatingId.value = null
   }
@@ -370,7 +354,6 @@ onMounted(async () => {
   } catch {}
 })
 
-onUnmounted(stopImageTaskPolling)
 </script>
 
 <style scoped>

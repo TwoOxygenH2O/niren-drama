@@ -1,6 +1,7 @@
 package com.niren.drama.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.niren.drama.ai.AiProviderFactory;
 import com.niren.drama.ai.ImageAiProvider;
 import com.niren.drama.ai.TextAiProvider;
@@ -14,6 +15,7 @@ import com.niren.drama.common.ProjectStyleSupport;
 import com.niren.drama.dto.storyboard.StoryboardGenerateRequest;
 import com.niren.drama.dto.storyboard.StoryboardPreviewSaveRequest;
 import com.niren.drama.entity.Project;
+import com.niren.drama.entity.ProductionIssue;
 import com.niren.drama.entity.Script;
 import com.niren.drama.entity.Character;
 import com.niren.drama.entity.Scene;
@@ -21,6 +23,7 @@ import com.niren.drama.entity.Storyboard;
 import com.niren.drama.entity.TaskRecord;
 import com.niren.drama.exception.BusinessException;
 import com.niren.drama.mapper.CharacterMapper;
+import com.niren.drama.mapper.ProductionIssueMapper;
 import com.niren.drama.mapper.SceneMapper;
 import com.niren.drama.mapper.ScriptMapper;
 import com.niren.drama.mapper.StoryboardMapper;
@@ -44,6 +47,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -63,6 +67,7 @@ public class StoryboardService {
     private final TaskRecordMapper taskRecordMapper;
     private final CharacterMapper characterMapper;
     private final SceneMapper sceneMapper;
+    private final ProductionIssueMapper productionIssueMapper;
     private final AiProviderFactory aiProviderFactory;
     private final ProjectService projectService;
     private final CostEstimationService costEstimationService;
@@ -1120,6 +1125,8 @@ if (isStream) {
             int skippedNoText = 0;
             int failed = 0;
             List<String> failedDetails = new ArrayList<>();
+            List<String> skippedNoTextDetails = new ArrayList<>();
+            Map<Long, Integer> durationWritebacks = new LinkedHashMap<>();
 
             log.debug("开始分镜音频生成: taskId={}, userId={}, projectId={}, shotCount={}, availableVoices={}",
                     taskId, userId, projectId, total, availableVoices.size());
@@ -1131,6 +1138,8 @@ if (isStream) {
                     log.debug("文本为空，跳过分镜音频生成: taskId={}, shotId={}, shotNo={}",
                             taskId, shot.getId(), shot.getShotNo());
                     skippedNoText++;
+                    skippedNoTextDetails.add("镜头" + resolveShotLabel(shot) + ": 缺少可配音文本");
+                    recordMissingTtsTextIssue(projectId, shot);
                     completed++;
                     continue;
                 }
@@ -1167,8 +1176,10 @@ if (isStream) {
                             AudioFormatSupport.extensionFor(audioData));
 
                     shot.setAudioUrl(storedAudio.publicUrl());
+                    maybeWriteBackAudioDuration(shot, audioData, durationWritebacks);
                     shot.setStatus("audio_generated");
                     storyboardMapper.updateById(shot);
+                    resolveMissingTtsTextIssue(projectId, shot);
                     if (hadExistingAudio) {
                         replacedExisting++;
                     } else {
@@ -1209,6 +1220,8 @@ if (isStream) {
                             "generated", generated,
                             "replacedExisting", replacedExisting,
                             "skippedNoText", skippedNoText,
+                            "skippedNoTextDetails", skippedNoTextDetails,
+                            "audioDurationWritebacks", durationWritebacks,
                             "failed", failed))));
             taskRecordMapper.updateById(task);
             log.debug("分镜音频生成完成: taskId={}, projectId={}, total={}, generated={}, replacedExisting={}, skippedNoText={}, failed={}",
@@ -1222,6 +1235,67 @@ if (isStream) {
                     Map.of("error", e.getMessage()))));
             taskRecordMapper.updateById(task);
         }
+    }
+
+    private void maybeWriteBackAudioDuration(Storyboard shot, byte[] audioData, Map<Long, Integer> durationWritebacks) {
+        double audioSeconds = AudioFormatSupport.durationSeconds(audioData);
+        if (audioSeconds <= 0d || shot == null) {
+            return;
+        }
+        int measuredSeconds = Math.max(1, (int) Math.ceil(audioSeconds));
+        int currentSeconds = shot.getDuration() == null || shot.getDuration() <= 0 ? 0 : shot.getDuration();
+        if (measuredSeconds <= currentSeconds) {
+            return;
+        }
+        int writebackSeconds = Math.min(Math.max(measuredSeconds, 3), 15);
+        shot.setDuration(writebackSeconds);
+        if (shot.getId() != null && durationWritebacks != null) {
+            durationWritebacks.put(shot.getId(), writebackSeconds);
+        }
+    }
+
+    private void recordMissingTtsTextIssue(Long projectId, Storyboard shot) {
+        if (projectId == null || shot == null || shot.getId() == null || productionIssueMapper == null) {
+            return;
+        }
+        Long existing = productionIssueMapper.selectCount(new LambdaQueryWrapper<ProductionIssue>()
+                .eq(ProductionIssue::getProjectId, projectId)
+                .eq(ProductionIssue::getShotId, shot.getId())
+                .eq(ProductionIssue::getIssueType, "missing_tts_text")
+                .in(ProductionIssue::getStatus, List.of("open", "repairing")));
+        if (existing != null && existing > 0) {
+            return;
+        }
+        ProductionIssue issue = new ProductionIssue();
+        issue.setProjectId(projectId);
+        issue.setShotId(shot.getId());
+        issue.setIssueType("missing_tts_text");
+        issue.setSeverity("warning");
+        issue.setStatus("open");
+        issue.setTitle("配音文本缺失");
+        issue.setMessage("该镜头没有对白、旁白、字幕或可转述画面描述，已跳过配音生成。");
+        issue.setRecommendedAction("generateAudio");
+        productionIssueMapper.insert(issue);
+    }
+
+    private void resolveMissingTtsTextIssue(Long projectId, Storyboard shot) {
+        if (projectId == null || shot == null || shot.getId() == null || productionIssueMapper == null) {
+            return;
+        }
+        ProductionIssue update = new ProductionIssue();
+        update.setStatus("resolved");
+        productionIssueMapper.update(update, new LambdaUpdateWrapper<ProductionIssue>()
+                .eq(ProductionIssue::getProjectId, projectId)
+                .eq(ProductionIssue::getShotId, shot.getId())
+                .eq(ProductionIssue::getIssueType, "missing_tts_text")
+                .in(ProductionIssue::getStatus, List.of("open", "repairing")));
+    }
+
+    private String resolveShotLabel(Storyboard shot) {
+        if (shot == null) {
+            return "?";
+        }
+        return shot.getShotNo() != null ? String.valueOf(shot.getShotNo()) : String.valueOf(shot.getId());
     }
 
     private VoiceSelection resolveVoiceSelection(Long userId, Storyboard shot, List<VoiceInfo> availableVoices, Project project) {

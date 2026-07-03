@@ -188,7 +188,7 @@
               <ul v-else class="plan-subject-list">
                 <li v-for="c in planCharacters" :key="c.id" class="plan-subject-item" @click="openCharGallery(c)">
                   <div class="plan-subject-avatar">
-                    <img v-if="c.imageUrl" :src="c.imageUrl" :alt="c.name" />
+                    <img v-if="c.imageUrl" :src="c.imageUrl" :alt="c.name" loading="lazy" decoding="async" />
                     <span v-else-if="portraitRefreshing" class="plan-avatar-ph plan-avatar-ph--loading">生成中</span>
                     <span v-else class="plan-avatar-ph">·</span>
                   </div>
@@ -348,7 +348,7 @@
     <el-dialog v-model="charGalleryVisible" :title="charGalleryChar?.name + ' — 角色形象'" width="720px" destroy-on-close append-to-body>
       <div v-if="charGalleryImages.length" class="char-gallery-grid">
         <div v-for="(url, idx) in charGalleryImages" :key="idx" class="char-gallery-item">
-          <img :src="url" :alt="`${charGalleryChar?.name} 形象 ${idx + 1}`" />
+          <img :src="url" :alt="`${charGalleryChar?.name} 形象 ${idx + 1}`" loading="lazy" decoding="async" />
           <span v-if="idx === 0" class="char-gallery-tag">主图</span>
         </div>
       </div>
@@ -1851,7 +1851,6 @@ onUnmounted(() => {
   box-shadow: 0 12px 28px rgba(103, 232, 249, 0.16);
 }
 .btn-plan-video:disabled {
-  opacity: 0.45;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
@@ -2426,7 +2425,6 @@ onUnmounted(() => {
   transform: scale(1.05);
 }
 .send-round:disabled {
-  opacity: 0.45;
   cursor: not-allowed;
 }
 .immersive-root {
@@ -2719,7 +2717,6 @@ onUnmounted(() => {
   box-shadow: 0 14px 30px rgba(99, 102, 241, 0.38);
 }
 .btn-confirm-step:disabled {
-  opacity: 0.55;
   cursor: not-allowed;
 }
 
