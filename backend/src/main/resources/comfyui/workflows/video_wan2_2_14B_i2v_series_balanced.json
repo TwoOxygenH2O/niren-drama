@@ -22,7 +22,7 @@
   "3": {
     "class_type": "WanVideoBlockSwap",
     "inputs": {
-      "blocks_to_swap": 16,
+      "blocks_to_swap": 4,
       "offload_img_emb": false,
       "offload_txt_emb": false,
       "use_non_blocking": true,
@@ -114,7 +114,7 @@
     "inputs": {
       "width": 720,
       "height": 1280,
-      "num_frames": 49,
+      "num_frames": 81,
       "noise_aug_strength": 0.048,
       "start_latent_strength": 0.92,
       "end_latent_strength": 0.74,
@@ -155,8 +155,8 @@
       "model": ["4", 0],
       "image_embeds": ["18", 0],
       "text_embeds": ["12", 0],
-      "steps": 18,
-      "cfg": 1.25,
+      "steps": 20,
+      "cfg": 3.5,
       "shift": 8.5,
       "seed": 43,
       "force_offload": true,
@@ -165,7 +165,7 @@
       "batched_cfg": false,
       "rope_function": "comfy",
       "start_step": 0,
-      "end_step": 9
+      "end_step": 10
     }
   },
   "22": {
@@ -175,8 +175,8 @@
       "image_embeds": ["18", 0],
       "text_embeds": ["12", 0],
       "samples": ["21", 0],
-      "steps": 18,
-      "cfg": 1.25,
+      "steps": 20,
+      "cfg": 3.5,
       "shift": 8.5,
       "seed": 43,
       "force_offload": true,
@@ -184,7 +184,7 @@
       "riflex_freq_index": 0,
       "batched_cfg": false,
       "rope_function": "comfy",
-      "start_step": 9,
+      "start_step": 10,
       "end_step": -1
     }
   },

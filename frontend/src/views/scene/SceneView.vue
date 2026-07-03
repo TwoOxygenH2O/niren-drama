@@ -110,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus, Sunny } from '@element-plus/icons-vue'
@@ -123,6 +123,7 @@ const projectId = route.params.id
 const scenes = ref<any[]>([])
 const showCreate = ref(false)
 const submitting = ref(false)
+const sceneTaskTimer = ref<number | null>(null)
 const form = ref({ name: '', description: '', timeOfDay: 'day', location: 'indoor' })
 const heroScene = computed(() => scenes.value[0] || null)
 
@@ -147,20 +148,38 @@ async function handleCreate() {
   }
 }
 
+function stopSceneTaskPolling() {
+  if (sceneTaskTimer.value !== null) {
+    window.clearInterval(sceneTaskTimer.value)
+    sceneTaskTimer.value = null
+  }
+}
+
 async function generateImage(scene: any) {
   const res = await request.post(`/scenes/${scene.id}/generate-image`)
   const taskId = res.data.data.id
   ElMessage.info('后台生成中，请稍候...')
-  const timer = setInterval(async () => {
-    const r = await taskApi.get(taskId)
-    if (r.data.data.status === 'SUCCESS') {
-      clearInterval(timer)
-      ElMessage.success('场景图生成成功')
-      load()
-    } else if (r.data.data.status === 'FAILED') {
-      clearInterval(timer)
-      ElMessage.error('场景图生成失败')
+  stopSceneTaskPolling()
+  let attempts = 0
+  sceneTaskTimer.value = window.setInterval(async () => {
+    attempts += 1
+    if (attempts > 150) {
+      stopSceneTaskPolling()
+      ElMessage.warning('生成任务仍在后台执行，可稍后刷新查看')
+      return
     }
+    try {
+      const r = await taskApi.get(taskId)
+      const task = r.data.data
+      if (task.status === 'SUCCESS') {
+        stopSceneTaskPolling()
+        ElMessage.success('场景图生成成功')
+        await load()
+      } else if (task.status === 'FAILED') {
+        stopSceneTaskPolling()
+        ElMessage.error(task.message || '场景图生成失败')
+      }
+    } catch { /* 单次查询失败不中断轮询，由 attempts 上限兜底 */ }
   }, 2000)
 }
 
@@ -171,6 +190,7 @@ async function deleteScene(id: number) {
 }
 
 onMounted(load)
+onUnmounted(stopSceneTaskPolling)
 </script>
 
 <style scoped>

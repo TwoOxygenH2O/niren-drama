@@ -240,6 +240,18 @@ class ComfyUiVideoProviderTest {
     }
 
     @Test
+    void namedWanResolutionsUseSixteenAlignedVerticalDimensions() throws Exception {
+        ComfyUiVideoProvider provider = new ComfyUiVideoProvider("http://127.0.0.1:8188", "", "", "", "", "");
+        Method method = ComfyUiVideoProvider.class.getDeclaredMethod("parseResolution", String.class);
+        method.setAccessible(true);
+
+        assertThat((int[]) method.invoke(provider, (String) null)).containsExactly(480, 848);
+        assertThat((int[]) method.invoke(provider, "480P")).containsExactly(480, 848);
+        assertThat((int[]) method.invoke(provider, "720P")).containsExactly(720, 1280);
+        assertThat((int[]) method.invoke(provider, "1080P")).containsExactly(1088, 1920);
+    }
+
+    @Test
     void generateVideoFromImageUsesWanSeriesBalancedWorkflowWithFrameCap() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         server.setExecutor(Executors.newSingleThreadExecutor());
@@ -274,6 +286,46 @@ class ComfyUiVideoProviderTest {
             assertThat(promptBody.get()).contains("\"frame_rate\":16");
             assertThat(promptBody.get()).doesNotContain("\"steps\":30");
             assertThat(promptBody.get()).doesNotContain("\"riflex_freq_index\":6");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void generateVideoFromImageUsesNonDistilledCfgForWanQualityLongWorkflow() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.setExecutor(Executors.newSingleThreadExecutor());
+        AtomicReference<String> promptBody = new AtomicReference<>("");
+        try {
+            server.createContext("/source.png", exchange -> write(exchange, 200, "image/png", new byte[]{1, 2, 3, 4}));
+            server.createContext("/upload/image", exchange -> write(exchange, 200, "application/json", "{\"name\":\"uploaded.png\",\"subfolder\":\"\",\"type\":\"input\"}".getBytes(StandardCharsets.UTF_8)));
+            server.createContext("/prompt", exchange -> {
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                promptBody.set(body);
+                write(exchange, 200, "application/json", "{\"prompt_id\":\"p45\"}".getBytes(StandardCharsets.UTF_8));
+            });
+            server.createContext("/history/p45", exchange -> write(exchange, 200, "application/json", "{\"p45\":{\"outputs\":{\"24\":{\"videos\":[{\"filename\":\"quality.mp4\"}]}},\"status\":{\"status_str\":\"success\"}}}".getBytes(StandardCharsets.UTF_8)));
+            server.start();
+
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            String extra = "{\"workflowFile\":\"video_wan2_2_14B_i2v_quality_long.json\",\"qualityMode\":\"wan22-quality-long\"}";
+            ComfyUiVideoProvider provider = new ComfyUiVideoProvider(
+                    baseUrl,
+                    "",
+                    "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+                    extra,
+                    "",
+                    "");
+
+            provider.generateVideoFromImage(baseUrl + "/source.png", "Motion intensity: medium, heroine watches the door and slowly turns", 5, "720x1280", "pro", false);
+
+            assertThat(promptBody.get()).contains("niren_wan22_i2v_quality_long");
+            assertThat(promptBody.get()).contains("\"steps\":28");
+            assertThat(promptBody.get()).contains("\"cfg\":3.5");
+            assertThat(promptBody.get()).contains("\"shift\":8.0");
+            assertThat(promptBody.get()).contains("\"noise_aug_strength\":0.038");
+            assertThat(promptBody.get()).contains("\"start_latent_strength\":0.94");
+            assertThat(promptBody.get()).contains("\"blocks_to_swap\":8");
         } finally {
             server.stop(0);
         }

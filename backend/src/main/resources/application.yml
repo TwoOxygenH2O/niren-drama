@@ -108,17 +108,17 @@ niren:
       backoff-ms: ${NIREN_IMAGE_RETRY_BACKOFF_MS:1200}
       concurrency-throttle-ms: ${NIREN_IMAGE_RETRY_THROTTLE_MS:220}
   dynamic-video:
-    timeout-minutes: ${NIREN_DYNAMIC_VIDEO_TIMEOUT_MINUTES:720}
+    timeout-minutes: ${NIREN_DYNAMIC_VIDEO_TIMEOUT_MINUTES:120}
     chain:
-      enabled: ${NIREN_DYNAMIC_VIDEO_CHAIN_ENABLED:false}
+      enabled: ${NIREN_DYNAMIC_VIDEO_CHAIN_ENABLED:true}
     reference:
-      # 预览止血默认只喂主首帧，避免 Wan 参考图尺寸/节点兼容问题；需要多参考时用环境变量或 extra.maxReferenceImages 放开。
-      max-images: ${NIREN_DYNAMIC_VIDEO_MAX_REFERENCE_IMAGES:1}
+      # Wan 模板预留主首帧 + 角色定妆 + 场景参考；非 Wan 配置可用 extra.maxReferenceImages 收窄。
+      max-images: ${NIREN_DYNAMIC_VIDEO_MAX_REFERENCE_IMAGES:3}
     retry:
       max-attempts: ${NIREN_DYNAMIC_VIDEO_RETRY_MAX_ATTEMPTS:2}
       backoff-seconds: ${NIREN_DYNAMIC_VIDEO_RETRY_BACKOFF_SECONDS:8}
     quality-retry:
-      max-attempts: ${NIREN_DYNAMIC_VIDEO_QUALITY_RETRY_MAX_ATTEMPTS:1}
+      max-attempts: ${NIREN_DYNAMIC_VIDEO_QUALITY_RETRY_MAX_ATTEMPTS:2}
     poll:
       base-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_BASE_SECONDS:5}
       max-seconds: ${NIREN_DYNAMIC_VIDEO_POLL_MAX_SECONDS:30}

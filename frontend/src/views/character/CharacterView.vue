@@ -187,7 +187,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Microphone, Plus, User } from '@element-plus/icons-vue'
@@ -210,6 +210,7 @@ const voices = ref<VoiceOption[]>([])
 const showCreate = ref(false)
 const submitting = ref(false)
 const generatingId = ref<any>(null)
+const imageTaskTimer = ref<number | null>(null)
 const previewingId = ref<any>(null)
 const previewAudio = ref<{ id: number | null; url: string; text: string }>({ id: null, url: '', text: '' })
 const galleryVisible = ref(false)
@@ -280,34 +281,51 @@ async function handleCreate() {
   }
 }
 
+function stopImageTaskPolling() {
+  if (imageTaskTimer.value !== null) {
+    window.clearInterval(imageTaskTimer.value)
+    imageTaskTimer.value = null
+  }
+}
+
 async function generateImage(char: any) {
   generatingId.value = char.id
   try {
     const res = await characterApi.generateImage(char.id)
     const taskId = res.data.data.id
-    // Poll for completion
-    const timer = setInterval(async () => {
-      const r = await taskApi.get(taskId)
-      const task = r.data.data
-      if (task.status === 'SUCCESS') {
-        clearInterval(timer)
+    stopImageTaskPolling()
+    let attempts = 0
+    imageTaskTimer.value = window.setInterval(async () => {
+      attempts += 1
+      if (attempts > 150) {
+        stopImageTaskPolling()
         generatingId.value = null
-        ElMessage.success(task.message || '角色图像生成成功')
-        await load()
-        // 如果画廊正在展示该角色，刷新画廊数据
-        if (galleryVisible.value && galleryChar.value?.id === char.id) {
-          const updated = characters.value.find((c: any) => c.id === char.id)
-          if (updated) {
-            galleryChar.value = updated
-            const urls = parseImageUrls(updated.imageUrls)
-            galleryImages.value = urls.length > 0 ? urls : (updated.imageUrl ? [updated.imageUrl] : [])
-          }
-        }
-      } else if (task.status === 'FAILED') {
-        clearInterval(timer)
-        generatingId.value = null
-        ElMessage.error(task.message || '角色图像生成失败')
+        ElMessage.warning('生成任务仍在后台执行，可稍后刷新页面查看结果')
+        return
       }
+      try {
+        const r = await taskApi.get(taskId)
+        const task = r.data.data
+        if (task.status === 'SUCCESS') {
+          stopImageTaskPolling()
+          generatingId.value = null
+          ElMessage.success(task.message || '角色图像生成成功')
+          await load()
+          // 如果画廊正在展示该角色，刷新画廊数据
+          if (galleryVisible.value && galleryChar.value?.id === char.id) {
+            const updated = characters.value.find((c: any) => c.id === char.id)
+            if (updated) {
+              galleryChar.value = updated
+              const urls = parseImageUrls(updated.imageUrls)
+              galleryImages.value = urls.length > 0 ? urls : (updated.imageUrl ? [updated.imageUrl] : [])
+            }
+          }
+        } else if (task.status === 'FAILED') {
+          stopImageTaskPolling()
+          generatingId.value = null
+          ElMessage.error(task.message || '角色图像生成失败')
+        }
+      } catch { /* 单次查询失败不中断轮询，由 attempts 上限兜底 */ }
     }, 2000)
   } catch {
     generatingId.value = null
@@ -351,6 +369,8 @@ onMounted(async () => {
     voices.value = res.data.data || []
   } catch {}
 })
+
+onUnmounted(stopImageTaskPolling)
 </script>
 
 <style scoped>

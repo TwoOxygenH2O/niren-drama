@@ -3,12 +3,32 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { normalizeApiErrorMessage } from './error'
 
-function createBusinessError(payload: any, requestUrl = '') {
+type BusinessErrorPayload = {
+  code?: number
+  data?: unknown
+  message?: string
+}
+
+function createBusinessError(payload: BusinessErrorPayload, requestUrl = '') {
   const message = normalizeApiErrorMessage(payload?.message, requestUrl)
   const error = new Error(message)
   ;(error as any).code = payload?.code
   ;(error as any).data = payload?.data
   return error
+}
+
+function isJwtExpiredLocal(token?: string | null): boolean {
+  if (!token) return true
+  const parts = token.split('.')
+  if (parts.length !== 3) return true
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const normalized = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+    const exp = Number(JSON.parse(atob(normalized))?.exp)
+    return !Number.isFinite(exp) || Date.now() >= exp * 1000
+  } catch {
+    return true
+  }
 }
 
 // 防止 JSON.parse 将超大整数 ID 精度丢失：将超过 16 位的纯数字替换为字符串
@@ -69,10 +89,18 @@ request.interceptors.response.use(
     } else if (error.response?.status === 403) {
       const userStore = useUserStore()
       const payload = error.response?.data
-      const message = normalizeApiErrorMessage(payload?.message || '登录已过期，请重新登录', requestUrl)
-      ElMessage.error(message || '登录已过期，请重新登录')
-      userStore.logout()
-      window.location.href = '/login'
+      if (isJwtExpiredLocal(userStore.token)) {
+        const message = normalizeApiErrorMessage(payload?.message || '登录已过期，请重新登录', requestUrl)
+        ElMessage.error(message || '登录已过期，请重新登录')
+        userStore.logout()
+        window.location.href = '/login'
+        if (payload?.message) {
+          return Promise.reject(createBusinessError({ ...payload, message }, requestUrl))
+        }
+        return Promise.reject(createBusinessError({ code: 403, message }, requestUrl))
+      }
+      const message = normalizeApiErrorMessage(payload?.message || '没有权限执行该操作', requestUrl)
+      ElMessage.error(message || '没有权限执行该操作')
       if (payload?.message) {
         return Promise.reject(createBusinessError({ ...payload, message }, requestUrl))
       }

@@ -22,7 +22,7 @@
   "3": {
     "class_type": "WanVideoBlockSwap",
     "inputs": {
-      "blocks_to_swap": 20,
+      "blocks_to_swap": 4,
       "offload_img_emb": false,
       "offload_txt_emb": false,
       "use_non_blocking": true,
@@ -164,7 +164,7 @@
       "embeds": ["18", 0],
       "vae": ["10", 0],
       "ref_image": ["14", 0],
-      "strength": 0.34,
+      "strength": 0.40,
       "start_percent": 0.0,
       "end_percent": 1.0
     }
@@ -176,7 +176,7 @@
       "vae": ["10", 0],
       "ref_image": ["15", 0],
       "clip_embeds": ["17", 0],
-      "strength": 0.22,
+      "strength": 0.26,
       "start_percent": 0.0,
       "end_percent": 1.0
     }
@@ -187,8 +187,8 @@
       "model": ["8", 0],
       "image_embeds": ["18", 0],
       "text_embeds": ["12", 0],
-      "steps": 14,
-      "cfg": 1.15,
+      "steps": 8,
+      "cfg": 1.0,
       "shift": 8.0,
       "seed": 43,
       "force_offload": true,
@@ -197,7 +197,7 @@
       "batched_cfg": false,
       "rope_function": "comfy",
       "start_step": 0,
-      "end_step": 7
+      "end_step": 4
     }
   },
   "22": {
@@ -207,8 +207,8 @@
       "image_embeds": ["18", 0],
       "text_embeds": ["12", 0],
       "samples": ["21", 0],
-      "steps": 14,
-      "cfg": 1.15,
+      "steps": 8,
+      "cfg": 1.0,
       "shift": 8.0,
       "seed": 43,
       "force_offload": true,
@@ -216,7 +216,7 @@
       "riflex_freq_index": 0,
       "batched_cfg": false,
       "rope_function": "comfy",
-      "start_step": 7,
+      "start_step": 4,
       "end_step": -1
     }
   },
@@ -242,7 +242,7 @@
       "filename_prefix": "niren_wan22_i2v_short_drama",
       "format": "video/h264-mp4",
       "pix_fmt": "yuv420p",
-      "crf": 19,
+      "crf": 17,
       "save_metadata": false,
       "trim_to_audio": false,
       "pingpong": false,

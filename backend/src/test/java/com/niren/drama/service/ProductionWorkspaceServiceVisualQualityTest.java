@@ -22,6 +22,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
@@ -147,6 +148,17 @@ class ProductionWorkspaceServiceVisualQualityTest {
         assertThat((boolean) method.invoke(service, 4.06d, 8)).isFalse();
         assertThat((boolean) method.invoke(service, 2.9d, 8)).isTrue();
         assertThat((boolean) method.invoke(service, 17.0d, 8)).isTrue();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void qualityIssueTypesIncludeGeneratedAnalyzerFindingsForClosure() throws Exception {
+        Field field = ProductionWorkspaceService.class.getDeclaredField("QUALITY_ISSUE_TYPES");
+        field.setAccessible(true);
+
+        List<String> types = (List<String>) field.get(null);
+
+        assertThat(types).contains("washed_gray_video", "low_effective_fps");
     }
 
     @Test

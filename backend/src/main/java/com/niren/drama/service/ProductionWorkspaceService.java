@@ -67,6 +67,8 @@ public class ProductionWorkspaceService {
             "weak_motion",
             "animated_still",
             "motion_smear",
+            "washed_gray_video",
+            "low_effective_fps",
             "first_frame_drift_risk",
             "identity_drift",
             "wardrobe_inconsistent",
@@ -930,7 +932,7 @@ public class ProductionWorkspaceService {
             extra.put("maxFrames", 65);
             extra.put("maxSteps", 12);
             extra.put("frameRate", 16);
-            extra.put("maxReferenceImages", 1);
+            extra.put("maxReferenceImages", 3);
             extra.put("patchWanControlnetStrength", true);
             extra.put("bypassWanReferenceEmbeds", false);
         } else {

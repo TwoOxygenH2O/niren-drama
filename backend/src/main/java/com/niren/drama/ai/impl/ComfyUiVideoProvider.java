@@ -1399,28 +1399,54 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 ltxCfg = 2.0d;
             }
         } else if (wanQualityLong) {
-            steps = pro ? 30 : 28;
-            cfg = 1.35d;
-            shift = 8.2d;
-            noise = 0.052d;
-            startStrength = 0.91d;
+            steps = 28;
+            cfg = 3.5d;
+            shift = 8.0d;
+            noise = 0.038d;
+            startStrength = 0.94d;
             endStrength = 0.76d;
             augment = 0.10d;
             refStrength = 0.30d;
             sceneRefStrength = 0.20d;
             if ("high".equals(level)) {
-                steps = pro ? 32 : 30;
-                cfg = 1.45d;
-                shift = 8.8d;
-                noise = 0.064d;
-                startStrength = 0.88d;
+                steps = pro ? 30 : 28;
+                cfg = 3.8d;
+                shift = 8.2d;
+                noise = 0.048d;
+                startStrength = 0.92d;
                 endStrength = 0.68d;
                 augment = 0.16d;
                 refStrength = 0.24d;
                 sceneRefStrength = 0.16d;
             } else if ("low".equals(level)) {
                 steps = pro ? 26 : 24;
-                cfg = 1.25d;
+                cfg = 3.2d;
+                shift = 7.8d;
+                noise = 0.034d;
+                startStrength = 0.95d;
+                endStrength = 0.86d;
+                augment = 0.04d;
+                refStrength = 0.40d;
+                sceneRefStrength = 0.26d;
+            }
+        } else if (isWanModel()) {
+            steps = pro ? 20 : 18;
+            cfg = 3.5d;
+            shift = 8.0d;
+            noise = 0.048d;
+            startStrength = 0.92d;
+            endStrength = 0.74d;
+            augment = 0.10d;
+            refStrength = 0.28d;
+            sceneRefStrength = 0.18d;
+            if ("high".equals(level)) {
+                steps = pro ? 22 : 20;
+                cfg = 3.8d;
+                shift = 8.2d;
+                endStrength = 0.70d;
+            } else if ("low".equals(level)) {
+                steps = pro ? 18 : 16;
+                cfg = 3.2d;
                 shift = 7.8d;
                 noise = 0.034d;
                 startStrength = 0.95d;
@@ -2649,12 +2675,12 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
 
     private int[] parseResolution(String resolution) {
         if (!hasText(resolution)) {
-            return new int[]{480, 854};
+            return new int[]{480, 848};
         }
         return switch (resolution.toUpperCase()) {
-            case "1080P" -> new int[]{1080, 1920};
+            case "1080P" -> new int[]{1088, 1920};
             case "720P" -> new int[]{720, 1280};
-            case "480P" -> new int[]{480, 854};
+            case "480P" -> new int[]{480, 848};
             default -> {
                 String[] parts = resolution.toLowerCase().split("[xX×]");
                 if (parts.length == 2) {
@@ -2666,7 +2692,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     } catch (NumberFormatException ignored) {
                     }
                 }
-                yield new int[]{480, 854};
+                yield new int[]{480, 848};
             }
         };
     }
