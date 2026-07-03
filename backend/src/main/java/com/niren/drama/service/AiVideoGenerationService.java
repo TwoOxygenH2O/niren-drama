@@ -54,6 +54,7 @@ public class AiVideoGenerationService {
     private final PublicAssetStorageService publicAssetStorageService;
     private final ObjectMapper objectMapper;
     private final GeneratedVideoQualityGate generatedVideoQualityGate;
+    private final ConsistencyBibleService consistencyBibleService;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(30))
@@ -851,7 +852,7 @@ public class AiVideoGenerationService {
         int baseDuration = fallbackDuration > 0 ? fallbackDuration : 10;
         String tier = resolveMotionTier(shot);
         if ("A".equalsIgnoreCase(tier)) {
-            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 5), 10), "pro", "1080P");
+            return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 5), 10), "tier-a-quality", "1080P");
         }
         if ("B".equalsIgnoreCase(tier)) {
             return new VideoGenerationProfile(Math.min(Math.max(baseDuration, 5), 10), "standard", "720P");
@@ -896,7 +897,14 @@ public class AiVideoGenerationService {
         Project project = shot.getProjectId() != null ? projectService.getProject(shot.getProjectId()) : null;
         Character character = resolveShotCharacterOrBackfill(shot);
         Scene scene = shot.getSceneId() != null ? sceneMapper.selectById(shot.getSceneId()) : null;
-        return Wan22ShortDramaPromptBuilder.build(shot, character, scene, project, chainedFromPreviousTail);
+        String prompt = Wan22ShortDramaPromptBuilder.build(shot, character, scene, project, chainedFromPreviousTail);
+        String withConsistency = consistencyBibleService.appendPromptConstraints(
+                shot.getProjectId(),
+                character != null ? character.getId() : shot.getCharacterId(),
+                scene != null ? scene.getId() : shot.getSceneId(),
+                prompt,
+                2400);
+        return hasText(withConsistency) ? withConsistency : prompt;
     }
 
     private Character resolveShotCharacterOrBackfill(Storyboard shot) {

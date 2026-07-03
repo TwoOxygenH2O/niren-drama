@@ -276,7 +276,7 @@ const storyboards = ref<any[]>([])
 const selectionLoading = ref(false)
 const updatingIds = ref(new Set<number>())
 const genForm = ref({ scriptId: '' })
-let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+let autoRefreshTimer: ReturnType<typeof window.setTimeout> | null = null
 
 const previewDialog = ref({
   visible: false,
@@ -595,16 +595,21 @@ onMounted(async () => {
     genForm.value.scriptId = String(scripts.value[0].id)
   }
   await loadStoryboards()
-  autoRefreshTimer = setInterval(async () => {
+  scheduleAutoRefresh()
+})
+
+function scheduleAutoRefresh() {
+  autoRefreshTimer = window.setTimeout(async () => {
     const hasInProgress = storyboards.value.some((s: any) =>
       s.status === 'video_submitted' || s.status === 'video_polling'
     )
     if (hasInProgress) await loadStoryboards()
+    scheduleAutoRefresh()
   }, 5000)
-})
+}
 
 onUnmounted(() => {
-  if (autoRefreshTimer) clearInterval(autoRefreshTimer)
+  if (autoRefreshTimer) window.clearTimeout(autoRefreshTimer)
 })
 </script>
 

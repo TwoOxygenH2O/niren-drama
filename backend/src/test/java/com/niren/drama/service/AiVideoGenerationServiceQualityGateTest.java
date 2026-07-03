@@ -36,7 +36,8 @@ class AiVideoGenerationServiceQualityGateTest {
                 mock(StoryboardMapper.class),
                 mock(PublicAssetStorageService.class),
                 new ObjectMapper(),
-                qualityGate);
+                qualityGate,
+                mock(ConsistencyBibleService.class));
 
         Storyboard shot = new Storyboard();
         shot.setId(101L);
@@ -82,7 +83,8 @@ class AiVideoGenerationServiceQualityGateTest {
                 mock(StoryboardMapper.class),
                 publicAssetStorageService,
                 new ObjectMapper(),
-                mock(GeneratedVideoQualityGate.class));
+                mock(GeneratedVideoQualityGate.class),
+                mock(ConsistencyBibleService.class));
 
         Character heroine = new Character();
         heroine.setId(88L);

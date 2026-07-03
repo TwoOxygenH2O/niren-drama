@@ -28,6 +28,7 @@ public class SceneService {
     private final TaskRecordMapper taskRecordMapper;
     private final AiProviderFactory aiProviderFactory;
     private final ProjectService projectService;
+    private final ConsistencyBibleService consistencyBibleService;
     private final ObjectProvider<SceneService> selfProvider;
 
     public Scene createScene(SceneCreateRequest request) {
@@ -38,6 +39,7 @@ public class SceneService {
         scene.setTimeOfDay(request.getTimeOfDay());
         scene.setLocation(request.getLocation());
         sceneMapper.insert(scene);
+        consistencyBibleService.syncSceneBible(scene);
         return scene;
     }
 
@@ -61,6 +63,7 @@ public class SceneService {
         if (request.getTimeOfDay() != null) scene.setTimeOfDay(request.getTimeOfDay());
         if (request.getLocation() != null) scene.setLocation(request.getLocation());
         sceneMapper.updateById(scene);
+        consistencyBibleService.syncSceneBible(scene);
         return scene;
     }
 
@@ -101,6 +104,7 @@ public class SceneService {
 
             scene.setImageUrl(imageUrl);
             sceneMapper.updateById(scene);
+            consistencyBibleService.syncSceneBible(scene);
 
             task.setStatus("SUCCESS");
             task.setProgress(100);
@@ -127,7 +131,7 @@ public class SceneService {
         };
         String projectType = ProjectStyleSupport.resolveProjectType(project != null ? project.getProjectType() : null);
         String genre = ProjectStyleSupport.resolveGenre(project != null ? project.getGenre() : null);
-        return String.format(
+        String prompt = String.format(
                 "竖版9:16构图，短剧场景背景图，项目类型：%s，题材：%s，%s，%s，%s，%s，视觉约束：%s，"
                 + "无人物，电影级质感，高清4K，景深效果，丰富的环境细节，"
                 + "戏剧性光影，适合作为短剧分镜背景使用",
@@ -138,5 +142,7 @@ public class SceneService {
                 location.equals("indoor") ? "室内场景" : "室外场景",
                 timeLight,
                 ProjectStyleSupport.buildVisualCreationRules(projectType, genre).replace("\n", " ").replace("- ", " "));
+        return consistencyBibleService.appendPromptConstraints(
+                scene.getProjectId(), null, scene.getId(), prompt, 1400);
     }
 }

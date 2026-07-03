@@ -68,6 +68,7 @@ class StoryboardServiceTest {
                 projectService,
                 costEstimationService,
                 publicAssetStorageService,
+                mock(ConsistencyBibleService.class),
                 new ObjectMapper(),
                 selfProvider);
 
@@ -137,6 +138,7 @@ class StoryboardServiceTest {
                 projectService,
                 costEstimationService,
                 publicAssetStorageService,
+                mock(ConsistencyBibleService.class),
                 new ObjectMapper(),
                 selfProvider);
 
@@ -194,6 +196,7 @@ class StoryboardServiceTest {
                 projectService,
                 costEstimationService,
                 publicAssetStorageService,
+                mock(ConsistencyBibleService.class),
                 new ObjectMapper(),
                 selfProvider);
 
@@ -250,6 +253,7 @@ class StoryboardServiceTest {
                 projectService,
                 costEstimationService,
                 publicAssetStorageService,
+                mock(ConsistencyBibleService.class),
                 new ObjectMapper(),
                 selfProvider);
 
@@ -303,6 +307,7 @@ class StoryboardServiceTest {
                 projectService,
                 costEstimationService,
                 publicAssetStorageService,
+                mock(ConsistencyBibleService.class),
                 new ObjectMapper(),
                 selfProvider);
 

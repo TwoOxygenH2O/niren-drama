@@ -492,12 +492,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { UploadUserFile } from 'element-plus'
 import { Plus, Edit, Delete, RefreshRight, InfoFilled, Lock, Upload, UploadFilled } from '@element-plus/icons-vue'
 import { aiConfigApi } from '../../api/aiConfig'
-import { taskApi } from '../../api/task'
+import { useTaskPolling } from '@/composables/useTaskPolling'
 
 const configs = ref<any[]>([])
 const showDialog = ref(false)
@@ -512,7 +512,19 @@ const trainingFiles = ref<UploadUserFile[]>([])
 const trainingSubmitting = ref(false)
 const trainingPromptPackLoading = ref(false)
 const trainingTask = ref<any | null>(null)
-let trainingPollTimer: number | undefined
+const trainingTaskPolling = useTaskPolling({
+  intervalMs: 3000,
+  onProgress: (task) => {
+    trainingTask.value = task
+  },
+  onSuccess: (task) => {
+    trainingTask.value = task
+    ElMessage.success('Wan2.2 LoRA 训练完成')
+  },
+  onFailure: (task) => {
+    trainingTask.value = task
+  },
+})
 
 const trainingForm = ref({
   runName: '',
@@ -960,33 +972,7 @@ async function submitTraining() {
 }
 
 function startTrainingPolling(taskId: number | string) {
-  stopTrainingPolling()
-  const poll = async () => {
-    try {
-      const res = await taskApi.get(taskId)
-      trainingTask.value = res.data?.data || trainingTask.value
-      if (trainingTask.value?.status === 'SUCCESS') {
-        ElMessage.success('Wan2.2 LoRA 训练完成')
-        stopTrainingPolling()
-        return
-      }
-      if (trainingTask.value?.status === 'FAILED') {
-        stopTrainingPolling()
-        return
-      }
-    } catch {
-      // Keep polling; transient backend reloads are common during local development.
-    }
-    trainingPollTimer = window.setTimeout(poll, 3000)
-  }
-  trainingPollTimer = window.setTimeout(poll, 1000)
-}
-
-function stopTrainingPolling() {
-  if (trainingPollTimer) {
-    window.clearTimeout(trainingPollTimer)
-    trainingPollTimer = undefined
-  }
+  trainingTaskPolling.start(taskId, { intervalMs: 1000 })
 }
 
 async function fetchComfyUiWorkflows() {
@@ -1073,7 +1059,6 @@ async function copyImageToVideoUrl() {
 }
 
 onMounted(load)
-onBeforeUnmount(stopTrainingPolling)
 </script>
 
 <style scoped>

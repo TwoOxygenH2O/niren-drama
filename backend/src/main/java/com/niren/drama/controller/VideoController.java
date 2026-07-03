@@ -12,6 +12,7 @@ import com.niren.drama.service.ReferenceVideoService;
 import com.niren.drama.service.StoryboardService;
 import com.niren.drama.service.VideoCompositionService;
 import com.niren.drama.service.ProjectService;
+import com.niren.drama.service.EpisodePipelineService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +43,7 @@ public class VideoController {
     private final VideoCompositionService videoCompositionService;
     private final ReferenceVideoService referenceVideoService;
     private final ProjectService projectService;
+    private final EpisodePipelineService episodePipelineService;
     private final CurrentUserHelper currentUserHelper;
 
     private List<Long> parseShotIds(JsonNode body) {
@@ -93,6 +95,19 @@ public class VideoController {
         );
     }
 
+    private Integer parseEpisodeNo(JsonNode body) {
+        if (body == null || !body.isObject() || !body.hasNonNull("episodeNo")) {
+            return null;
+        }
+        int episodeNo = body.path("episodeNo").asInt(0);
+        return episodeNo > 0 ? episodeNo : null;
+    }
+
+    private boolean parseRunQualityCheck(JsonNode body) {
+        return body == null || !body.isObject()
+                || !body.has("runQualityCheck") || body.path("runQualityCheck").asBoolean(true);
+    }
+
     @Operation(summary = "生成分镜图片（异步）")
     @PostMapping("/generate-images/{projectId}")
     public Result<TaskRecord> generateImages(@PathVariable Long projectId, @RequestBody(required = false) JsonNode body,
@@ -127,6 +142,22 @@ public class VideoController {
         Long userId = currentUserHelper.getUserId(userDetails);
         List<Long> shotIds = parseRequestedShotIds(body);
         return Result.success(videoCompositionService.startCompose(userId, projectId, shotIds, parseComposeOptions(body)));
+    }
+
+    @Operation(summary = "执行剧集生产线（补图、动态镜头、配音、合成、质检）")
+    @PostMapping("/pipeline/{projectId}")
+    public Result<TaskRecord> runEpisodePipeline(@PathVariable Long projectId,
+                                                 @RequestBody(required = false) JsonNode body,
+                                                 @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = currentUserHelper.getUserId(userDetails);
+        List<Long> shotIds = parseRequestedShotIds(body);
+        return Result.success(episodePipelineService.startPipeline(
+                userId,
+                projectId,
+                parseEpisodeNo(body),
+                shotIds,
+                parseComposeOptions(body),
+                parseRunQualityCheck(body)));
     }
 
     @Operation(summary = "参考图生成视频（先上传到 COS，再提交万相 2.7 i2v）")

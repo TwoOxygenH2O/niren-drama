@@ -1,9 +1,11 @@
-import { onUnmounted } from 'vue'
+import { onScopeDispose } from 'vue'
 import { taskApi } from '@/api/task'
+
+export type TaskStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED'
 
 export type PolledTask = {
   id?: number | string
-  status?: string
+  status?: TaskStatus | string
   message?: string
   progress?: number
   [key: string]: unknown
@@ -11,67 +13,101 @@ export type PolledTask = {
 
 export type TaskPollingOptions = {
   intervalMs?: number
-  maxAttempts?: number
+  maxDurationMs?: number
   onSuccess?: (task: PolledTask) => void | Promise<void>
   onFailure?: (task: PolledTask) => void | Promise<void>
+  onProgress?: (task: PolledTask) => void | Promise<void>
   onTimeout?: () => void | Promise<void>
 }
 
 export function useTaskPolling(defaults: TaskPollingOptions = {}) {
-  let timer: ReturnType<typeof window.setTimeout> | null = null
-  let attempts = 0
-  let activeTaskId: number | string | null = null
+  type PollState = {
+    taskId: number | string
+    timer: ReturnType<typeof window.setTimeout> | null
+    startedAt: number
+    failureDelayMs: number
+    stopped: boolean
+    options: TaskPollingOptions
+  }
 
-  function stop() {
-    if (timer !== null) {
-      window.clearTimeout(timer)
-      timer = null
+  const active = new Map<string, PollState>()
+
+  function taskKey(taskId: number | string) {
+    return String(taskId)
+  }
+
+  function stop(taskId: number | string) {
+    const key = taskKey(taskId)
+    const state = active.get(key)
+    if (!state) {
+      return
     }
-    activeTaskId = null
-    attempts = 0
+    state.stopped = true
+    if (state.timer !== null) {
+      window.clearTimeout(state.timer)
+      state.timer = null
+    }
+    active.delete(key)
+  }
+
+  function stopAll() {
+    Array.from(active.keys()).forEach((key) => stop(key))
   }
 
   function start(taskId: number | string, options: TaskPollingOptions = {}) {
-    stop()
-    activeTaskId = taskId
+    stop(taskId)
     const intervalMs = options.intervalMs ?? defaults.intervalMs ?? 2000
-    const maxAttempts = options.maxAttempts ?? defaults.maxAttempts ?? 150
+    const maxDurationMs = options.maxDurationMs ?? defaults.maxDurationMs ?? 600000
+    const key = taskKey(taskId)
+    const state: PollState = {
+      taskId,
+      timer: null,
+      startedAt: Date.now(),
+      failureDelayMs: intervalMs,
+      stopped: false,
+      options,
+    }
+    active.set(key, state)
+
+    const resolveHandler = <K extends keyof TaskPollingOptions>(handler: K) =>
+      state.options[handler] ?? defaults[handler]
 
     const poll = async () => {
-      if (activeTaskId !== taskId) return
-      attempts += 1
-      if (attempts > maxAttempts) {
-        stop()
-        await (options.onTimeout ?? defaults.onTimeout)?.()
+      if (state.stopped || active.get(key) !== state) return
+      if (Date.now() - state.startedAt > maxDurationMs) {
+        stop(taskId)
+        await resolveHandler('onTimeout')?.()
         return
       }
 
       try {
         const res = await taskApi.get(taskId)
         const task = ((res as any).data?.data || {}) as PolledTask
+        state.failureDelayMs = intervalMs
         if (task.status === 'SUCCESS') {
-          stop()
-          await (options.onSuccess ?? defaults.onSuccess)?.(task)
+          stop(taskId)
+          await resolveHandler('onSuccess')?.(task)
           return
         }
         if (task.status === 'FAILED') {
-          stop()
-          await (options.onFailure ?? defaults.onFailure)?.(task)
+          stop(taskId)
+          await resolveHandler('onFailure')?.(task)
           return
         }
+        await resolveHandler('onProgress')?.(task)
       } catch {
-        // Keep polling through transient API errors; maxAttempts is the safety cap.
+        state.failureDelayMs = Math.min(Math.round(state.failureDelayMs * 1.5), intervalMs * 4)
       }
 
-      if (activeTaskId === taskId) {
-        timer = window.setTimeout(poll, intervalMs)
+      if (!state.stopped && active.get(key) === state) {
+        state.timer = window.setTimeout(poll, state.failureDelayMs)
       }
     }
 
-    timer = window.setTimeout(poll, intervalMs)
+    state.timer = window.setTimeout(poll, intervalMs)
   }
 
-  onUnmounted(stop)
+  onScopeDispose(stopAll)
 
-  return { start, stop }
+  return { start, stop, stopAll }
 }

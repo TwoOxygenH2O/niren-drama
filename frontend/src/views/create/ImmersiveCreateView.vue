@@ -29,271 +29,70 @@
     </header>
 
     <div class="immersive-body" :class="{ 'has-plan': showPlanPanel }">
-      <aside class="episode-rail" aria-label="剧集">
-        <span class="episode-rail-label">剧集</span>
-        <div class="episode-pills-scroll">
-          <div class="episode-pills">
-            <button
-              v-for="ep in episodeDisplay"
-              :key="ep"
-              type="button"
-              class="episode-dot"
-              :class="{ active: ep === activeEpisode }"
-              :aria-label="`切换到第 ${ep} 集`"
-              @click="activeEpisode = ep"
-            >
-              {{ String(ep).padStart(2, '0') }}
-            </button>
-          </div>
-        </div>
-        <button type="button" class="episode-add" title="新增剧集" aria-label="新增剧集" @click="openAddEpisodeDialog">
-          +
-        </button>
-      </aside>
+      <EpisodeRail
+        v-model:active-episode="activeEpisode"
+        :episode-display="episodeDisplay"
+        @add="openAddEpisodeDialog"
+      />
 
-      <main class="immersive-main">
-        <div ref="scrollRef" class="chat-scroll">
-          <div v-if="userPrompt" class="msg-user-wrap">
-            <div class="bubble-user">{{ userPrompt }}</div>
-          </div>
+      <DirectorChatStream
+        ref="chatStreamRef"
+        v-model:bottom-input="bottomInput"
+        :active-episode="activeEpisode"
+        :bottom-sending="bottomSending"
+        :characters-confirmed="charactersConfirmed"
+        :characters-ready="charactersReady"
+        :chat-tail="chatTail"
+        :composer-placeholder="composerPlaceholder"
+        :generating="generating"
+        :outline-content="outlineContent"
+        :outline-html="outlineHtml"
+        :outline-plain-display="outlinePlainDisplay"
+        :outline-saving="outlineSaving"
+        :script-confirmed="scriptConfirmed"
+        :script-ready="scriptReady"
+        :script-workflow-loading="scriptWorkflowLoading"
+        :show-outline-confirm-actions="showOutlineConfirmActions"
+        :stream-error="streamError"
+        :user-prompt="userPrompt"
+        :workflow-phase="workflowPhase"
+        @attach="noopAttach"
+        @confirm-characters="() => confirmCharacters()"
+        @confirm-outline="confirmOutline"
+        @confirm-script="confirmScript"
+        @send-follow-up="sendFollowUp"
+      />
 
-          <div v-if="activeEpisode > 1" class="continuation-block">
-            <h3 class="continuation-title">继续策划下一集</h3>
-            <div class="continuation-seko">
-              <span class="ai-brand small"><span class="ai-brand-dot" /> 泥人</span>
-              <p class="continuation-lead">提炼前面故事的情节走向</p>
-              <p class="continuation-desc">
-                承接上一集的悬念与人物状态，在下方说明本集开场、冲突或反转；也可让我先梳理前几集的伏笔与节奏。
-              </p>
-            </div>
-          </div>
-
-          <div v-if="generating" class="ai-status-row">
-            <span class="ai-brand">
-              <span class="ai-brand-dot" />
-              泥人
-            </span>
-            <span class="ai-status">
-              <span class="spin" aria-hidden="true" />
-              {{ outlineContent ? '正在流式输出…' : '策划剧本大纲' }}
-            </span>
-            <p v-if="!outlineContent" class="ttft-hint">
-              正在等待模型首包：会先写「项目通用信息」，大模型首字通常需数秒至几十秒，请稍候。
-            </p>
-          </div>
-
-          <div v-if="outlineContent" class="outline-card">
-            <pre v-if="generating" class="outline-plain">{{ outlinePlainDisplay }}</pre>
-            <div v-else class="outline-md" v-html="outlineHtml" />
-            <div v-if="showOutlineConfirmActions" class="outline-card-actions step-confirm-actions">
-              <button
-                type="button"
-                class="btn-confirm-step"
-                :disabled="outlineSaving || scriptWorkflowLoading"
-                @click="confirmOutline"
-              >
-                确认大纲
-              </button>
-            </div>
-          </div>
-
-          <div v-for="(m, i) in chatTail" :key="i" class="chat-extra" :class="m.role">
-            <template v-if="m.role === 'user'">
-              <div class="bubble-user">{{ m.text }}</div>
-            </template>
-            <template v-else>
-              <div class="ai-line">
-                <span class="ai-brand small"><span class="ai-brand-dot" /> 泥人</span>
-                <p class="ai-text">{{ m.text }}</p>
-              </div>
-            </template>
-          </div>
-
-          <!-- 角色确认按钮 -->
-          <div v-if="charactersReady && !charactersConfirmed" class="chat-action-row step-confirm-actions">
-            <button type="button" class="btn-confirm-step" @click="() => confirmCharacters()">
-              确认角色，生成剧本
-            </button>
-          </div>
-
-          <!-- 剧本确认按钮 -->
-          <div v-if="scriptReady && !scriptConfirmed" class="chat-action-row step-confirm-actions">
-            <button type="button" class="btn-confirm-step" @click="confirmScript">
-              确认剧本
-            </button>
-          </div>
-
-          <div v-if="streamError" class="stream-err">{{ streamError }}</div>
-        </div>
-
-        <div class="composer-bottom">
-          <div class="composer-inner">
-            <button type="button" class="attach-btn" title="附件" aria-label="附件" @click="noopAttach">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
-              </svg>
-            </button>
-            <textarea
-              v-model="bottomInput"
-              class="bottom-textarea"
-              :placeholder="composerPlaceholder"
-              rows="1"
-              @keydown="onBottomKeydown"
-            />
-            <button
-              type="button"
-              class="send-round"
-              :disabled="
-                bottomSending ||
-                outlineSaving ||
-                scriptWorkflowLoading ||
-                (workflowPhase === 'outline' && !outlineContent.trim())
-              "
-              title="发送（Cmd/Ctrl + Enter）"
-              aria-label="发送"
-              @click="sendFollowUp"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="19" x2="12" y2="5" />
-                <polyline points="5 12 12 5 19 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </main>
-
-      <aside v-if="showPlanPanel" class="immersive-plan" :aria-label="`第${activeEpisode}集策划`">
-        <div class="plan-scroll">
-          <header class="plan-head">
-            <span class="plan-ep-badge">第 {{ String(activeEpisode).padStart(2, '0') }} 集</span>
-            <h2 class="plan-title">{{ activePlanScript?.title || '—' }}</h2>
-            <p class="plan-ai-note">内容由智能生成</p>
-            <button type="button" class="plan-close-btn" title="收起策划栏" aria-label="收起策划栏" @click="workflowPhase = 'outline'">✕</button>
-          </header>
-
-          <div v-if="scriptWorkflowLoading" class="plan-loading">
-            <span class="spin plan-spin" aria-hidden="true" />
-            <p>{{ scriptWorkflowPhaseText }}</p>
-          </div>
-
-          <template v-else>
-            <section class="plan-block">
-              <h3 class="plan-block-title">梗概</h3>
-              <p class="plan-block-body">{{ activePlanScript?.summary || '暂无梗概，可在剧本页补充。' }}</p>
-            </section>
-
-            <section class="plan-block">
-              <h3 class="plan-block-title">主体列表</h3>
-              <p v-if="!planCharacters.length" class="plan-muted">暂无主体，大纲保存后将同步角色库。</p>
-              <ul v-else class="plan-subject-list">
-                <li v-for="c in planCharacters" :key="c.id" class="plan-subject-item" @click="openCharGallery(c)">
-                  <div class="plan-subject-avatar">
-                    <img v-if="c.imageUrl" :src="c.imageUrl" :alt="c.name" loading="lazy" decoding="async" />
-                    <span v-else-if="portraitRefreshing" class="plan-avatar-ph plan-avatar-ph--loading">生成中</span>
-                    <span v-else class="plan-avatar-ph">·</span>
-                  </div>
-                  <div class="plan-subject-meta">
-                    <span class="plan-subject-name">{{ c.name }}</span>
-                    <span v-if="c.appearance" class="plan-subject-desc">{{ c.appearance }}</span>
-                  </div>
-                </li>
-              </ul>
-            </section>
-
-            <section class="plan-block">
-              <h3 class="plan-block-title">分镜剧本</h3>
-              <p v-if="!episodeScriptBody.trim()" class="plan-muted">
-                暂无本集剧本正文；完成角色确认后自动生成。
-              </p>
-              <pre v-else class="plan-script-body">{{ episodeScriptBody }}</pre>
-            </section>
-
-            <!-- 视频工作台入口卡片（项目有成片时显示） -->
-            <div v-if="hasProjectVideo" class="video-workbench-entry" @click="goVideoWorkbench">
-              <div class="vwe-glow" />
-              <div class="vwe-card">
-                <div class="vwe-icon-ring">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <polygon points="5,3 19,12 5,21" fill="currentColor" />
-                  </svg>
-                </div>
-                <div class="vwe-body">
-                  <h4 class="vwe-title">成片已就绪</h4>
-                  <p class="vwe-desc">进入视频工作台，逐镜查看与微调</p>
-                </div>
-                <span class="vwe-arrow" aria-hidden="true">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="9,18 15,12 9,6" />
-                  </svg>
-                </span>
-              </div>
-            </div>
-          </template>
-        </div>
-
-        <div v-if="showGenVideoFab && !scriptWorkflowLoading" class="plan-actions plan-actions--dock">
-          <p v-if="episodeStoryboardGenerating" class="plan-action-hint">正在拆解本集分镜并准备视频镜头，请稍候…</p>
-          <p v-else-if="episodeStoryboardReady" class="plan-action-hint plan-action-hint--ok">本集分镜已就绪；点击下方将为每个分镜生成视频镜头。</p>
-          <p v-else-if="episodeStoryboardErr" class="plan-action-hint plan-action-hint--err">{{ episodeStoryboardErr }}</p>
-          <p v-else class="plan-action-hint">等待分镜任务…</p>
-          <button
-            type="button"
-            class="btn-plan-prompts"
-            :disabled="!activePlanScript?.id || !episodeScriptBody.trim()"
-            @click="videoPromptsOpen = true"
-          >
-            生成视频提示词
-          </button>
-          <button
-            type="button"
-            class="btn-plan-video"
-            :disabled="primaryVideoDisabled"
-            @click="onPrimaryVideoAction"
-          >
-            <span class="btn-plan-video-ico" aria-hidden="true">✦</span>
-            {{ primaryVideoLabel }}
-          </button>
-          <el-popover
-            v-if="!hasProjectVideo && episodeStoryboardReady && episodeShots.length > 0"
-            placement="top"
-            :width="280"
-            trigger="click"
-            :show-arrow="false"
-            popper-class="shot-select-popover"
-          >
-            <template #reference>
-              <button type="button" class="btn-shot-select" aria-label="选择生成镜头" :class="{ 'has-selection': selectedShotIds.length > 0 && !allSelected }">
-                {{ shotSelectLabel }}
-                <span class="btn-shot-select-arrow">▾</span>
-              </button>
-            </template>
-            <div class="shot-select-panel">
-              <div class="shot-select-header">
-                <button type="button" class="shot-select-all-btn" @click="toggleSelectAll">
-                  {{ allSelected ? '取消全选' : '全选' }}
-                </button>
-                <span class="shot-select-count">{{ selectedShotIds.length }} / {{ episodeShots.length }}</span>
-              </div>
-              <el-checkbox-group v-model="selectedShotIds" class="shot-select-list">
-                <el-checkbox
-                  v-for="shot in episodeShots"
-                  :key="shot.id"
-                  :value="String(shot.id)"
-                  class="shot-select-item"
-                >
-                  <span class="shot-select-item-no">镜头 {{ shot.shotNo }}</span>
-                  <span v-if="shot.videoUrl" class="shot-select-item-status shot-select-item-status--done">已有视频</span>
-                  <span v-else class="shot-select-item-status">动态</span>
-                </el-checkbox>
-              </el-checkbox-group>
-            </div>
-          </el-popover>
-          <div v-if="mediaSubmitLoading && mediaTaskMessage" class="plan-video-progress">
-            <span class="plan-video-progress-text">{{ mediaTaskMessage }}{{ mediaTaskProgress > 0 ? ` ${mediaTaskProgress}%` : '' }}</span>
-            <div class="plan-video-progress-bar" :style="{ width: mediaTaskProgress + '%' }" />
-          </div>
-        </div>
-      </aside>
+      <PlanPanel
+        v-if="showPlanPanel"
+        v-model:selected-shot-ids="selectedShotIds"
+        :active-episode="activeEpisode"
+        :active-plan-script="activePlanScript"
+        :all-selected="allSelected"
+        :episode-script-body="episodeScriptBody"
+        :episode-shots="episodeShots"
+        :episode-storyboard-err="episodeStoryboardErr"
+        :episode-storyboard-generating="episodeStoryboardGenerating"
+        :episode-storyboard-ready="episodeStoryboardReady"
+        :has-project-video="hasProjectVideo"
+        :media-submit-loading="mediaSubmitLoading"
+        :media-task-message="mediaTaskMessage"
+        :media-task-progress="mediaTaskProgress"
+        :plan-characters="planCharacters"
+        :portrait-refreshing="portraitRefreshing"
+        :primary-video-disabled="primaryVideoDisabled"
+        :primary-video-label="primaryVideoLabel"
+        :script-workflow-loading="scriptWorkflowLoading"
+        :script-workflow-phase-text="scriptWorkflowPhaseText"
+        :shot-select-label="shotSelectLabel"
+        :show-gen-video-fab="showGenVideoFab"
+        @close="workflowPhase = 'outline'"
+        @go-video-workbench="goVideoWorkbench"
+        @open-character-gallery="openCharGallery"
+        @open-video-prompts="videoPromptsOpen = true"
+        @primary-video="onPrimaryVideoAction"
+        @toggle-select-all="toggleSelectAll"
+      />
     </div>
 
     <el-dialog
@@ -366,9 +165,12 @@ import { characterApi } from '@/api/character'
 import { projectApi } from '@/api/project'
 import { scriptApi } from '@/api/script'
 import { storyboardApi } from '@/api/storyboard'
-import { taskApi } from '@/api/task'
 import { videoApi } from '@/api/video'
+import { useTaskPolling, type PolledTask } from '@/composables/useTaskPolling'
 import { formatOutlinePlainDividers, renderAiOutlineMarkdown } from '@/utils/renderMarkdown'
+import DirectorChatStream from '@/components/create/DirectorChatStream.vue'
+import EpisodeRail from '@/components/create/EpisodeRail.vue'
+import PlanPanel from '@/components/create/PlanPanel.vue'
 import VideoPromptsExportDialog from '@/components/create/VideoPromptsExportDialog.vue'
 
 const INSPIRATION_KEY = 'niren.dashboard.inspiration'
@@ -404,7 +206,7 @@ const charGalleryVisible = ref(false)
 const charGalleryChar = ref<any>(null)
 const charGalleryImages = ref<string[]>([])
 const streamError = ref('')
-const scrollRef = ref<HTMLElement | null>(null)
+const chatStreamRef = ref<InstanceType<typeof DirectorChatStream> | null>(null)
 
 const activeEpisode = ref(1)
 const bottomInput = ref('')
@@ -471,8 +273,9 @@ const mediaSubmitLoading = ref(false)
 const mediaTaskProgress = ref(0)
 const mediaTaskMessage = ref('')
 const activeMediaTaskId = ref('')
-let mediaPollTimer: ReturnType<typeof setTimeout> | null = null
 const VIDEO_TASK_POLL_TIMEOUT_MS = 12 * 60 * 60 * 1000
+const blockingTaskPolling = useTaskPolling()
+const mediaTaskPolling = useTaskPolling()
 /** 剧集切换或重复调度时递增，用于取消过期的分镜拉取/生成流程 */
 let sbEnsureGeneration = 0
 
@@ -489,10 +292,7 @@ function goPreview() {
 }
 
 function clearMediaTaskState() {
-  if (mediaPollTimer) {
-    clearTimeout(mediaPollTimer)
-    mediaPollTimer = null
-  }
+  mediaTaskPolling.stopAll()
   activeMediaTaskId.value = ''
   mediaSubmitLoading.value = false
   mediaTaskProgress.value = 0
@@ -538,12 +338,6 @@ function pickCurrentEpisodeShots(allShots: any[], scriptId: string) {
   return dedupeAndSortShots(source)
 }
 
-function isAuthFlowError(error: unknown) {
-  const err = error as { code?: unknown; message?: unknown }
-  const message = String(err?.message || '')
-  return err?.code === 401 || err?.code === 403 || message.includes('登录') || message.includes('无权限')
-}
-
 function toggleSelectAll() {
   if (allSelected.value) {
     selectedShotIds.value = []
@@ -575,8 +369,7 @@ const episodeDisplay = computed(() => {
 
 function scrollToBottom() {
   nextTick(() => {
-    const el = scrollRef.value
-    if (el) el.scrollTop = el.scrollHeight
+    chatStreamRef.value?.scrollToBottom()
   })
 }
 
@@ -665,18 +458,16 @@ async function startOutlineStream() {
   }
 }
 
-async function pollTaskUntilDone(taskId: string, timeoutMs = VIDEO_TASK_POLL_TIMEOUT_MS) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const ax = await taskApi.get(taskId)
-    const payload = ax.data as { data?: Record<string, unknown> }
-    const task = payload?.data ?? (payload as Record<string, unknown>)
-    const st = task?.status as string | undefined
-    if (st === 'SUCCESS') return task
-    if (st === 'FAILED') throw new Error(String(task?.message || '后台任务失败'))
-    await new Promise((r) => setTimeout(r, 2000))
-  }
-  throw new Error('任务等待超时，请稍后在「剧本生成」页查看进度')
+function waitForTask(taskId: string, timeoutMs = VIDEO_TASK_POLL_TIMEOUT_MS) {
+  return new Promise<PolledTask>((resolve, reject) => {
+    blockingTaskPolling.start(taskId, {
+      intervalMs: 2000,
+      maxDurationMs: timeoutMs,
+      onSuccess: resolve,
+      onFailure: (task) => reject(new Error(String(task.message || '后台任务失败'))),
+      onTimeout: () => reject(new Error('任务等待超时，请稍后在「剧本生成」页查看进度')),
+    })
+  })
 }
 
 function extractTaskId(res: unknown): string | null {
@@ -736,7 +527,7 @@ async function ensureEpisodeStoryboard() {
     const genRes = await storyboardApi.generate({ projectId: projectId.value, scriptId })
     const taskId = extractTaskId(genRes)
     if (!taskId) throw new Error('未返回分镜任务')
-    await pollTaskUntilDone(taskId)
+    await waitForTask(taskId)
     if (gen !== sbEnsureGeneration) return
 
     const verifyRes = await storyboardApi.listByProject(projectId.value)
@@ -815,10 +606,7 @@ async function onPrimaryVideoAction() {
   mediaTaskProgress.value = 0
   mediaTaskMessage.value = `正在提交 ${shotIds.length} 个镜头的视频生成任务…`
   activeMediaTaskId.value = ''
-  if (mediaPollTimer) {
-    clearTimeout(mediaPollTimer)
-    mediaPollTimer = null
-  }
+  mediaTaskPolling.stopAll()
   try {
 
     const dynRes = await videoApi.generateStoryboardVideos(projectId.value, shotIds)
@@ -829,48 +617,36 @@ async function onPrimaryVideoAction() {
     ElMessage.success('视频生成任务已提交，可在成片预览查看进度')
     mediaTaskMessage.value = '视频生成中，请稍候…'
 
-    // 非阻塞轮询：更新进度但不阻塞 UI
-    const deadline = Date.now() + VIDEO_TASK_POLL_TIMEOUT_MS
-    const poll = async () => {
-      if (!mediaSubmitLoading.value || activeMediaTaskId.value !== tid) return
-      if (Date.now() > deadline) {
+    mediaTaskPolling.start(tid, {
+      intervalMs: 3000,
+      maxDurationMs: VIDEO_TASK_POLL_TIMEOUT_MS,
+      onProgress: (task) => {
+        if (activeMediaTaskId.value !== tid) return
+        mediaTaskProgress.value = Number(task.progress ?? 0)
+        mediaTaskMessage.value = task.message || '视频生成中…'
+      },
+      onSuccess: async (task) => {
+        if (activeMediaTaskId.value !== tid) return
+        mediaTaskProgress.value = 100
+        mediaTaskMessage.value = task.message || '视频生成完成'
+        await Promise.all([loadEpisodeShots(), refreshVideoOverview()])
+        clearMediaTaskState()
+        router.push({
+          path: `/projects/${projectId.value}/immersive/workbench`,
+          query: { episode: String(activeEpisode.value), tab: 'video' },
+        })
+      },
+      onFailure: (task) => {
+        if (activeMediaTaskId.value !== tid) return
+        clearMediaTaskState()
+        ElMessage.error(task.message || '视频生成失败')
+      },
+      onTimeout: () => {
+        if (activeMediaTaskId.value !== tid) return
         clearMediaTaskState()
         ElMessage.warning('视频生成轮询已达到 12 小时，请到成片预览查看进度')
-        return
-      }
-      try {
-        const ax = await taskApi.get(tid)
-        const task = ax.data?.data ?? ax.data
-        mediaTaskProgress.value = Number(task?.progress ?? 0)
-        mediaTaskMessage.value = task?.message || '视频生成中…'
-        const status = String(task?.status || '').toUpperCase()
-        if (status === 'SUCCESS') {
-          mediaTaskProgress.value = 100
-          mediaTaskMessage.value = task?.message || '视频生成完成'
-          await Promise.all([loadEpisodeShots(), refreshVideoOverview()])
-          clearMediaTaskState()
-          router.push({
-            path: `/projects/${projectId.value}/immersive/workbench`,
-            query: { episode: String(activeEpisode.value), tab: 'video' },
-          })
-          return
-        }
-        if (status === 'FAILED') {
-          clearMediaTaskState()
-          ElMessage.error(task?.message || '视频生成失败')
-          return
-        }
-      } catch (error) {
-        if (isAuthFlowError(error)) {
-          clearMediaTaskState()
-          ElMessage.error(error instanceof Error ? error.message : '登录已过期，请重新登录')
-          return
-        }
-        mediaTaskMessage.value = '正在同步视频生成进度…'
-      }
-      mediaPollTimer = setTimeout(poll, 3000)
-    }
-    mediaPollTimer = setTimeout(poll, 3000)
+      },
+    })
   } catch (e: unknown) {
     clearMediaTaskState()
     ElMessage.error(e instanceof Error ? e.message : '分镜视频生成失败')
@@ -965,7 +741,7 @@ async function confirmCharacters(skipUserMessage = false) {
     const taskPayload = (genRes as any).data?.data ?? (genRes as any).data
     const taskId = taskPayload?.id
     if (!taskId) throw new Error('未返回剧本生成任务')
-    await pollTaskUntilDone(String(taskId))
+    await waitForTask(String(taskId))
     await loadPlanSideData()
     scriptReady.value = true
     scriptWorkflowLoading.value = false
@@ -1063,13 +839,6 @@ async function confirmOutline() {
   await saveOutlineAndAdvance()
 }
 
-function onBottomKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault()
-    sendFollowUp()
-  }
-}
-
 const CONFIRM_OUTLINE_TRIGGERS = ['确认分镜大纲', '确认大纲']
 const CONFIRM_CHARACTER_TRIGGERS = ['确认角色']
 
@@ -1148,7 +917,7 @@ async function sendFollowUp() {
     const ttype = data.taskType as string | undefined
     if (tid != null && (ttype === 'STORYBOARD_GEN' || ttype === 'SCRIPT_GEN' || ttype === 'CHARACTER_REGENERATE')) {
       try {
-        await pollTaskUntilDone(String(tid))
+        await waitForTask(String(tid))
         await loadPlanSideData()
         if (ttype === 'STORYBOARD_GEN') {
           episodeStoryboardReady.value = true

@@ -35,6 +35,7 @@ public class CharacterService {
     private final AiProviderFactory aiProviderFactory;
     private final ProjectService projectService;
     private final PublicAssetStorageService publicAssetStorageService;
+    private final ConsistencyBibleService consistencyBibleService;
     private final ObjectProvider<CharacterService> selfProvider;
 
     public Character createCharacter(CharacterCreateRequest request) {
@@ -51,6 +52,7 @@ public class CharacterService {
         character.setSpeechRate(request.getSpeechRate());
         character.setTtsNote(request.getTtsNote());
         characterMapper.insert(character);
+        consistencyBibleService.syncCharacterBible(character);
         return character;
     }
 
@@ -80,6 +82,7 @@ public class CharacterService {
         if (request.getSpeechRate() != null) character.setSpeechRate(request.getSpeechRate());
         if (request.getTtsNote() != null) character.setTtsNote(request.getTtsNote());
         characterMapper.updateById(character);
+        consistencyBibleService.syncCharacterBible(character);
         return character;
     }
 
@@ -196,6 +199,7 @@ public class CharacterService {
                 log.warn("Failed to serialize imageUrls", e);
             }
             characterMapper.updateById(character);
+            consistencyBibleService.syncCharacterBible(character);
 
             task.setStatus("SUCCESS");
             task.setProgress(100);
@@ -220,7 +224,7 @@ public class CharacterService {
         String personality = character.getPersonality() != null ? character.getPersonality() : "自信从容";
         String projectType = ProjectStyleSupport.resolveProjectType(project != null ? project.getProjectType() : null);
         String genre = ProjectStyleSupport.resolveGenre(project != null ? project.getGenre() : null);
-        return String.format(
+        String prompt = String.format(
                 "竖版9:16构图，短剧角色肖像定妆照，%s，%s，%s岁，"
                 + "项目类型：%s，题材：%s，外貌特征：%s，气质：%s，视觉约束：%s，"
                 + "半身正面照，眼神有戏，电影级质感，高清4K，"
@@ -229,6 +233,8 @@ public class CharacterService {
                 character.getName(), gender, age,
                 projectType, genre, appearance, personality,
                 ProjectStyleSupport.buildVisualCreationRules(projectType, genre).replace("\n", " ").replace("- ", " "));
+        return consistencyBibleService.appendPromptConstraints(
+                character.getProjectId(), character.getId(), null, prompt, 1400);
     }
 
     private float resolveSpeechSpeed(Character character) {

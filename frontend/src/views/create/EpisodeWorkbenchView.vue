@@ -508,6 +508,10 @@ const route = useRoute()
 const router = useRouter()
 
 const projectId = computed(() => String(route.params.id || ''))
+const activeEpisodeNo = computed(() => {
+  const n = Number(route.query.episode || 1)
+  return Number.isFinite(n) && n > 0 ? n : 1
+})
 const workspace = ref<any | null>(null)
 const loading = ref(false)
 const loadingAction = ref('')
@@ -520,7 +524,7 @@ const casrAnalysis = ref<any | null>(null)
 const casrPlan = ref<any | null>(null)
 const casrLoading = ref('')
 const casrSelectedOptionId = ref('')
-let refreshTimer: ReturnType<typeof setInterval> | null = null
+let refreshTimer: ReturnType<typeof window.setTimeout> | null = null
 let workspaceRequestId = 0
 
 const PLATFORM_PROFILE_KEY = 'niren.dashboard.platformProfile'
@@ -688,7 +692,7 @@ function executePrimaryAction() {
   if (!action?.id) return
   if (action.id === 'qualityCheck') return runQualityCheck()
   if (action.id === 'export') return exportPackage()
-  if (action.id === 'runEpisodePipeline') return runRepair(action.id, [])
+  if (action.id === 'runEpisodePipeline') return runEpisodePipeline()
   if (action.type === 'route') return goStoryboard()
   if (action.id === 'retryVideo' || action.id === 'switchLtx' || action.id === 'switchWan' || action.id === 'switchHunyuan') return generateVideos()
   if (action.id === 'generateImages') return generateFirstFrames()
@@ -717,6 +721,27 @@ function composeCurrent() {
 
 function clearStaleTasks() {
   runRepair('clearStaleTasks')
+}
+
+async function runEpisodePipeline() {
+  if (!projectId.value || loadingAction.value) return
+  loadingAction.value = 'runEpisodePipeline'
+  try {
+    const res = await videoApi.pipeline(projectId.value, {
+      episodeNo: activeEpisodeNo.value,
+      shotIds: shots.value.map((shot) => shot.id),
+      runQualityCheck: true,
+      dialoguePriority: true,
+      bgmEnabled: mode.value === 'publish',
+    })
+    const task = (res as any).data?.data || {}
+    ElMessage.success(task?.id ? '剧集生产线已提交' : '生产线已启动')
+    await loadWorkspace(true)
+  } catch (error: any) {
+    ElMessage.error(error?.message || '生产线启动失败')
+  } finally {
+    loadingAction.value = ''
+  }
 }
 
 async function runQualityCheck() {
@@ -917,10 +942,15 @@ onMounted(() => {
     }
   } catch { /* ignore */ }
   loadWorkspace()
-  refreshTimer = setInterval(() => {
-    if (activeTasks.value.length) loadWorkspace(true)
-  }, 7000)
+  scheduleWorkspaceRefresh()
 })
+
+function scheduleWorkspaceRefresh() {
+  refreshTimer = window.setTimeout(async () => {
+    if (activeTasks.value.length) await loadWorkspace(true)
+    scheduleWorkspaceRefresh()
+  }, 7000)
+}
 
 watch(projectId, (nextId, prevId) => {
   if (!nextId || nextId === prevId) return
@@ -936,7 +966,7 @@ watch([mode, platformProfile], ([nextMode, nextPlatform]) => {
 })
 
 onUnmounted(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
+  if (refreshTimer) window.clearTimeout(refreshTimer)
 })
 </script>
 

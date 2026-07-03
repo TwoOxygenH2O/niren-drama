@@ -661,7 +661,16 @@ public class VideoCompositionService {
                     continue;
                 }
 
-                boolean useChainedFirstFrame = dynamicVideoFrameChainEnabled && hasText(chainedFirstFrameUrl);
+                Storyboard previousShot = index > 0 ? shots.get(index - 1) : null;
+                boolean useChainedFirstFrame = dynamicVideoFrameChainEnabled
+                        && hasText(chainedFirstFrameUrl)
+                        && canChainTailFrame(previousShot, shot);
+                if (dynamicVideoFrameChainEnabled && hasText(chainedFirstFrameUrl) && !useChainedFirstFrame) {
+                    log.debug("尾帧接龙已按场景边界断开: previousShotId={}, currentShotId={}",
+                            previousShot != null ? previousShot.getId() : null,
+                            shot.getId());
+                    chainedFirstFrameUrl = null;
+                }
                 updateTask(task, "RUNNING",
                         10 + (80 * index / Math.max(1, total)),
                         String.format("正在生成第%d/%d个镜头%s...",
@@ -2643,6 +2652,23 @@ public class VideoCompositionService {
         return String.format("动态镜头任务已提交，已完成%d个，失败%d个，剩余%d个轮询中", generated, failed, pending);
     }
 
+    private boolean canChainTailFrame(Storyboard previousShot, Storyboard currentShot) {
+        if (previousShot == null || currentShot == null) {
+            return false;
+        }
+        if (!sameNullable(previousShot.getEpisodeNo(), currentShot.getEpisodeNo())) {
+            return false;
+        }
+        if (previousShot.getSceneId() != null || currentShot.getSceneId() != null) {
+            return sameNullable(previousShot.getSceneId(), currentShot.getSceneId());
+        }
+        return true;
+    }
+
+    private boolean sameNullable(Object left, Object right) {
+        return left == null ? right == null : left.equals(right);
+    }
+
     private void finishDynamicVideoTask(TaskRecord task,
                                         Long projectId,
                                         int total,
@@ -3101,7 +3127,7 @@ public class VideoCompositionService {
         return taskRecordMapper.selectOne(
             new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<TaskRecord>()
                 .eq(TaskRecord::getProjectId, projectId)
-                .in(TaskRecord::getTaskType, "IMAGE_GEN", "DYNAMIC_VIDEO_GEN", "AUDIO_GEN", "VIDEO_COMPOSE")
+                .in(TaskRecord::getTaskType, "IMAGE_GEN", "DYNAMIC_VIDEO_GEN", "AUDIO_GEN", "VIDEO_COMPOSE", "EPISODE_PIPELINE")
                         .orderByDesc(TaskRecord::getCreateTime)
                         .last("LIMIT 1"));
     }

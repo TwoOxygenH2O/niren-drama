@@ -14,6 +14,12 @@ export type DynamicOptions = {
   forceDynamicByDefault?: boolean
 }
 
+export type EpisodePipelineOptions = ComposeOptions & {
+  episodeNo?: number
+  shotIds?: Array<number | string>
+  runQualityCheck?: boolean
+}
+
 function buildShotSelectionPayload(
   shotIds?: Array<number | string>,
   options?: Record<string, any>,
@@ -44,6 +50,10 @@ export const videoApi = {
   /** Start video composition */
   compose: (projectId: number | string, shotIds?: Array<number | string>, options?: ComposeOptions) =>
     request.post(`/videos/compose/${projectId}`, buildShotSelectionPayload(shotIds, options)),
+
+  /** Run the full episode production pipeline */
+  pipeline: (projectId: number | string, options?: EpisodePipelineOptions) =>
+    request.post(`/videos/pipeline/${projectId}`, options || {}),
 
   /** Get latest video composition status */
   getStatus: (projectId: number | string) =>

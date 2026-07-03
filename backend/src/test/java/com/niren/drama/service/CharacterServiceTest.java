@@ -24,6 +24,7 @@ class CharacterServiceTest {
     private final AiProviderFactory aiProviderFactory = mock(AiProviderFactory.class);
     private final ProjectService projectService = mock(ProjectService.class);
     private final PublicAssetStorageService publicAssetStorageService = mock(PublicAssetStorageService.class);
+    private final ConsistencyBibleService consistencyBibleService = mock(ConsistencyBibleService.class);
     @SuppressWarnings("unchecked")
     private final ObjectProvider<CharacterService> selfProvider = mock(ObjectProvider.class);
     private final CharacterService service = new CharacterService(
@@ -32,6 +33,7 @@ class CharacterServiceTest {
             aiProviderFactory,
             projectService,
             publicAssetStorageService,
+            consistencyBibleService,
             selfProvider);
 
     @Test

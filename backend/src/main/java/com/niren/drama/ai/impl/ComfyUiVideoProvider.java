@@ -47,6 +47,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
     private static final String DEFAULT_LTX23_PRO_FP8_MODEL = "ltx-2.3-22b-dev-fp8.safetensors";
     private static final String DEFAULT_LTX_TEXT_ENCODER = "gemma_3_12B_it_fp4_mixed.safetensors";
     private static final String DEFAULT_WAN22_I2V_WORKFLOW = "video_wan2_2_14B_i2v.json";
+    private static final String DEFAULT_WAN22_I2V_QUALITY_WORKFLOW = "video_wan2_2_14B_i2v_quality_long.json";
     private static final ConcurrentMap<String, String> UPLOAD_CACHE = new ConcurrentHashMap<>();
     private static final Pattern JSON_STRING_FIELD = Pattern.compile("\"%s\"\\s*:\\s*\"([^\"]*)\"");
     private static final Pattern JSON_NUMBER_FIELD = Pattern.compile("\"%s\"\\s*:\\s*(\\d+)");
@@ -105,6 +106,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             ObjectNode workflow = buildTextToVideoWorkflow(prompt, wh[0], wh[1], frames, quality);
             ObjectNode body = objectMapper.createObjectNode();
             body.set("prompt", workflow);
+            body.set("extra_data", buildPromptExtraData(workflow));
             requestBody = objectMapper.writeValueAsString(body);
 
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
@@ -180,6 +182,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     wh[0], wh[1], frames, quality);
             ObjectNode body = objectMapper.createObjectNode();
             body.set("prompt", workflow);
+            body.set("extra_data", buildPromptExtraData(workflow));
             requestBody = objectMapper.writeValueAsString(body);
 
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
@@ -255,6 +258,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
             ObjectNode workflow = buildImageToVideoWorkflow(imageUrl, referenceImageUrls, enhancedPrompt, wh[0], wh[1], frames, quality);
             ObjectNode body = objectMapper.createObjectNode();
             body.set("prompt", workflow);
+            body.set("extra_data", buildPromptExtraData(workflow));
             requestBody = objectMapper.writeValueAsString(body);
 
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
@@ -468,6 +472,99 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                     null,
                     hasText(error) ? compactComfyError(error) : null);
         }
+    }
+
+    private ObjectNode buildPromptExtraData(ObjectNode workflow) {
+        ObjectNode extraData = objectMapper.createObjectNode();
+        ObjectNode niren = extraData.putObject("niren");
+        boolean qualityWorkflow = workflowTextContains(workflow, "quality_long")
+                || workflowTextContains(workflow, "niren_wan22_i2v_quality")
+                || isWanQualityLongWorkflowConfigured();
+        int fps = workflowFrameRate(workflow);
+        int targetFps = configuredInt("rifeTargetFps", "targetFrameRate", "outputFrameRate");
+        if (targetFps <= 0) {
+            targetFps = qualityWorkflow ? Math.min(60, Math.max(32, fps * 2)) : fps;
+        }
+        boolean rifeEnabled = configuredBoolean(
+                qualityWorkflow,
+                "rifeEnabled",
+                "enableRife",
+                "frameInterpolationEnabled");
+        boolean upscaleEnabled = configuredBoolean(
+                qualityWorkflow,
+                "upscaleEnabled",
+                "enableUpscale",
+                "superResolutionEnabled");
+        int[] wh = workflowResolution(workflow);
+
+        niren.put("frameRate", fps);
+        niren.put("rifeFrameInterpolation", rifeEnabled);
+        niren.put("rifeTargetFps", Math.max(fps, targetFps));
+        niren.put("superResolution", upscaleEnabled);
+        niren.put("targetWidth", Math.max(wh[0], configuredInt("upscaleWidth", "targetWidth")));
+        niren.put("targetHeight", Math.max(wh[1], configuredInt("upscaleHeight", "targetHeight")));
+        niren.put("qualityWorkflow", qualityWorkflow);
+        niren.put("postprocessChain", rifeEnabled && upscaleEnabled
+                ? "rife_then_super_resolution"
+                : (rifeEnabled ? "rife" : (upscaleEnabled ? "super_resolution" : "none")));
+        return extraData;
+    }
+
+    private boolean workflowTextContains(ObjectNode workflow, String needle) {
+        return workflow != null
+                && hasText(needle)
+                && workflow.toString().toLowerCase().contains(needle.toLowerCase());
+    }
+
+    private int[] workflowResolution(ObjectNode workflow) {
+        int width = 0;
+        int height = 0;
+        for (var it = workflow.fields(); it.hasNext(); ) {
+            JsonNode inputs = it.next().getValue().path("inputs");
+            if (!inputs.isObject()) {
+                continue;
+            }
+            width = Math.max(width, inputs.path("width").asInt(0));
+            height = Math.max(height, inputs.path("height").asInt(0));
+        }
+        return new int[] {
+                width > 0 ? width : 720,
+                height > 0 ? height : 1280
+        };
+    }
+
+    private boolean configuredBoolean(boolean fallback, String... keys) {
+        if (!hasText(extra)) {
+            return fallback;
+        }
+        try {
+            JsonNode extraJson = objectMapper.readTree(extra);
+            for (String key : keys) {
+                JsonNode node = extraJson.path(key);
+                if (node.isBoolean()) {
+                    return node.asBoolean();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return fallback;
+    }
+
+    private int configuredInt(String... keys) {
+        if (!hasText(extra)) {
+            return 0;
+        }
+        try {
+            JsonNode extraJson = objectMapper.readTree(extra);
+            for (String key : keys) {
+                int value = extraJson.path(key).asInt(0);
+                if (value > 0) {
+                    return value;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return 0;
     }
 
     /**
@@ -843,6 +940,23 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
                 : "video_ltx2_i2v_short_drama_consistency.json";
     }
 
+    private String defaultWanI2vWorkflowFile(String quality) {
+        if (wantsWanQualityWorkflow(quality) || isWanQualityLongWorkflowConfigured()) {
+            return DEFAULT_WAN22_I2V_QUALITY_WORKFLOW;
+        }
+        return DEFAULT_WAN22_I2V_WORKFLOW;
+    }
+
+    private boolean wantsWanQualityWorkflow(String quality) {
+        if (!hasText(quality)) {
+            return false;
+        }
+        String normalized = quality.toLowerCase();
+        return normalized.contains("quality")
+                || normalized.contains("tier-a")
+                || normalized.contains("publish");
+    }
+
     private String resolveLtxCheckpointModel() {
         if (isLtxModel()) {
             return resolveCheckpointModel();
@@ -1064,7 +1178,7 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
 
         if (!hasText(workflowFile)) {
             workflowFile = isWanModel()
-                    ? DEFAULT_WAN22_I2V_WORKFLOW
+                    ? defaultWanI2vWorkflowFile(quality)
                     : defaultLtxI2vWorkflowFile();
         }
 
@@ -1361,9 +1475,12 @@ public class ComfyUiVideoProvider implements VideoAiProvider {
         String level = resolveMotionLevel(prompt);
         String text = hasText(prompt) ? prompt.toLowerCase() : "";
 
-        boolean pro = hasText(quality) && quality.toLowerCase().contains("pro");
-        boolean wanQualityLong = isWanQualityLongWorkflowConfigured();
-        boolean wanLightx2v = isWanLightx2vWorkflowConfigured();
+        boolean pro = hasText(quality)
+                && (quality.toLowerCase().contains("pro")
+                || quality.toLowerCase().contains("quality")
+                || quality.toLowerCase().contains("tier-a"));
+        boolean wanQualityLong = isWanQualityLongWorkflowConfigured() || (isWanModel() && wantsWanQualityWorkflow(quality));
+        boolean wanLightx2v = isWanLightx2vWorkflowConfigured() && !wanQualityLong;
         int steps = pro ? 16 : 14;
         double cfg = 1.15d;
         double shift = 8.0d;

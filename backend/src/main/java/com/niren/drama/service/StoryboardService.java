@@ -72,6 +72,7 @@ public class StoryboardService {
     private final ProjectService projectService;
     private final CostEstimationService costEstimationService;
     private final PublicAssetStorageService publicAssetStorageService;
+    private final ConsistencyBibleService consistencyBibleService;
     private final ObjectMapper objectMapper;
     private final ObjectProvider<StoryboardService> selfProvider;
 
@@ -853,7 +854,7 @@ if (isStream) {
                     prompt = buildImagePrompt(shot, character, project);
                 }
                 List<String> referenceImageUrls = collectReferenceImageUrls(shot, character);
-                String generationPrompt = buildImageGenerationPrompt(prompt, character, referenceImageUrls, project);
+                String generationPrompt = buildImageGenerationPrompt(prompt, shot, character, referenceImageUrls, project);
                 String negativePrompt = buildImageNegativePrompt(character, project);
                 String imageSize = costEstimationService.getOptimalImageSize(shot.getCameraAngle());
                 if (!hasText(imageSize)) {
@@ -906,7 +907,7 @@ if (isStream) {
                     prompt = buildImagePrompt(shot, character, project);
                 }
                 List<String> referenceImageUrls = collectReferenceImageUrls(shot, character);
-                String generationPrompt = buildImageGenerationPrompt(prompt, character, referenceImageUrls, project);
+                String generationPrompt = buildImageGenerationPrompt(prompt, shot, character, referenceImageUrls, project);
                 String negativePrompt = buildImageNegativePrompt(character, project);
                 log.debug("分镜图片请求已准备: taskId={}, shotId={}, shotNo={}, characterId={}, promptLength={}, referenceCount={}, negativePromptLength={}",
                     taskId,
@@ -2364,12 +2365,15 @@ if (isStream) {
 
         String sceneContext = hasText(shot.getDescription()) ? trimPromptSegment(shot.getDescription(), 100) : "保持剧情连续性";
         String characterContext = buildCharacterContextForVideo(shot);
-        return clampPromptLength(String.format(
+        String prompt = String.format(
                 "首帧已确定，不重画画面。生成%ds竖屏9:16真人短剧视频，必须是一个连续单镜头。运动设计：%s。%s动作节拍：前20%%从首帧自然起势，中段完成主要表情或肢体反应，末20%%轻微收束并保持同一场景。剧情动作锚点：%s。必须保持同一张脸、同一服装、同一地点、同一光线。禁止切镜、跳场、换人、换衣、线稿化、插画化、黑白素描、静帧幻灯片。",
                 shot.getDuration() != null && shot.getDuration() > 0 ? shot.getDuration() : 5,
                 motionInstruction,
                 hasText(characterContext) ? characterContext + "。" : "",
-                sceneContext), VIDEO_PROMPT_MAX_CHARS);
+                sceneContext);
+        String withConsistency = consistencyBibleService.appendPromptConstraints(
+                shot.getProjectId(), shot.getCharacterId(), shot.getSceneId(), prompt, VIDEO_PROMPT_MAX_CHARS);
+        return clampPromptLength(hasText(withConsistency) ? withConsistency : prompt, VIDEO_PROMPT_MAX_CHARS);
     }
 
     private String buildCharacterContextForVideo(Storyboard shot) {
@@ -2582,7 +2586,7 @@ if (isStream) {
         return normalized.toString();
     }
 
-    private String buildImageGenerationPrompt(String originalPrompt, Character character, List<String> referenceImageUrls, Project project) {
+    private String buildImageGenerationPrompt(String originalPrompt, Storyboard shot, Character character, List<String> referenceImageUrls, Project project) {
         String promptCore = trimPromptSegment(sanitizePositiveImagePrompt(originalPrompt), 300);
         StringBuilder builder = new StringBuilder();
         builder.append("Vertical 9:16 cinematic live-action Chinese drama photograph. ");
@@ -2616,7 +2620,12 @@ if (isStream) {
         if (hasText(resolveGenre(project))) {
             builder.append("Genre tone: ").append(resolveGenre(project)).append(". ");
         }
-        return clampPromptLength(builder.toString(), IMAGE_PROMPT_MAX_CHARS);
+        Long projectId = project != null ? project.getId() : (shot != null ? shot.getProjectId() : null);
+        Long characterId = character != null ? character.getId() : (shot != null ? shot.getCharacterId() : null);
+        Long sceneId = shot != null ? shot.getSceneId() : null;
+        String withConsistency = consistencyBibleService.appendPromptConstraints(
+                projectId, characterId, sceneId, builder.toString(), IMAGE_PROMPT_MAX_CHARS);
+        return clampPromptLength(hasText(withConsistency) ? withConsistency : builder.toString(), IMAGE_PROMPT_MAX_CHARS);
     }
 
     private String sanitizePositiveImagePrompt(String text) {
