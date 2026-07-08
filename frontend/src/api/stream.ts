@@ -6,7 +6,16 @@ export interface StreamHandlers {
   onError?: (message: string) => void
 }
 
-export async function streamPreview(url: string, data: unknown, handlers: StreamHandlers) {
+export interface StreamPreviewOptions {
+  signal?: AbortSignal
+}
+
+export async function streamPreview(
+  url: string,
+  data: unknown,
+  handlers: StreamHandlers,
+  options: StreamPreviewOptions = {},
+) {
   const token = localStorage.getItem('token')
   const response = await fetch(`/api${url}`, {
     method: 'POST',
@@ -15,6 +24,7 @@ export async function streamPreview(url: string, data: unknown, handlers: Stream
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(data),
+    signal: options.signal,
   })
 
   if (!response.ok || !response.body) {
@@ -38,7 +48,7 @@ export async function streamPreview(url: string, data: unknown, handlers: Stream
     const dataLine = lines
       .filter((line) => line.startsWith('data:'))
       .map((line) => line.slice(5).trim())
-      .join('')
+      .join('\n')
 
     if (!dataLine) {
       return
@@ -67,19 +77,28 @@ export async function streamPreview(url: string, data: unknown, handlers: Stream
     }
   }
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) {
-      break
-    }
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
 
-    buffer += decoder.decode(value, { stream: true })
-    const events = buffer.split('\n\n')
-    buffer = events.pop() || ''
+      buffer += decoder.decode(value, { stream: true })
+      const events = buffer.split('\n\n')
+      buffer = events.pop() || ''
 
-    for (const rawEvent of events) {
-      processEventBlock(rawEvent)
+      for (const rawEvent of events) {
+        processEventBlock(rawEvent)
+      }
     }
+  } catch (error) {
+    if (options.signal?.aborted) {
+      return
+    }
+    throw error
+  } finally {
+    reader.releaseLock()
   }
 
   const tail = decoder.decode()
@@ -90,7 +109,7 @@ export async function streamPreview(url: string, data: unknown, handlers: Stream
     processEventBlock(buffer)
   }
 
-  if (!doneEventReceived) {
+  if (!doneEventReceived && !options.signal?.aborted) {
     handlers.onDone?.('流式连接已结束')
   }
 }
