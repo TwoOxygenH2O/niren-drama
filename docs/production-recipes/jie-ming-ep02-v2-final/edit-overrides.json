@@ -1,0 +1,41 @@
+{
+  "narrationPictures": {
+    "N1": [
+      {"take":"01-door-continuation-v1","inFrame":0,"outFrame":110},
+      {"take":"02-return-paper-v1","inFrame":0,"outFrame":114}
+    ],
+    "N2": [
+      {"take":"02-to-window-v2","inFrame":0,"outFrame":128},
+      {"take":"07-no-mention-v1","inFrame":0,"outFrame":44,"crop":[594,1056,118,0]}
+    ],
+    "N3": [
+      {"take":"09-offer-pen-v1","inFrame":14,"outFrame":101},
+      {"take":"12-master-silent-v1","inFrame":0,"outFrame":72,"crop":[486,864,252,80]}
+    ],
+    "N4": [
+      {"take":"15-record-v1","inFrame":80,"outFrame":146},
+      {"take":"10-file-paper-v1","inFrame":57,"outFrame":124},
+      {"take":"07-no-mention-v1","inFrame":26,"outFrame":103,"crop":[594,1056,118,0]}
+    ]
+  },
+  "takes": {
+    "08-master-admits-v1":{"crop":[594,1056,150,120]},
+    "10-master-reassures-v2":{"crop":[486,864,252,120]}
+  },
+  "captions": {
+    "10-master-reassures-v2": [
+      {"text":"有为师在","start":1.76,"end":3.24},
+      {"text":"你怕什么","start":4.064,"end":5.16}
+    ],
+    "11-write-it-v1": [
+      {"text":"那您写在这儿","start":3.904,"end":5.096},
+      {"text":"就写，裴衡渡劫","start":5.728,"end":8.488},
+      {"text":"不会牵连沈照","start":8.544,"end":9.96}
+    ],
+    "13-file-order-v1": [
+      {"text":"今天先不签了","start":3.744,"end":6.024},
+      {"text":"执事，收起来","start":6.688,"end":8.488},
+      {"text":"和前几张放一处","start":8.512,"end":10.114}
+    ]
+  }
+}

@@ -17,10 +17,13 @@
 `docs/production-recipes/` 保存已采用的 manifest、参考首帧、剪辑覆盖、旁白正文和 SHA256 索引。原始视频、模型、音频缓存和凭据不上传 Git。
 
 - `jie-ming-ep01-v2`：第一集当前认可版本。
-- `jie-ming-ep02-v2`：第二集的联合修订制作输入。成片状态另见剧本目录的 delivery 文件。
+- `jie-ming-ep02-v2-final`：第二集最终审看片输入，包含补拍、废片排除、裁切和字幕时间修正，后续复现使用这一版。
+- `jie-ming-ep02-v2`：第二集开始制作时的输入快照，保留对照，不包含后续修复。
 - `jie-ming-ep01` / `jie-ming-ep02`：此前版本，保留测试和对照，不代表推荐成片。
 
 第一集当前交付：76.958 秒、1847 帧，字幕版 SHA256 `fc6812d141b4ca1b723d7bbe3f31153abdb9dcc775ed9cba101f92758b0c52db`。成片仅保存在本机 `output/jie-ming-ep01-v2/final/`。
+
+第二集当前交付：94.708 秒、2273 帧，字幕版 SHA256 `959949d3ec884cef23bb3e4b12d281d5521e58b6aefd18927f0939facf2a73b8`。成片位于本机 `output/jie-ming-ep02-v2/final/`；详见 [第二集制作记录](jie-ming-ep02-v2-delivery.md)。两集均为24fps，不插帧、不变速。
 
 ## 运行
 

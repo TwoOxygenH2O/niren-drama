@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "scope": "generation-inputs-only",
+  "files": [
+    {
+      "path": "audio/narration-manifest.json",
+      "sha256": "86e49aaa0f5dbd40dc4cd22eea9d9d0e3e9a2c06f6ffe60c28b618c2682c4b64"
+    },
+    {
+      "path": "audio/narration.txt",
+      "sha256": "a0d8635737a2adb84ca73d6894c836ce90911300c02e7f72c6ac25b0f1c47454"
+    },
+    {
+      "path": "edit-overrides.json",
+      "sha256": "79cd7137a202f21d689b5dce2a03069cf8de3db06ed17e9e56030d2065a36f9b"
+    },
+    {
+      "path": "keyframes/clerk-record.png",
+      "sha256": "a0f67aa481ad361f8494fbc453c5a0f28debe1fa8316330ba04a42a01779e6ef"
+    },
+    {
+      "path": "keyframes/continuity-start.png",
+      "sha256": "82c726f9284ed559dc55d3bd7bfae91fcedae9fadf21af51c2e1ad11cc90d82e"
+    },
+    {
+      "path": "keyframes/filing.png",
+      "sha256": "226485e06ae3be31aa4eb9a8c44597ee53193c0133920fb40f2b125f6e7e1e66"
+    },
+    {
+      "path": "keyframes/master-entry.png",
+      "sha256": "154a2358a563a24856e190aab5a55e280f0a7ec9279e3e3d4ef4a7f44c0ffc2c"
+    },
+    {
+      "path": "keyframes/master-window.png",
+      "sha256": "6f2d977f081bf38cbd73ef98fc201eca38eff7f432484710bdd843c6cb652cac"
+    },
+    {
+      "path": "keyframes/pei-tight.png",
+      "sha256": "90d4302a7869be330c48ccb1b47e6764fcbaaea6c60e8ef20346ba46e7e6a302"
+    },
+    {
+      "path": "keyframes/pen-ledger.png",
+      "sha256": "ce9437b9fc543b889913bb58b65c578642bad5b6c65025f49882ec5c3896c7e0"
+    },
+    {
+      "path": "keyframes/shen-standing.png",
+      "sha256": "9e8e124f76a513a2bd19a4667c4e8e2be7f208fcb20dfa0f9ebb3a7bf4f05f27"
+    },
+    {
+      "path": "keyframes/shen-window-in.png",
+      "sha256": "6e9332263ea47876b829f83f903ee96e464e8fed0d38a2c8c5363f2706df9ac8"
+    },
+    {
+      "path": "keyframes/shen-window-out-tight.png",
+      "sha256": "5877c8720c630d2d0174b2881e9769a4be4e6898b68a64dd73b6aadbb03b9ba7"
+    },
+    {
+      "path": "keyframes/shen-window-out.png",
+      "sha256": "17d7eb9a62f30ccfa88e527f41976ef36b7bcba04dbda7dde3c326e9a3906df4"
+    },
+    {
+      "path": "keyframes/window-move.png",
+      "sha256": "ef1c37d53b047c6963069c67bdd643d4ce15e52e01b84f4b5e9ac7903004ade6"
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "6dcebd799a4f9ea5e65a672f60ae9fb0871fc2855da4ef1f77c42d150fe8ba9d"
+    }
+  ]
+}

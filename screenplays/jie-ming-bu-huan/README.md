@@ -9,13 +9,16 @@
 - [制作安排与衔接检查](revisions/opening-pair-v2/production-review.md)
 - [声源顺序与两集接续状态](revisions/opening-pair-v2/revision.json)
 
-状态：第一集修订版已按用户确认生成，第二集联合改稿尚未生成新版视频。原版两集保留不改；本次没有写入应用数据库的新记录。
+状态：第一、二集联合修订版均已生成。第一集方向获用户认可，第二集待观看反馈。原版两集保留不改；本次没有写入应用数据库的新记录。
 
 - [第一集修订版，约77秒，带字幕](../../output/jie-ming-ep01-v2/final/episode-subtitled.mp4)
 - [第一集修订版，无字幕](../../output/jie-ming-ep01-v2/final/episode-clean.mp4)
-- [本次制作状态与成片校验信息](revisions/opening-pair-v2/episode-01-render.json)
+- [第一集制作状态与成片校验信息](revisions/opening-pair-v2/episode-01-render.json)
+- [第二集修订版，约95秒，带字幕](../../output/jie-ming-ep02-v2/final/episode-subtitled.mp4)
+- [第二集修订版，无字幕](../../output/jie-ming-ep02-v2/final/episode-clean.mp4)
+- [第二集制作状态与成片校验信息](revisions/opening-pair-v2/episode-02-render.json)
 
-`revision.json` 保留联合剧本初稿阶段的快照；第一集当前制作状态以 `episode-01-render.json` 为准。成片为用户审看版，尚非商业发行定稿。
+`revision.json` 保留联合剧本初稿阶段的快照；当前制作状态以对应的 `episode-01-render.json`、`episode-02-render.json` 为准。成片为用户审看版，尚非商业发行定稿。
 
 ## 已有版本
 

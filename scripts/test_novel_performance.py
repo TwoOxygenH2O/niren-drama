@@ -13,7 +13,7 @@ spec.loader.exec_module(module)
 
 class NovelPerformanceTest(unittest.TestCase):
     def test_revised_second_episode_preserves_dialogue_and_narration(self):
-        out = ROOT/'docs/production-recipes/jie-ming-ep02-v2'
+        out = ROOT/'docs/production-recipes/jie-ming-ep02-v2-final'
         manifest = json.loads((out/'manifest.json').read_text(encoding='utf-8'))
         script = (ROOT/manifest['approvedScript']).read_text(encoding='utf-8')
         expected = re.findall(r'^(沈照|裴衡|岑岳)：(.+)$', script, re.M)

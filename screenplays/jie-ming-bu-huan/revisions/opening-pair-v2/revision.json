@@ -3,6 +3,7 @@
   "status": "script_revision_only",
   "recordScope": "historical_joint_script_snapshot_before_rendering",
   "currentEpisode01Delivery": "episode-01-render.json",
+  "currentEpisode02Delivery": "episode-02-render.json",
   "baselineCheckpoint": "h3-novel-performance-v1-20260919",
   "rendered": false,
   "audioRecorded": false,
