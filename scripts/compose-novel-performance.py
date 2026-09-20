@@ -295,7 +295,10 @@ def run(*args, **kwargs):
     subprocess.run(list(args),check=True,**kwargs)
 
 
-def compose(out, data):
+def compose(out, data, *, fonts=None):
+    fonts = Path(fonts).resolve() if fonts is not None else (ROOT/'backend/uploads/fonts').resolve()
+    if not fonts.is_dir():
+        raise FileNotFoundError('Prepare subtitle fonts with prepare-subtitle-font.py first: '+str(fonts))
     folder = out/('final' if data['completeEpisode'] else 'preview')
     folder.mkdir(parents=True,exist_ok=True)
     save(folder/'edit.json',data)
@@ -353,7 +356,6 @@ def compose(out, data):
     clean = folder/'episode-clean.mp4'
     run('ffmpeg','-y','-v','error','-f','concat','-safe','0','-i',str(listing),
         '-c:v','copy','-c:a','aac','-b:a','192k','-movflags','+faststart',str(clean))
-    fonts = (ROOT/'backend/uploads/fonts').resolve()
     # A relative path avoids Windows drive-colon escaping in the ASS filter.
     import os
     try:

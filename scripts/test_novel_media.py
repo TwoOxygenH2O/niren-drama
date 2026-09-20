@@ -44,7 +44,11 @@ class NativeAudioGridTest(unittest.TestCase):
             data={'completeEpisode':True,'duration':cursor/24,'frameCount':cursor,'timeline':rows,
                 'captions':[{'text':'测试字幕','start':.2,'end':1.8}],
                 'artisticApproval':False}
-            compose.compose(out,data)
+            # This fixture tests audio samples, not the production Chinese font asset.
+            # An explicit empty directory lets libass use the host's fixture font.
+            fonts=out/'test-fonts'
+            fonts.mkdir()
+            compose.compose(out,data,fonts=fonts)
             original=verify.audio(voice)
             mixed=verify.audio(out/'final/episode-subtitled.mp4')
             clean=verify.audio(out/'final/episode-clean.mp4')
