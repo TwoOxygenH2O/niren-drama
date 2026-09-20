@@ -1,0 +1,53 @@
+{
+  "narrationPictures": {
+    "N1": [
+      {"take":"01-lightning-v1","inFrame":0,"outFrame":84},
+      {"take":"01-lightning-v1","inFrame":84,"outFrame":209,"crop":[432,768,200,540]}
+    ],
+    "N2": [
+      {"take":"02-borrow-paper-v1","inFrame":0,"outFrame":158}
+    ],
+    "N3": [
+      {"take":"06-offer-brush-v1","inFrame":0,"outFrame":48},
+      {"take":"05-covered-seal-v1","inFrame":0,"outFrame":124}
+    ],
+    "N4a": [
+      {"take":"10-open-paper-v1","inFrame":0,"outFrame":79},
+      {"take":"10-open-paper-v1","inFrame":115,"outFrame":158,"crop":[594,1056,86,144]}
+    ],
+    "N5": [
+      {"take":"09-retrieve-jade-v1","inFrame":48,"outFrame":171}
+    ]
+  },
+  "captions": {
+    "13-source-v2": [
+      {"text":"你从哪儿听来的","start":3.49,"end":5.03},
+      {"text":"谁让你看这个的","start":6.04,"end":7.296}
+    ],
+    "04-purpose-v1": [
+      {"text":"你渡劫","start":3.20,"end":4.54},
+      {"text":"怎么还用得上我的命牌","start":4.96,"end":6.92}
+    ]
+  },
+  "takes": {
+    "17-door-demand-v1": {"crop":[450,800,226,130]},
+    "13-source-v2": {
+      "segments": [
+        {"inFrame":80,"outFrame":121},
+        {"inFrame":144,"outFrame":175,"crop":[648,1152,64,64]}
+      ]
+    },
+    "08-stall-v2": {
+      "segments": [
+        {"inFrame":34,"outFrame":82},
+        {"inFrame":105,"outFrame":175,"crop":[648,1152,64,64]}
+      ]
+    },
+    "03-request-v2": {
+      "segments": [
+        {"inFrame":92,"outFrame":113},
+        {"inFrame":147,"outFrame":260,"crop":[594,1056,174,96]}
+      ]
+    }
+  }
+}

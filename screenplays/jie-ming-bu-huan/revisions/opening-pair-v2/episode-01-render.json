@@ -1,0 +1,33 @@
+{
+  "episode": 1,
+  "title": "背面",
+  "revision": "opening-pair-v2",
+  "status": "ready_for_user_review",
+  "rendered": true,
+  "completeEpisode": true,
+  "userApprovedScript": true,
+  "userApprovedVideo": false,
+  "commercialReleaseApproved": false,
+  "applicationDatabaseUpdated": false,
+  "episode02NewRevisionRendered": false,
+  "video": "output/jie-ming-ep01-v2/final/episode-subtitled.mp4",
+  "cleanVideo": "output/jie-ming-ep01-v2/final/episode-clean.mp4",
+  "editReceipt": "output/jie-ming-ep01-v2/final/receipt.json",
+  "technicalChecks": "output/jie-ming-ep01-v2/final/technical-checks.json",
+  "productionNotes": "output/jie-ming-ep01-v2/production-notes.md",
+  "durationSeconds": 76.95833333333333,
+  "frameCount": 1847,
+  "width": 756,
+  "height": 1344,
+  "fps": 24,
+  "retimed": false,
+  "interpolated": false,
+  "technicalPassed": true,
+  "videoSha256": "fc6812d141b4ca1b723d7bbe3f31153abdb9dcc775ed9cba101f92758b0c52db",
+  "narration": "Qwen3-TTS Serena, one master, candidate B",
+  "dialogue": "MiniMax H3 native audio",
+  "knownLimitations": [
+    "袖口刺绣和纸张细节仍有轻微跨镜头差异。",
+    "技术检查不等于表演自然、完整口型正确或商业可看性认证。"
+  ]
+}

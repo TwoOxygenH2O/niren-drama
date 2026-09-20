@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "scope": "generation-inputs-only",
+  "files": [
+    {
+      "path": "edit-overrides.json",
+      "sha256": "4ad31e8162c9924ff417b9786396117d919c02f2a0ffedbd0f6d9934c1470b3c"
+    },
+    {
+      "path": "keyframes/doorway.png",
+      "sha256": "b1595e76c6e37200703dfcf3874be1514b79c5498610511bb4cbd953168accd7"
+    },
+    {
+      "path": "keyframes/flashback.png",
+      "sha256": "804cfb829281eed60fa36e6156e57e4f75a9b005506f1cada76ce0fd89ab9608"
+    },
+    {
+      "path": "keyframes/offer-brush.png",
+      "sha256": "1fa91c79b418c8cc1ea02edbc73bf4c85f0a4e09e7a0fe84fdaea1102be0d28b"
+    },
+    {
+      "path": "keyframes/paper-insert.png",
+      "sha256": "6b3b5f6d669a6ea8d8c871876958e653e99152dcde9d13c7eb505b9ef45818f8"
+    },
+    {
+      "path": "keyframes/pei-medium.png",
+      "sha256": "812296f8dbd15dc67a985bc3f8df9aa583673eece67f2ddd4b0efa842eb2dcd2"
+    },
+    {
+      "path": "keyframes/shen-standing.png",
+      "sha256": "9e8e124f76a513a2bd19a4667c4e8e2be7f208fcb20dfa0f9ebb3a7bf4f05f27"
+    },
+    {
+      "path": "keyframes/shen-tight.png",
+      "sha256": "9c0fdac8858dbebe89142936d4c5d025c24d4ded188c20976f91217bfef47fd1"
+    },
+    {
+      "path": "keyframes/study-master.png",
+      "sha256": "500f4b642af708f51dbdebb6588ed0fe8dcc459c8b8d3aa45d1a345724de3e40"
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "ba8d2c0175d6b6a445c6b3184e2a05a2079e3a6e674c2959e548e1aa8b422410"
+    }
+  ]
+}

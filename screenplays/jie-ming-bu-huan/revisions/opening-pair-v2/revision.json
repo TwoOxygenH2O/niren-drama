@@ -1,0 +1,62 @@
+{
+  "revisionId": "jie-ming-opening-pair-v2-20260919",
+  "status": "script_revision_only",
+  "recordScope": "historical_joint_script_snapshot_before_rendering",
+  "currentEpisode01Delivery": "episode-01-render.json",
+  "baselineCheckpoint": "h3-novel-performance-v1-20260919",
+  "rendered": false,
+  "audioRecorded": false,
+  "userApprovedScript": false,
+  "commercialReleaseApproved": false,
+  "narration": {
+    "speaker": "沈照",
+    "perspective": "first_person_limited",
+    "voiceReference": "Qwen3-TTS CustomVoice Serena",
+    "masterPerEpisode": true,
+    "overlapWithDialogue": false,
+    "sendToVideoPrompt": false
+  },
+  "episodes": [
+    {
+      "episode": 1,
+      "title": "背面",
+      "script": "episode-01.txt",
+      "payoff": "拒签并收好命牌，发现裴衡阻拦带走借条",
+      "dialogueSpeakers": ["沈照", "裴衡"],
+      "voiceOrder": ["旁白／沈照", "旁白／沈照", "裴衡", "沈照", "裴衡", "旁白／沈照", "沈照", "裴衡", "沈照", "旁白／沈照", "沈照", "裴衡", "旁白／沈照", "沈照", "裴衡"],
+      "endState": {
+        "location": "书房右门内",
+        "time": "日，连续",
+        "jade": "沈照左袖内袋",
+        "contract": "同一张未签借条，折好，沈照右手",
+        "peiHeng": "堵住右门，未抓住沈照",
+        "shenZhao": "门内，裴衡身后",
+        "masterIdentityConfirmed": false
+      }
+    },
+    {
+      "episode": 2,
+      "title": "纸留下",
+      "script": "episode-02.txt",
+      "payoff": "师父当众认印但回避担责，未签借条登记收存，得知还有其他借牌者",
+      "dialogueSpeakers": ["沈照", "裴衡", "岑岳"],
+      "voiceOrder": ["旁白／沈照", "裴衡", "沈照", "裴衡", "旁白／沈照", "沈照", "岑岳", "沈照", "岑岳", "沈照", "旁白／沈照", "岑岳", "沈照", "旁白／沈照"],
+      "startState": {
+        "location": "书房右门内",
+        "time": "日，连续",
+        "jade": "沈照左袖内袋",
+        "contract": "同一张未签借条，折好，沈照右手",
+        "peiHeng": "堵住右门，未抓住沈照",
+        "shenZhao": "门内，裴衡身后",
+        "masterIdentityConfirmed": false
+      },
+      "endState": {
+        "jade": "沈照左袖内袋",
+        "contract": "同一张未签借条，值房执事记下一笔后收进档夹",
+        "masterIdentityConfirmed": true,
+        "otherBorrowers": "存在，身份及安危未知",
+        "nextAction": "次日到值房核对旧借条与借牌人，不能凭前几张认定所有人已死"
+      }
+    }
+  ]
+}

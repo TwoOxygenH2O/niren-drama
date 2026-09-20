@@ -1,0 +1,30 @@
+{
+  "narrationPictures": {
+    "N1": [
+      {"take": "01-lightning-v1", "inFrame": 0, "outFrame": 84},
+      {"take": "02-borrow-paper-v1", "inFrame": 0, "outFrame": 60}
+    ],
+    "N2": [
+      {"take": "02-borrow-paper-v1", "inFrame": 60, "outFrame": 158}
+    ],
+    "N3": [
+      {"take": "05-covered-seal-v1", "inFrame": 0, "outFrame": 100},
+      {"take": "06-offer-brush-v1", "inFrame": 0, "outFrame": 72},
+      {"take": "08-where-heard-v1", "inFrame": 0, "outFrame": 75}
+    ]
+  },
+  "captions": {
+    "10-ask-master-v1": [
+      {"text":"这张纸","start":2.50,"end":3.60},
+      {"text":"我拿去问师父","start":3.68,"end":4.88}
+    ]
+  },
+  "takes": {
+    "04-turn-over-v1": {
+      "segments": [
+        {"inFrame":26,"outFrame":55},
+        {"inFrame":90,"outFrame":122,"crop":[594,1056,174,96]}
+      ]
+    }
+  }
+}

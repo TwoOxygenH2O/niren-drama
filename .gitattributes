@@ -1,0 +1,2 @@
+# Recipe indexes verify exact file bytes, including text newlines.
+docs/production-recipes/** -text whitespace=cr-at-eol

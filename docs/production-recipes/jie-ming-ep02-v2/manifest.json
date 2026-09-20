@@ -1,0 +1,333 @@
+{
+  "title": "借命不还",
+  "episode": 2,
+  "episodeTitle": "纸留下",
+  "revision": "opening-pair-v2",
+  "source": "original",
+  "format": "novel-narration-with-native-dialogue",
+  "stage": "in_production",
+  "approvedScript": "screenplays/jie-ming-bu-huan/revisions/opening-pair-v2/episode-02.txt",
+  "narrator": "Shen Zhao first person; Qwen3-TTS Serena single master",
+  "narrationMaster": "audio/narration-master.wav",
+  "takes": [
+    {
+      "id": "02-return-paper-v1",
+      "image": "pei-tight.png",
+      "frames": 260,
+      "seed": 2026092020,
+      "mode": "dialogue",
+      "lines": [
+        {
+          "speaker": "裴衡",
+          "text": "这上头有宗门的印，不能随便往外拿。你真有不明白的，坐下说。"
+        }
+      ],
+      "prompt": "One locked head-and-shoulders live-action period-drama close-up of this exact person in the same robe and daylight study. He wants her to return the document and sit down, presenting it as an ordinary rule. Looks offscreen LEFT. The person promptly says in clear connected natural Mandarin: \"这上头有宗门的印，不能随便往外拿。你真有不明白的，坐下说。\". Keep the exact face, hair, clothing and lighting. Hands, paper and other people stay outside this close-up. Natural conversational pace, no drawn-out syllables or long waits. One continuous real-time take, restrained face and small natural lip movement. Close the mouth after the sentence. Clean footage: no written overlays, subtitles, narrator, music, inserts or cuts."
+    },
+    {
+      "id": "03-ask-why-v1",
+      "image": "shen-standing.png",
+      "frames": 175,
+      "seed": 2026092021,
+      "mode": "dialogue",
+      "lines": [
+        {
+          "speaker": "沈照",
+          "text": "我去找师父，又不出山门。你担心什么？"
+        }
+      ],
+      "prompt": "One locked head-and-shoulders live-action period-drama close-up of this exact person in the same robe and daylight study. She stands facing her partner offscreen RIGHT, asking why he objects to asking their own master. She keeps the folded paper in her right hand below frame. The person promptly says in clear connected natural Mandarin: \"我去找师父，又不出山门。你担心什么？\". Keep the exact face, hair, clothing and lighting. Hands, paper and other people stay outside this close-up. Natural conversational pace, no drawn-out syllables or long waits. One continuous real-time take, restrained face and small natural lip movement. Close the mouth after the sentence. Clean footage: no written overlays, subtitles, narrator, music, inserts or cuts."
+    },
+    {
+      "id": "04-offer-to-ask-v1",
+      "image": "pei-tight.png",
+      "frames": 209,
+      "seed": 2026092022,
+      "mode": "dialogue",
+      "lines": [
+        {
+          "speaker": "裴衡",
+          "text": "师父还要管你这点事？把纸给我，我替你问。"
+        }
+      ],
+      "prompt": "One locked head-and-shoulders live-action period-drama close-up of this exact person in the same robe and daylight study. He tries to take over the errand so she will give him the paper, a slightly impatient practical question. Looks offscreen LEFT. The person promptly says in clear connected natural Mandarin: \"师父还要管你这点事？把纸给我，我替你问。\". Keep the exact face, hair, clothing and lighting. Hands, paper and other people stay outside this close-up. Natural conversational pace, no drawn-out syllables or long waits. One continuous real-time take, restrained face and small natural lip movement. Close the mouth after the sentence. Clean footage: no written overlays, subtitles, narrator, music, inserts or cuts."
+    },
+    {
+      "id": "06-call-clerk-v1",
+      "image": "shen-window-out.png",
+      "frames": 192,
+      "seed": 2026092023,
+      "mode": "dialogue",
+      "lines": [
+        {
+          "speaker": "沈照",
+          "text": "执事，劳烦您看一眼。这个印是不是师父的？"
+        }
+      ],
+      "prompt": "One locked head-and-shoulders live-action period-drama close-up of this exact person in the same robe and daylight study. She addresses the clerk a few steps outside the LEFT window, politely projecting a clear question, not shouting. The person promptly says in clear connected natural Mandarin: \"执事，劳烦您看一眼。这个印是不是师父的？\". Keep the exact face, hair, clothing and lighting. Hands, paper and other people stay outside this close-up. Natural conversational pace, no drawn-out syllables or long waits. One continuous real-time take, restrained face and small natural lip movement. Close the mouth after the sentence. Clean footage: no written overlays, subtitles, narrator, music, inserts or cuts."
+    },
+    {
+      "id": "08-master-admits-v1",
+      "image": "master-window.png",
+      "frames": 277,
+      "seed": 2026092024,
+      "mode": "dialogue",
+      "lines": [
+        {
+          "speaker": "岑岳",
+          "text": "是我盖的。你师兄就要渡劫了，借块命牌护身，值得闹到这儿来？"
+        }
+      ],
+      "prompt": "One locked head-and-shoulders live-action period-drama close-up of this exact person in the same robe and daylight study. The older man acknowledges his own seal and dismisses the concern as needless fuss, ordinary mature conversational voice. Looks at his disciple offscreen LEFT. The person promptly says in clear connected natural Mandarin: \"是我盖的。你师兄就要渡劫了，借块命牌护身，值得闹到这儿来？\". Keep the exact face, hair, clothing and lighting. Hands, paper and other people stay outside this close-up. Natural conversational pace, no drawn-out syllables or long waits. One continuous real-time take, restrained face and small natural lip movement. Close the mouth after the sentence. Clean footage: no written overlays, subtitles, narrator, music, inserts or cuts."
+    },
+    {
+      "id": "09-ask-liability-v1",
+      "image": "shen-window-in.png",
+      "frames": 226,
+      "seed": 2026092025,
+      "mode": "dialogue",
+      "lines": [
+        {
+          "speaker": "沈照",
+          "text": "师父，我问一句。到时候落下来的雷，到底打谁身上？"
+        }
+      ],
+      "prompt": "One locked head-and-shoulders live-action period-drama close-up of this exact person in the same robe and daylight study. She asks her master offscreen RIGHT for a concrete answer: who is struck by the lightning. Respectful but persistent, no heroic declamation. The person promptly says in clear connected natural Mandarin: \"师父，我问一句。到时候落下来的雷，到底打谁身上？\". Keep the exact face, hair, clothing and lighting. Hands, paper and other people stay outside this close-up. Natural conversational pace, no drawn-out syllables or long waits. One continuous real-time take, restrained face and small natural lip movement. Close the mouth after the sentence. Clean footage: no written overlays, subtitles, narrator, music, inserts or cuts."
+    },
+    {
+      "id": "10-master-reassures-v1",
+      "image": "master-window.png",
+      "frames": 141,
+      "seed": 2026092026,
+      "mode": "dialogue",
+      "lines": [
+        {
+          "speaker": "岑岳",
+          "text": "有为师在，你怕什么？"
+        }
+      ],
+      "prompt": "One locked head-and-shoulders live-action period-drama close-up of this exact person in the same robe and daylight study. He reassures his disciple offscreen LEFT to stop her questioning, an ordinary familiar response, not a sinister whisper. The person promptly says in clear connected natural Mandarin: \"有为师在，你怕什么？\". Keep the exact face, hair, clothing and lighting. Hands, paper and other people stay outside this close-up. Natural conversational pace, no drawn-out syllables or long waits. One continuous real-time take, restrained face and small natural lip movement. Close the mouth after the sentence. Clean footage: no written overlays, subtitles, narrator, music, inserts or cuts."
+    },
+    {
+      "id": "11-write-it-v1",
+      "image": "shen-window-in.png",
+      "frames": 243,
+      "seed": 2026092027,
+      "mode": "dialogue",
+      "lines": [
+        {
+          "speaker": "沈照",
+          "text": "那您写在这儿。就写，裴衡渡劫，不会牵连沈照。"
+        }
+      ],
+      "prompt": "One locked head-and-shoulders live-action period-drama close-up of this exact person in the same robe and daylight study. She asks her master offscreen RIGHT to put his reassurance in writing. Calm precise wording, a brief natural punctuation pause, no triumphant smile. The person promptly says in clear connected natural Mandarin: \"那您写在这儿。就写，裴衡渡劫，不会牵连沈照。\". Keep the exact face, hair, clothing and lighting. Hands, paper and other people stay outside this close-up. Natural conversational pace, no drawn-out syllables or long waits. One continuous real-time take, restrained face and small natural lip movement. Close the mouth after the sentence. Clean footage: no written overlays, subtitles, narrator, music, inserts or cuts."
+    },
+    {
+      "id": "13-file-order-v1",
+      "image": "master-window.png",
+      "frames": 243,
+      "seed": 2026092028,
+      "mode": "dialogue",
+      "lines": [
+        {
+          "speaker": "岑岳",
+          "text": "今天先不签了。执事，收起来，和前几张放一处。"
+        }
+      ],
+      "prompt": "One locked head-and-shoulders live-action period-drama close-up of this exact person in the same robe and daylight study. He directs the clerk offscreen LEFT to file the unsigned document with earlier ones. A routine instruction, not announcing a secret, do not overemphasize 前几张. The person promptly says in clear connected natural Mandarin: \"今天先不签了。执事，收起来，和前几张放一处。\". Keep the exact face, hair, clothing and lighting. Hands, paper and other people stay outside this close-up. Natural conversational pace, no drawn-out syllables or long waits. One continuous real-time take, restrained face and small natural lip movement. Close the mouth after the sentence. Clean footage: no written overlays, subtitles, narrator, music, inserts or cuts."
+    },
+    {
+      "id": "14-register-v1",
+      "image": "shen-window-out.png",
+      "frames": 175,
+      "seed": 2026092029,
+      "mode": "dialogue",
+      "lines": [
+        {
+          "speaker": "沈照",
+          "text": "劳烦记上，我还没签。明早我来查。"
+        }
+      ],
+      "prompt": "One locked head-and-shoulders live-action period-drama close-up of this exact person in the same robe and daylight study. She addresses the clerk outside the LEFT window to record that she has not signed and will return tomorrow. Polite and practical. The person promptly says in clear connected natural Mandarin: \"劳烦记上，我还没签。明早我来查。\". Keep the exact face, hair, clothing and lighting. Hands, paper and other people stay outside this close-up. Natural conversational pace, no drawn-out syllables or long waits. One continuous real-time take, restrained face and small natural lip movement. Close the mouth after the sentence. Clean footage: no written overlays, subtitles, narrator, music, inserts or cuts."
+    },
+    {
+      "id": "01-door-continuation-v1",
+      "image": "continuity-start.png",
+      "frames": 260,
+      "seed": 2026092040,
+      "mode": "narration",
+      "lines": [],
+      "prompt": "One continuous real-time live-action medium-wide shot in the same daylight wooden study. The teal-robed man at the RIGHT doorway immediately lowers his raised arm, turns left toward the crimson-robed woman and holds out his empty right palm asking for the paper. She keeps her single folded ivory paper in her RIGHT hand near her waist and does not give it to him. She glances at his outstretched hand and back at him. Both stay in the room, with the woman LEFT and the man RIGHT. Preserve their exact faces, robes and hairstyles. Camera stays south of them, left window and right door unchanged. Ordinary connected movement, no repeated gestures or slow motion. Their mouths stay closed; quiet footsteps and fabric only, no voice, narration, music, captions or cuts."
+    },
+    {
+      "id": "05-to-window-v3",
+      "image": "window-move.png",
+      "frames": 209,
+      "seed": 2026092041,
+      "mode": "narration",
+      "lines": [],
+      "prompt": "One continuous real-time live-action medium-wide take, camera fixed. The crimson-robed woman immediately walks two ordinary steps LEFT to the open window, takes her single folded ivory contract from her RIGHT hand and opens it on the wooden ledge with the red stamp facing up. She keeps her right fingers resting on the near paper corner, NEVER releases the paper. Her left hand lowers. The teal-robed man follows just one step then stops inside the room, leaving her access to the window. Keep the same faces, plain crimson and teal robes, window, door and daylight. Complete the movement without posing or slow motion. Closed mouths, only footsteps and paper rustle. No speech, narration, music, cuts, captions or extra paper."
+    },
+    {
+      "id": "12-master-silent-v1",
+      "image": "master-window.png",
+      "frames": 124,
+      "seed": 2026092042,
+      "mode": "narration",
+      "lines": [],
+      "prompt": "One fixed live-action close-up of this exact older master in gray robes. He looks down once at the brush offered below frame, then looks back to his disciple offscreen LEFT, choosing not to accept it. Small ordinary eye and chin movement, restrained neutral face, mouth naturally closed throughout. Hands stay outside frame. Same identity, robe, left daylight and study. Real time, no slow motion, no cuts, no speech, sighs, narration, music, written text or subtitles."
+    },
+    {
+      "id": "15-record-v1",
+      "image": "clerk-record.png",
+      "frames": 158,
+      "seed": 2026092043,
+      "mode": "narration",
+      "lines": [],
+      "prompt": "A single continuous close insert at normal speed. Only the registry clerk's slate-blue sleeves and hands, the open cream register on the left and the single red-sealed unsigned contract at right on this wooden window ledge. With the brush in his right hand he writes one short practical entry on the open register, then lifts the brush clear. Do not write or sign on the separate red-sealed contract. Keep paper and objects distinct and stationary. Natural hand anatomy, no multiplying fingers or sheets. Fixed camera, stable daylight. Paper and brush sounds only, no voice, narrator, music, readable text overlays or cuts."
+    },
+    {
+      "id": "05-master-arrives-v1",
+      "image": "master-entry.png",
+      "frames": 158,
+      "seed": 2026091925,
+      "mode": "narration",
+      "prompt": "One continuous normal-speed live-action shot. Keep the exact two male identities and costume: older master with salt-and-pepper topknot and short beard in ash-gray robes at the right doorway; young Pei Heng with black ponytail in deep teal at the side. The older master immediately enters through the right doorway and walks two purposeful steps diagonally toward screen LEFT, looking toward the window ledger outside frame. The younger man takes a single step aside toward the right door jamb to let him pass. Both finish this movement promptly, no long pauses, no slow motion. Camera stays fixed on the south side of the wooden study; daylight enters left, same hanging landscape scroll. Mouths closed, footsteps and cloth only, no speech, no narrator, no music, no captions. No extra people or magical effects.",
+      "lines": [],
+      "reuseFrom": "output/jie-ming-ep02/clips/05-master-arrives-v1"
+    },
+    {
+      "id": "07-no-mention-v1",
+      "image": "shen-window-in.png",
+      "frames": 124,
+      "seed": 2026091927,
+      "mode": "narration",
+      "prompt": "Continuous natural live-action reaction shot. Preserve this woman's face and crimson robe exactly. Standing by the left window of the study, she listens to her master offscreen RIGHT. Her eyes briefly lower toward the document below frame, then return to the same man. This is one small deliberate eyeline change, completed within two seconds, not a head turn. She does not smile, tremble, cry, gasp, speak or move her lips. Composed, attentive expression throughout. Hands below frame, no new props. Locked camera, steady soft left daylight and background. No slow motion, cuts, zooms, voice, music, captions or exaggerated breathing. Quiet room tone only.",
+      "lines": [],
+      "reuseFrom": "output/jie-ming-ep02/clips/07-no-mention-v1"
+    },
+    {
+      "id": "09-offer-pen-v1",
+      "image": "pen-ledger.png",
+      "frames": 124,
+      "seed": 2026091929,
+      "mode": "narration",
+      "prompt": "One continuous live-action prop insert at real speed. Maintain the single ivory contract with small dark red abstract stamp on the broad wooden window ledge, no readable writing. A woman's crimson-sleeved right hand immediately slides the one horizontal calligraphy brush about fifteen centimeters across the ledge toward the older man's ash-gray sleeve at frame right, then releases it and withdraws. The brush comes to rest alongside the paper. The man's hands remain away from the brush; he does NOT accept it. One action completed within two seconds, no repetitions, no levitation or multiplying brushes. Fixed camera and stable daylight from left. Soft wood contact and fabric sound only. No faces, voices, music, text, captions or camera move.",
+      "lines": [],
+      "reuseFrom": "output/jie-ming-ep02/clips/09-offer-pen-v1"
+    },
+    {
+      "id": "10-file-paper-v1",
+      "image": "filing.png",
+      "frames": 124,
+      "seed": 2026091930,
+      "mode": "narration",
+      "prompt": "One continuous live-action close prop shot, normal speed. On the registry side of the study window, preserve the single ivory contract with its small dark red stamp, the open plain charcoal document folder, and only the registry clerk's slate-blue sleeves and hands. Immediately, the clerk slides this paper fully into the open folder with both hands and folds the cover shut. A single smooth practical filing motion, completed in three seconds, then draws the closed folder toward himself. Do not create another paper or contract. Camera fixed, natural window light, no legible writing, no red new marks, no magical glow. Paper rustle only, no voice, narrator, score or subtitles. No time-lapse or slow motion.",
+      "lines": [],
+      "reuseFrom": "output/jie-ming-ep02/clips/10-file-paper-v1"
+    },
+    {
+      "id": "12-follow-file-v1",
+      "image": "shen-window-in.png",
+      "frames": 158,
+      "seed": 2026091932,
+      "mode": "narration",
+      "prompt": "One uninterrupted live-action reaction at ordinary human speed. Keep the exact woman's identity, crimson robe, silver hairpins, wooden window and light. She is standing by the left window, initially looking RIGHT at the master. On hearing something outside, her eyes shift left toward the open window, then her head follows just twenty degrees to track the clerk taking the folder away. The small change completes in the first two seconds; thereafter she watches that direction with a concentrated neutral expression. She does not look into the camera. No smile, fear grimace, gasp, speech or lip movement; no exaggerated breathing or fluttering eyelids. Fixed camera, no zoom, cuts, internal montage, slow motion, narrator, music or captions. Quiet room and distant normal footsteps only.",
+      "lines": [],
+      "reuseFrom": "output/jie-ming-ep02/clips/12-follow-file-v1"
+    }
+  ],
+  "narrationBlocks": [
+    {
+      "id": "N1",
+      "segments": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "takes": [
+        "01-door-continuation-v1"
+      ]
+    },
+    {
+      "id": "N2",
+      "segments": [
+        5,
+        6,
+        7,
+        8
+      ],
+      "takes": [
+        "05-to-window-v3"
+      ]
+    },
+    {
+      "id": "N3",
+      "segments": [
+        9,
+        10,
+        11,
+        12
+      ],
+      "takes": [
+        "09-offer-pen-v1",
+        "12-master-silent-v1"
+      ]
+    },
+    {
+      "id": "N4",
+      "segments": [
+        13,
+        14,
+        15,
+        16,
+        17
+      ],
+      "takes": [
+        "15-record-v1",
+        "10-file-paper-v1",
+        "12-follow-file-v1"
+      ]
+    }
+  ],
+  "nativeAmbienceTakes": [
+    "01-door-continuation-v1",
+    "05-to-window-v3",
+    "12-master-silent-v1",
+    "15-record-v1",
+    "05-master-arrives-v1",
+    "07-no-mention-v1",
+    "09-offer-pen-v1",
+    "10-file-paper-v1",
+    "12-follow-file-v1"
+  ],
+  "ambientBlocks": [
+    {
+      "id": "B1",
+      "take": "05-master-arrives-v1",
+      "inFrame": 0,
+      "outFrame": 88
+    }
+  ],
+  "editOrder": [
+    "N1",
+    "02-return-paper-v1",
+    "03-ask-why-v1",
+    "04-offer-to-ask-v1",
+    "N2",
+    "06-call-clerk-v1",
+    "B1",
+    "08-master-admits-v1",
+    "09-ask-liability-v1",
+    "10-master-reassures-v1",
+    "11-write-it-v1",
+    "N3",
+    "13-file-order-v1",
+    "14-register-v1",
+    "N4"
+  ],
+  "artisticApproval": false,
+  "publicationApproval": false
+}

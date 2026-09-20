@@ -1,0 +1,10 @@
+# Install a matching torch build separately for the host; validated with 2.9.1+cu130.
+-r requirements-narration-alignment.txt
+transformers==4.57.3
+qwen-tts==0.1.1
+librosa==1.0.0
+soundfile==0.14.0
+requests==2.32.5
+numpy==2.3.5
+scipy==1.17.0
+accelerate==1.12.0

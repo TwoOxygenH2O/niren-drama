@@ -1,0 +1,81 @@
+{
+  "title": "借命不还",
+  "episode": 2,
+  "episodeTitle": "纸留下",
+  "format": "novel-narration-with-native-dialogue",
+  "source": "original",
+  "stage": "sample_ready_for_user_review",
+  "narrator": "Shen Zhao first person; Qwen3-TTS Serena single master",
+  "narrationMaster": "audio/narration-master.wav",
+  "editOrder": ["01-leave-paper-v1", "N1", "03-call-clerk-v1", "04-accuse-v2", "N2", "06-endorse-v2", "N3", "08-liability-v1", "N4", "11-file-order-v1", "N5"],
+  "nativeAmbienceTakes": ["02-to-window-v2", "05-master-arrives-v1", "07-no-mention-v1", "09-offer-pen-v1", "10-file-paper-v1", "12-follow-file-v1"],
+  "narrationBlocks": [
+    {"id":"N1","segments":[0,1],"takes":["02-to-window-v2"]},
+    {"id":"N2","segments":[2,3],"takes":["05-master-arrives-v1"]},
+    {"id":"N3","segments":[4,5],"takes":["07-no-mention-v1"]},
+    {"id":"N4","segments":[6,7],"takes":["09-offer-pen-v1","10-file-paper-v1"]},
+    {"id":"N5","segments":[8,9],"takes":["12-follow-file-v1"]}
+  ],
+  "takes": [
+    {
+      "id":"01-leave-paper-v1","image":"pei-door.png","frames":124,"seed":2026091921,"mode":"dialogue",
+      "prompt":"One uninterrupted live-action Chinese period-drama shot. Preserve this man's exact face, age, black crown and ponytail, teal robe and wooden study. He is standing in the right-hand doorway looking left at the woman outside frame. Within the first second he says in Mandarin, once: 把纸留下。 A clear adult male voice, normal conversational speed, a quiet practical demand to get the document back, stress 纸, not a villain's growl. Head remains still, natural restrained lip movement. After finishing, close his mouth and maintain his gaze. Locked chest-up camera, daylight from left, no zoom, no slow motion, no scene change. No other speech, narrator, music or captions. Hands and documents remain below frame.",
+      "lines":[{"speaker":"裴衡","text":"把纸留下。"}]
+    },
+    {
+      "id":"02-to-window-v2","image":"window-move.png","frames":192,"seed":2026091922,"mode":"narration",
+      "prompt":"An uninterrupted live-action period-drama shot at normal speed. The crimson-robed woman immediately walks two steps LEFT to the open window. She places the single folded paper from her RIGHT hand flat on the window ledge, releases it, and looks out toward the corridor. Walking and placing finish within four seconds. Her empty left hand rests by her side throughout. Keep the exact costume, belt and sleeves in the starting image, unchanged and unadorned. The teal-robed man stays at the right doorway. A fixed south-side medium-wide camera observes the whole short action without moving. Both people keep lips closed. Only footsteps, a light paper touch and cloth sound. No speech, music, cut, slow motion, added accessories or text.",
+      "lines":[]
+    },
+    {
+      "id":"03-call-clerk-v1","image":"shen-window-out.png","frames":124,"seed":2026091923,"mode":"dialogue",
+      "prompt":"Single uninterrupted live-action medium close-up. Preserve the young Chinese woman's exact face, silver hair ornaments, long black hair, crimson robe and ivory collar. She stands beside the open wooden window, looking slightly LEFT outside toward the registry clerk. She promptly says one Mandarin sentence: 劳烦执事，验个印。 Clear young adult female voice, firm normal speaking pace, speaking to somebody a few steps away, not whispering or shouting. Purpose is to ask an official to examine the paper. After speech her lips close and she watches the clerk. No smile, no dramatic emotional transition, no nodding sequence. Locked camera, daylight left, no zoom, no cuts, no slow motion, no other voices, narrator, music or subtitles. Hands and paper below crop.",
+      "lines":[{"speaker":"沈照","text":"劳烦执事，验个印。"}]
+    },
+    {
+      "id":"04-accuse-v2","image":"pei-door.png","frames":158,"seed":2026091924,"mode":"dialogue",
+      "prompt":"Single live-action chest-up shot of the same man in a teal robe standing at the wooden doorway, facing left. He promptly speaks ONE connected Mandarin question: 谁教你的禁术？ Clear adult male voice, a pointed accusation loud enough for the clerk outside to hear, stress 谁教, normal brisk conversational pace. Do not add a name, preamble or sigh. Finish the whole question and close his lips, leaving a quiet beat afterward. Preserve his face, hair and clothing. One steady restrained expression, no smiling or large head movement. Locked daylight camera, no cuts, zoom, subtitles, music, narrator or any other speech.",
+      "lines":[{"speaker":"裴衡","text":"谁教你的禁术？"}]
+    },
+    {
+      "id":"05-master-arrives-v1","image":"master-entry.png","frames":158,"seed":2026091925,"mode":"narration",
+      "prompt":"One continuous normal-speed live-action shot. Keep the exact two male identities and costume: older master with salt-and-pepper topknot and short beard in ash-gray robes at the right doorway; young Pei Heng with black ponytail in deep teal at the side. The older master immediately enters through the right doorway and walks two purposeful steps diagonally toward screen LEFT, looking toward the window ledger outside frame. The younger man takes a single step aside toward the right door jamb to let him pass. Both finish this movement promptly, no long pauses, no slow motion. Camera stays fixed on the south side of the wooden study; daylight enters left, same hanging landscape scroll. Mouths closed, footsteps and cloth only, no speech, no narrator, no music, no captions. No extra people or magical effects.",
+      "lines":[]
+    },
+    {
+      "id":"06-endorse-v2","image":"master-window.png","frames":175,"seed":2026091946,"mode":"dialogue",
+      "prompt":"One continuous live-action chest-up shot of this older Chinese master, ash-gray robe, short gray beard, same face and daylight study. Looking at his disciple offscreen LEFT, he immediately speaks one connected Mandarin sentence: 印是真的，签了能保平安。 Clear mature male conversational voice. He is reassuring a hesitant disciple to get her signature, ordinary practical delivery, pronounce every syllable distinctly without long pauses. No extra words or sigh. Finish the sentence naturally, close lips and maintain the same gaze. Stable head and restrained expression. Fixed camera, no zoom, cut, music, narrator, subtitles or other voices. Mouth synchronized to his own words only.",
+      "lines":[{"speaker":"岑岳","text":"印是真的，签了能保平安。"}]
+    },
+    {
+      "id":"07-no-mention-v1","image":"shen-window-in.png","frames":124,"seed":2026091927,"mode":"narration",
+      "prompt":"Continuous natural live-action reaction shot. Preserve this woman's face and crimson robe exactly. Standing by the left window of the study, she listens to her master offscreen RIGHT. Her eyes briefly lower toward the document below frame, then return to the same man. This is one small deliberate eyeline change, completed within two seconds, not a head turn. She does not smile, tremble, cry, gasp, speak or move her lips. Composed, attentive expression throughout. Hands below frame, no new props. Locked camera, steady soft left daylight and background. No slow motion, cuts, zooms, voice, music, captions or exaggerated breathing. Quiet room tone only.",
+      "lines":[]
+    },
+    {
+      "id":"08-liability-v1","image":"shen-window-in.png","frames":158,"seed":2026091928,"mode":"dialogue",
+      "prompt":"One uninterrupted live-action medium close-up. The exact same 24-year-old woman in crimson robe and silver hairpins faces her master offscreen RIGHT. Beginning promptly, in a clear ordinary young female Mandarin voice she says once: 请写上，借牌的人自己担劫。 She is requesting an explicit written commitment, courteous but not backing down. Stress 借牌的人 and 自己, connect the sentence without long pauses. Head stable, lips natural, no smile, laugh, rapid expression changes or heroic declamation. After speaking she holds the master's eyeline with closed lips. Fixed camera, no zoom or cuts. Same daylight study, no props entering frame, no narrator, music, other dialogue or text.",
+      "lines":[{"speaker":"沈照","text":"请写上，借牌的人自己担劫。"}]
+    },
+    {
+      "id":"09-offer-pen-v1","image":"pen-ledger.png","frames":124,"seed":2026091929,"mode":"narration",
+      "prompt":"One continuous live-action prop insert at real speed. Maintain the single ivory contract with small dark red abstract stamp on the broad wooden window ledge, no readable writing. A woman's crimson-sleeved right hand immediately slides the one horizontal calligraphy brush about fifteen centimeters across the ledge toward the older man's ash-gray sleeve at frame right, then releases it and withdraws. The brush comes to rest alongside the paper. The man's hands remain away from the brush; he does NOT accept it. One action completed within two seconds, no repetitions, no levitation or multiplying brushes. Fixed camera and stable daylight from left. Soft wood contact and fabric sound only. No faces, voices, music, text, captions or camera move.",
+      "lines":[]
+    },
+    {
+      "id":"10-file-paper-v1","image":"filing.png","frames":124,"seed":2026091930,"mode":"narration",
+      "prompt":"One continuous live-action close prop shot, normal speed. On the registry side of the study window, preserve the single ivory contract with its small dark red stamp, the open plain charcoal document folder, and only the registry clerk's slate-blue sleeves and hands. Immediately, the clerk slides this paper fully into the open folder with both hands and folds the cover shut. A single smooth practical filing motion, completed in three seconds, then draws the closed folder toward himself. Do not create another paper or contract. Camera fixed, natural window light, no legible writing, no red new marks, no magical glow. Paper rustle only, no voice, narrator, score or subtitles. No time-lapse or slow motion.",
+      "lines":[]
+    },
+    {
+      "id":"11-file-order-v1","image":"master-window.png","frames":158,"seed":2026091931,"mode":"dialogue",
+      "prompt":"Single continuous live-action chest-up shot of this exact older master in ash-gray robe and short gray beard. He looks LEFT toward the registry clerk just outside the study window. Promptly says in Mandarin, once: 先存着。和前几张放一处。 Mature male clear conversational voice, practical routine filing instruction, not a dramatic confession. Stress 放一处, no sinister smile, no ominous whisper. Brief natural pause after 存着 then finish without drawing out syllables. Stable face, restrained natural mouth movement, close lips after speech. Locked camera, same daylight and wooden study. No other speech, narrator, music, captions, zoom or cuts.",
+      "lines":[{"speaker":"岑岳","text":"先存着。和前几张放一处。"}]
+    },
+    {
+      "id":"12-follow-file-v1","image":"shen-window-in.png","frames":158,"seed":2026091932,"mode":"narration",
+      "prompt":"One uninterrupted live-action reaction at ordinary human speed. Keep the exact woman's identity, crimson robe, silver hairpins, wooden window and light. She is standing by the left window, initially looking RIGHT at the master. On hearing something outside, her eyes shift left toward the open window, then her head follows just twenty degrees to track the clerk taking the folder away. The small change completes in the first two seconds; thereafter she watches that direction with a concentrated neutral expression. She does not look into the camera. No smile, fear grimace, gasp, speech or lip movement; no exaggerated breathing or fluttering eyelids. Fixed camera, no zoom, cuts, internal montage, slow motion, narrator, music or captions. Quiet room and distant normal footsteps only.",
+      "lines":[]
+    }
+  ]
+}

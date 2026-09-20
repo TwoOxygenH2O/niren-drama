@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "scope": "generation-inputs-only",
+  "files": [
+    {
+      "path": "audio/narration-manifest.json",
+      "sha256": "00d18b8acccf3f97b4007fe3942ef3f9ca819cf6b11bad68bfc0c9e48b2f6873"
+    },
+    {
+      "path": "audio/narration.txt",
+      "sha256": "8ae685086df21b208f77e8a239117dba3e052f26265441fffaec89ef744c137c"
+    },
+    {
+      "path": "edit-overrides.json",
+      "sha256": "ed4c89162479173b787c76a230c4610efe26f8f118583eea972ec8c9f6f18389"
+    },
+    {
+      "path": "keyframes/doorway.png",
+      "sha256": "b1595e76c6e37200703dfcf3874be1514b79c5498610511bb4cbd953168accd7"
+    },
+    {
+      "path": "keyframes/flashback.png",
+      "sha256": "804cfb829281eed60fa36e6156e57e4f75a9b005506f1cada76ce0fd89ab9608"
+    },
+    {
+      "path": "keyframes/offer-brush.png",
+      "sha256": "1fa91c79b418c8cc1ea02edbc73bf4c85f0a4e09e7a0fe84fdaea1102be0d28b"
+    },
+    {
+      "path": "keyframes/paper-insert.png",
+      "sha256": "6b3b5f6d669a6ea8d8c871876958e653e99152dcde9d13c7eb505b9ef45818f8"
+    },
+    {
+      "path": "keyframes/paper-ready.png",
+      "sha256": "39bbd60b702df66e1193b314a4df41047fb54b47ceacb3d617576f20f308331b"
+    },
+    {
+      "path": "keyframes/pei-door.png",
+      "sha256": "5d9f953a6e0236fa15ad3b725ed029e2f744e8287bafd61263a0818e86f82bc7"
+    },
+    {
+      "path": "keyframes/pei-medium.png",
+      "sha256": "812296f8dbd15dc67a985bc3f8df9aa583673eece67f2ddd4b0efa842eb2dcd2"
+    },
+    {
+      "path": "keyframes/pei-tight.png",
+      "sha256": "90d4302a7869be330c48ccb1b47e6764fcbaaea6c60e8ef20346ba46e7e6a302"
+    },
+    {
+      "path": "keyframes/shen-standing.png",
+      "sha256": "9e8e124f76a513a2bd19a4667c4e8e2be7f208fcb20dfa0f9ebb3a7bf4f05f27"
+    },
+    {
+      "path": "keyframes/shen-tight.png",
+      "sha256": "9c0fdac8858dbebe89142936d4c5d025c24d4ded188c20976f91217bfef47fd1"
+    },
+    {
+      "path": "keyframes/study-master.png",
+      "sha256": "500f4b642af708f51dbdebb6588ed0fe8dcc459c8b8d3aa45d1a345724de3e40"
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "6d1869f1b65b3946eaaec66e9e49248c0bdfa5ea1c1ac41d2d3c0e69b781bca2"
+    }
+  ]
+}

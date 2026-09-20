@@ -1,0 +1,47 @@
+{
+  "narrationPictures": {
+    "N2": [
+      {"take":"05-master-arrives-v1","inFrame":8,"outFrame":50},
+      {"take":"05-master-arrives-v1","inFrame":76,"outFrame":146,"crop":[594,1056,0,30]}
+    ],
+    "N3": [
+      {"take":"07-no-mention-v1","inFrame":0,"outFrame":92,"crop":[594,1056,118,0]}
+    ],
+    "N4": [
+      {"take":"09-offer-pen-v1","inFrame":14,"outFrame":101},
+      {"take":"10-file-paper-v1","inFrame":36,"outFrame":51}
+    ],
+    "N5": [
+      {"take":"12-follow-file-v1","inFrame":0,"outFrame":44,"crop":[486,864,116,150]},
+      {"take":"10-file-paper-v1","inFrame":57,"outFrame":124}
+    ]
+  },
+  "captions": {
+    "11-file-order-v1": [
+      {"text":"先存着","start":2.60,"end":3.65},
+      {"text":"和前几张放一处","start":4.98,"end":6.568}
+    ],
+    "08-liability-v1": [
+      {"text":"请写上","start":2.88,"end":4.12},
+      {"text":"借牌的人自己担劫","start":4.13,"end":6.504}
+    ],
+    "06-endorse-v2": [
+      {"text":"印是真的","start":2.56,"end":3.92},
+      {"text":"签了能保平安","start":4.60,"end":7.28}
+    ]
+  },
+  "takes": {
+    "11-file-order-v1": {
+      "segments": [
+        {"inFrame":61,"outFrame":90},
+        {"inFrame":118,"outFrame":158,"crop":[594,1056,150,80]}
+      ]
+    },
+    "06-endorse-v2": {
+      "segments": [
+        {"inFrame":59,"outFrame":96},
+        {"inFrame":109,"outFrame":175,"crop":[594,1056,150,80]}
+      ]
+    }
+  }
+}

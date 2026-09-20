@@ -1,0 +1,195 @@
+{
+  "title": "借命不还",
+  "episode": 1,
+  "format": "novel-narration-with-native-dialogue",
+  "source": "original",
+  "stage": "sample_ready_for_user_review",
+  "narrator": "Shen Zhao first person; Qwen3-TTS Serena single master",
+  "narrationMaster": "audio/narration-master.wav",
+  "editOrder": ["N1", "N2", "03-request-v1", "04-turn-over-v1", "N3", "07-you-sign-v2", "08-where-heard-v1", "N4", "10-ask-master-v1", "N5"],
+  "nativeAmbienceTakes": ["01-lightning-v1", "02-borrow-paper-v1", "05-covered-seal-v1", "06-offer-brush-v1", "08-where-heard-v1", "09-retrieve-jade-v1", "11-doorway-v1"],
+  "narrationBlocks": [
+    {
+      "id": "N1",
+      "segments": [
+        0,
+        1
+      ],
+      "takes": [
+        "01-lightning-v1"
+      ]
+    },
+    {
+      "id": "N2",
+      "segments": [
+        2
+      ],
+      "takes": [
+        "02-borrow-paper-v1"
+      ]
+    },
+    {
+      "id": "N3",
+      "segments": [
+        3,
+        4,
+        5
+      ],
+      "takes": [
+        "05-covered-seal-v1",
+        "06-offer-brush-v1"
+      ]
+    },
+    {
+      "id": "N4",
+      "segments": [
+        6,
+        7
+      ],
+      "takes": [
+        "09-retrieve-jade-v1"
+      ]
+    },
+    {
+      "id": "N5",
+      "segments": [
+        8,
+        9
+      ],
+      "takes": [
+        "11-doorway-v1"
+      ]
+    }
+  ],
+  "takes": [
+    {
+      "id": "01-lightning-v1",
+      "image": "flashback.png",
+      "frames": 209,
+      "seed": 2026091811,
+      "mode": "narration",
+      "prompt": "One continuous live-action Chinese period-drama take, native real-time action, no slow motion, no montage or internal cut. Keep the exact reference identities, clothes, hair, lighting and set. No text, no subtitles, no score or narrator. On the night stone steps, the woman is already bracing her legs against the wind. She quickly grips the white jade token at her waist, a thin blue-white electrical arc connects to the token and flares once, driving her back one step against the stone railing. The token develops a fine crack; she stays physically grounded, no flying or spinning. One short brilliant lightning flash at the end obscures her but no injury detail. Wind, one thunder crack and fabric only. Lips closed, absolutely no human voice.",
+      "lines": []
+    },
+    {
+      "id": "02-borrow-paper-v1",
+      "image": "study-master.png",
+      "frames": 158,
+      "seed": 2026091812,
+      "mode": "narration",
+      "prompt": "One continuous live-action Chinese period-drama take, native real-time action, no slow motion, no montage or internal cut. Keep the exact reference identities, clothes, hair, lighting and set. No text, no subtitles, no score or narrator. The man on RIGHT immediately pushes the folded paper toward the woman on LEFT in one short ordinary movement, then rests his thumb on its near corner. She lowers her eyes to the paper and leaves the jade beside her untouched. They do not speak. The small white jade stays on the LEFT tabletop. Locked camera, slight natural body settling, no unrelated gesture. Quiet room tone and audible paper sliding.",
+      "lines": []
+    },
+    {
+      "id": "03-request-v1",
+      "image": "pei-medium.png",
+      "frames": 148,
+      "seed": 2026091813,
+      "mode": "dialogue",
+      "prompt": "One continuous live-action Chinese period-drama take, native real-time action, no slow motion, no montage or internal cut. Keep the exact reference identities, clothes, hair, lighting and set. No text, no subtitles, no score or narrator. Keep the supplied medium close framing and conversation axis; the other person remains offscreen. No widening, orbit or face-obscuring gesture. Natural stable face, one motivated reaction, no gasping, exaggerated blinking or prolonged preparatory stare. The man looks at the woman offscreen LEFT and asks a familiar favor, gently hurrying her without smiling broadly. Begins within half a second, speaks connected conversational Mandarin: \"借三天。师妹，你还信不过我？\" Put mild persuasive emphasis on 三天 and 信不过我, no whisper, no theatrical bass recital. Only this man speaks, no other words. He watches for her answer after finishing.",
+      "lines": [
+        {
+          "speaker": "裴衡",
+          "text": "借三天。师妹，你还信不过我？"
+        }
+      ]
+    },
+    {
+      "id": "04-turn-over-v1",
+      "image": "study-master.png",
+      "frames": 124,
+      "seed": 2026091814,
+      "mode": "dialogue",
+      "prompt": "One continuous live-action Chinese period-drama take, native real-time action, no slow motion, no montage or internal cut. Keep the exact reference identities, clothes, hair, lighting and set. No text, no subtitles, no score or narrator. Locked medium two-shot as reference, woman LEFT and man RIGHT across table. A short conversational exchange with no simultaneous talking. At the start the WOMAN in crimson says firmly, without raising voice: \"翻过来。\" Her mouth closes. The MAN in teal answers quickly: \"背面没什么。\" Only the current speaker moves their lips. He keeps his right thumb pressing paper corner, she looks at his hand without grabbing it. Don't show or invent any additional people or utterances. Real room voice, purposeful immediate responses, no long pauses.",
+      "lines": [
+        {
+          "speaker": "沈照",
+          "text": "翻过来。"
+        },
+        {
+          "speaker": "裴衡",
+          "text": "背面没什么。"
+        }
+      ]
+    },
+    {
+      "id": "05-covered-seal-v1",
+      "image": "paper-insert.png",
+      "frames": 124,
+      "seed": 2026091815,
+      "mode": "narration",
+      "prompt": "One continuous live-action Chinese period-drama take, native real-time action, no slow motion, no montage or internal cut. Keep the exact reference identities, clothes, hair, lighting and set. No text, no subtitles, no score or narrator. Close insert of only the reference man's hand, ivory paper and wooden table. His thumb shifts slightly to cover more of the small red seal beneath the lifted paper corner. The edge of paper flexes once and settles; the red circular seal remains a simple same-sized ink mark. No new hands enter, no writing appears, no glowing particles. Steady macro camera. Paper rustle, no voices.",
+      "lines": []
+    },
+    {
+      "id": "06-offer-brush-v1",
+      "image": "offer-brush.png",
+      "frames": 124,
+      "seed": 2026091816,
+      "mode": "narration",
+      "prompt": "One continuous live-action Chinese period-drama take, native real-time action, no slow motion, no montage or internal cut. Keep the exact reference identities, clothes, hair, lighting and set. No text, no subtitles, no score or narrator. The woman LEFT immediately slides the single writing brush across the tabletop toward the man RIGHT. The brush moves once, stops just in front of his EMPTY hand. He does not pick it up. Both look from the brush to each other. The jade remains beside her, folded paper at center, no overlapping hands, no added props. Real time purposeful action within first two seconds, no replay. Steady camera, paper and brush contact sounds, no speech.",
+      "lines": []
+    },
+    {
+      "id": "07-you-sign-v2",
+      "image": "shen-tight.png",
+      "frames": 158,
+      "seed": 2026091917,
+      "mode": "dialogue",
+      "prompt": "Live-action Chinese period drama. Keep this exact tight head-and-shoulders composition, camera locked at eye height. Preserve the woman's identity, crimson robe, ivory collar and silver hair ornament. She looks at her conversation partner just offscreen RIGHT. Calm, matter-of-fact, unsmiling; she is asking him to accept the same terms he offered her. She immediately says in a connected natural adult female Mandarin voice: \"那你签，写我名字前头。\" A short emphasis on 你, then finish without a long pause. Her lips return to rest and she waits for his answer. Her shoulders remain still and her hands stay below the frame throughout. The head-and-shoulders framing stays fixed. One uninterrupted real-time shot, no cut, no widening, no narrator, no other voice, no music, no subtitles.",
+      "lines": [
+        {
+          "speaker": "沈照",
+          "text": "那你签。写我名字前头。"
+        }
+      ]
+    },
+    {
+      "id": "08-where-heard-v1",
+      "image": "pei-medium.png",
+      "frames": 124,
+      "seed": 2026091818,
+      "mode": "dialogue",
+      "prompt": "One continuous live-action Chinese period-drama take, native real-time action, no slow motion, no montage or internal cut. Keep the exact reference identities, clothes, hair, lighting and set. No text, no subtitles, no score or narrator. Keep the supplied medium close framing and conversation axis; the other person remains offscreen. No widening, orbit or face-obscuring gesture. Natural stable face, one motivated reaction, no gasping, exaggerated blinking or prolonged preparatory stare. The man's eyes lift from the table to the woman offscreen LEFT; his composure tightens slightly once. Immediately asks in clear normal adult male Mandarin: \"你从哪儿听来的？\" Emphasize 哪儿 because he wants the source of information, not a villain growl. No new dialogue, no narrator. Mouth closes when finished, gaze remains on partner.",
+      "lines": [
+        {
+          "speaker": "裴衡",
+          "text": "你从哪儿听来的？"
+        }
+      ]
+    },
+    {
+      "id": "09-retrieve-jade-v1",
+      "image": "study-master.png",
+      "frames": 209,
+      "seed": 2026091819,
+      "mode": "narration",
+      "prompt": "One continuous live-action Chinese period-drama take, native real-time action, no slow motion, no montage or internal cut. Keep the exact reference identities, clothes, hair, lighting and set. No text, no subtitles, no score or narrator. Woman LEFT uses her RIGHT hand to pick up the small white jade token with its black cord from beside her on the tabletop. She promptly puts it into the inner sleeve pouch on her LEFT wrist, completing the movement in about three seconds. Then she takes the folded paper from center table with her right hand and rises naturally from her seat. Man RIGHT watches her movement, both his hands stay withdrawn, he never touches or grabs her. No extra objects, no duplication of jade or paper, no slow motion. Fixed camera showing the action without zoom. Room tone, cloth, chair sound. No human voices.",
+      "lines": []
+    },
+    {
+      "id": "10-ask-master-v1",
+      "image": "shen-standing.png",
+      "frames": 124,
+      "seed": 2026091820,
+      "mode": "dialogue",
+      "prompt": "One continuous live-action Chinese period-drama take, native real-time action, no slow motion, no montage or internal cut. Keep the exact reference identities, clothes, hair, lighting and set. No text, no subtitles, no score or narrator. Keep the supplied medium close framing and conversation axis; the other person remains offscreen. No widening, orbit or face-obscuring gesture. Natural stable face, one motivated reaction, no gasping, exaggerated blinking or prolonged preparatory stare. Woman is already standing holding a single folded paper below chest level. Looks to the man offscreen RIGHT, says crisply in natural adult female Mandarin: \"这张纸，我拿去问师父。\" She is testing his response, not pleading. Finish the line at ordinary speed, no long dramatic pause. Then her eyes turn toward the established doorway on right, head only slightly follows. Exact single line, no other voices.",
+      "lines": [
+        {
+          "speaker": "沈照",
+          "text": "这张纸，我拿去问师父。"
+        }
+      ]
+    },
+    {
+      "id": "11-doorway-v1",
+      "image": "doorway.png",
+      "frames": 209,
+      "seed": 2026091821,
+      "mode": "narration",
+      "prompt": "One continuous live-action Chinese period-drama take, native real-time action, no slow motion, no montage or internal cut. Keep the exact reference identities, clothes, hair, lighting and set. No text, no subtitles, no score or narrator. Man in teal at RIGHT is already taking a brisk step to the existing wooden doorway. He reaches it in two ordinary steps and plants his palm on the right doorframe, blocking the exit WITHOUT touching the woman. Woman in crimson on LEFT takes one forward step holding the folded paper in her right hand, then stops a full pace from him. He glances once at the paper. Single decisive action at real-time pace, no slow motion, no repeated steps or backward sliding, no extra character. Camera remains steady on same south side of room. Footsteps and wood contact, no speech or music.",
+      "lines": []
+    }
+  ],
+  "artisticApproval": false
+}

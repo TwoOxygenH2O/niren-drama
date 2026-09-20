@@ -1,0 +1,7 @@
+# Install into the local narration runtime; torch/transformers/librosa are also required.
+pypinyin==0.55.0
+opencc-python-reimplemented==0.1.7
+# Static subtitle font preparation avoids variable-font Thin fallback on Windows.
+fonttools==4.61.1
+# CPU speech boundaries refine single-line captions and expose idle lead-in time.
+silero-vad==6.2.1
