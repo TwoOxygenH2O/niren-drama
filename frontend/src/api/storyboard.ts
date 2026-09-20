@@ -1,5 +1,5 @@
 import request from './request'
-import { streamPreview, type StreamHandlers } from './stream'
+import { streamPreview, type StreamHandlers, type StreamPreviewOptions } from './stream'
 
 const STORYBOARD_REPAIR_TIMEOUT = 300000
 
@@ -10,7 +10,8 @@ export const storyboardApi = {
   generatePreviewStream: (
     data: { scriptId: number | string; projectId: number | string },
     handlers: StreamHandlers,
-  ) => streamPreview('/storyboards/generate/stream', data, handlers),
+    options?: StreamPreviewOptions,
+  ) => streamPreview('/storyboards/generate/stream', data, handlers, options),
 
   savePreview: (data: { scriptId: number | string; projectId: number | string; content: string }) =>
     request.post('/storyboards/preview/save', data),
