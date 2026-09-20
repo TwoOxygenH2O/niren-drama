@@ -48,7 +48,16 @@ class NativeAudioGridTest(unittest.TestCase):
             # An explicit empty directory lets libass use the host's fixture font.
             fonts=out/'test-fonts'
             fonts.mkdir()
+            (out/'final').mkdir()
+            previous={'technicalPassed':True,'videoSha256':'old-video'}
+            (out/'final/technical-checks.json').write_text(json.dumps(previous))
             compose.compose(out,data,fonts=fonts)
+            pending=json.loads((out/'final/technical-checks.json').read_text())
+            self.assertFalse(pending['technicalPassed'])
+            self.assertEqual(pending['status'],'pending_verification')
+            archived=list((out/'final/check-history').glob('*.json'))
+            self.assertEqual(len(archived),1)
+            self.assertEqual(json.loads(archived[0].read_text()),previous)
             original=verify.audio(voice)
             mixed=verify.audio(out/'final/episode-subtitled.mp4')
             clean=verify.audio(out/'final/episode-clean.mp4')

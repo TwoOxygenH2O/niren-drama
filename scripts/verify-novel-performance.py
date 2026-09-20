@@ -106,7 +106,9 @@ def main():
     meters=json.loads(match.group()) if match else None
     if meters is None or float(meters['input_tp'])>-.5:
         failures.append('Missing loudness measurement or excessive true peak')
-    report={'completeEpisode':receipt['completeEpisode'], 'duration':float(picture['duration']),
+    report={'videoSha256':receipt['outputSha256'],
+        'receiptSha256':hashlib.sha256((folder/'receipt.json').read_bytes()).hexdigest(),
+        'completeEpisode':receipt['completeEpisode'], 'duration':float(picture['duration']),
         'width':picture['width'],'height':picture['height'],'fps':picture['avg_frame_rate'],
         'decodedFrames':len(pts),'maxFrameTimestampError':max_step_error,
         'fullDecodePassed':not decoded.stderr.strip(),'audioEditChecks':timing,'loudness':meters,

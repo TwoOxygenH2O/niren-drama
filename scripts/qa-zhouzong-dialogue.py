@@ -11,13 +11,26 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT/'output/zhouzong-ep01'
 
 
+def review_takes(manifest, take_id=None):
+    return [take for take in manifest['takes']
+            if not take.get('excludedReason') and (not take_id or take['id'] == take_id)]
+
+
 def caption_text(take):
     chunks = []
     for line in take['lines']:
-        for clause in re.findall(r'[^，。？！；]+[，。？！；]?', line['text']):
-            clause = clause.strip('，。？！；')
+        clauses = [clause.strip('，。？！；') for clause in
+                   re.findall(r'[^，。？！；]+[，。？！；]?', line['text'])]
+        index = 0
+        while index < len(clauses):
+            clause = clauses[index]
+            # Keep short vocatives with their request, not a flashing two-character cue.
+            if len(clause) <= 2 and index+1 < len(clauses):
+                clause += '，' + clauses[index+1]
+                index += 1
             if clause:
                 chunks.append(clause)
+            index += 1
     return '\n'.join(chunks)
 
 
@@ -48,7 +61,7 @@ def main():
     deadline = time.monotonic()+14400
     while time.monotonic() < deadline:
         manifest = json.loads((OUT/'manifest.json').read_text(encoding='utf-8'))
-        takes = [t for t in manifest['takes'] if not args.take or t['id']==args.take]
+        takes = review_takes(manifest, args.take)
         waiting = 0
         for take in takes:
             folder = OUT/'clips'/take['id']

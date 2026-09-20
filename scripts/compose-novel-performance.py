@@ -301,6 +301,14 @@ def compose(out, data, *, fonts=None):
         raise FileNotFoundError('Prepare subtitle fonts with prepare-subtitle-font.py first: '+str(fonts))
     folder = out/('final' if data['completeEpisode'] else 'preview')
     folder.mkdir(parents=True,exist_ok=True)
+    checks = folder/'technical-checks.json'
+    if checks.is_file() and read(checks).get('status') != 'pending_verification':
+        history = folder/'check-history'
+        history.mkdir(exist_ok=True)
+        (history/(sha(checks)+'.json')).write_bytes(checks.read_bytes())
+    save(checks, {'status':'pending_verification','technicalPassed':False,
+                 'completeEpisode':data['completeEpisode'],
+                 'expectedFrameCount':data['frameCount']})
     save(folder/'edit.json',data)
     write_captions(folder,data)
     parts = []
